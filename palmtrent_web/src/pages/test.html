@@ -1,0 +1,2415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IthalaMed - Frontend Requirements Document v2.0</title>
+    <style>
+        @media print {
+            @page {
+                size: A4;
+                margin: 2cm;
+            }
+            body {
+                font-size: 10pt;
+            }
+            .page-break {
+                page-break-before: always;
+            }
+            .no-print {
+                display: none;
+            }
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #1f2937;
+            background: #ffffff;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .cover-page {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            background: linear-gradient(135deg, #00bfff 0%, #0080ff 100%);
+            color: white;
+            padding: 40px;
+            margin: -20px -20px 40px -20px;
+        }
+        
+        .cover-page h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            font-weight: 700;
+        }
+        
+        .cover-page .tagline {
+            font-size: 24px;
+            margin-bottom: 40px;
+            font-weight: 300;
+        }
+        
+        .cover-page .version-info {
+            font-size: 18px;
+            margin-top: 60px;
+        }
+        
+        .cover-page .version-info div {
+            margin: 10px 0;
+        }
+        
+        .document-info {
+            background: #f9fafb;
+            padding: 30px;
+            border-left: 4px solid #00bfff;
+            margin-bottom: 40px;
+        }
+        
+        .document-info h2 {
+            color: #00bfff;
+            margin-bottom: 20px;
+        }
+        
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+        
+        .info-item {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .info-label {
+            font-weight: 600;
+            color: #4b5563;
+            min-width: 120px;
+        }
+        
+        .toc {
+            background: #f9fafb;
+            padding: 30px;
+            margin-bottom: 40px;
+            border: 1px solid #e5e7eb;
+        }
+        
+        .toc h2 {
+            color: #00bfff;
+            margin-bottom: 20px;
+            font-size: 28px;
+        }
+        
+        .toc ul {
+            list-style: none;
+        }
+        
+        .toc > ul > li {
+            margin: 15px 0;
+        }
+        
+        .toc a {
+            color: #1f2937;
+            text-decoration: none;
+            display: block;
+            padding: 8px 0;
+            transition: all 0.3s;
+        }
+        
+        .toc a:hover {
+            color: #00bfff;
+            padding-left: 10px;
+        }
+        
+        .toc .section-number {
+            color: #00bfff;
+            font-weight: 600;
+            display: inline-block;
+            min-width: 50px;
+        }
+        
+        .toc ul ul {
+            margin-left: 30px;
+            font-size: 0.95em;
+        }
+        
+        h1 {
+            color: #00bfff;
+            font-size: 36px;
+            margin: 40px 0 20px 0;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #00bfff;
+        }
+        
+        h2 {
+            color: #0080ff;
+            font-size: 28px;
+            margin: 30px 0 15px 0;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #e5e7eb;
+        }
+        
+        h3 {
+            color: #1f2937;
+            font-size: 22px;
+            margin: 25px 0 12px 0;
+        }
+        
+        h4 {
+            color: #4b5563;
+            font-size: 18px;
+            margin: 20px 0 10px 0;
+        }
+        
+        p {
+            margin-bottom: 15px;
+            text-align: justify;
+        }
+        
+        ul, ol {
+            margin: 15px 0 15px 30px;
+        }
+        
+        li {
+            margin: 8px 0;
+        }
+        
+        .highlight-box {
+            background: #eff6ff;
+            border-left: 4px solid #00bfff;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .warning-box {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .success-box {
+            background: #d1fae5;
+            border-left: 4px solid #10b981;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .danger-box {
+            background: #fee2e2;
+            border-left: 4px solid #ef4444;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: white;
+        }
+        
+        th {
+            background: #00bfff;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+        }
+        
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        tr:hover {
+            background: #f9fafb;
+        }
+        
+        code {
+            background: #f3f4f6;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            color: #ef4444;
+        }
+        
+        pre {
+            background: #1f2937;
+            color: #f9fafb;
+            padding: 20px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 20px 0;
+        }
+        
+        pre code {
+            background: transparent;
+            color: inherit;
+            padding: 0;
+        }
+        
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        
+        .feature-card {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 20px;
+            transition: all 0.3s;
+        }
+        
+        .feature-card:hover {
+            box-shadow: 0 4px 12px rgba(0, 191, 255, 0.2);
+            border-color: #00bfff;
+        }
+        
+        .feature-card h4 {
+            color: #00bfff;
+            margin-top: 0;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin: 5px 5px 5px 0;
+        }
+        
+        .badge-new {
+            background: #dcfce7;
+            color: #166534;
+        }
+        
+        .badge-updated {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        
+        .badge-critical {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .badge-priority {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .timeline {
+            position: relative;
+            padding-left: 40px;
+            margin: 30px 0;
+        }
+        
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 10px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #00bfff;
+        }
+        
+        .timeline-item {
+            position: relative;
+            margin-bottom: 30px;
+        }
+        
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -34px;
+            top: 5px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #00bfff;
+            border: 3px solid white;
+        }
+        
+        .timeline-item h4 {
+            margin-top: 0;
+            color: #00bfff;
+        }
+        
+        .metric-card {
+            background: linear-gradient(135deg, #00bfff 0%, #0080ff 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            margin: 10px 0;
+        }
+        
+        .metric-value {
+            font-size: 36px;
+            font-weight: 700;
+            margin: 10px 0;
+        }
+        
+        .metric-label {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 15px;
+            margin: 30px 0;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: #00bfff;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #0080ff;
+        }
+        
+        .btn-secondary {
+            background: #6b7280;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #4b5563;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-active {
+            background: #10b981;
+        }
+        
+        .status-pending {
+            background: #f59e0b;
+        }
+        
+        .status-inactive {
+            background: #ef4444;
+        }
+        
+        footer {
+            margin-top: 60px;
+            padding: 30px;
+            background: #f9fafb;
+            border-top: 3px solid #00bfff;
+            text-align: center;
+        }
+        
+        .no-print {
+            background: #00bfff;
+            color: white;
+            padding: 15px;
+            text-align: center;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        @media (max-width: 768px) {
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .feature-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .cover-page h1 {
+                font-size: 32px;
+            }
+            
+            .cover-page .tagline {
+                font-size: 18px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="no-print">
+        <strong>📄 IthalaMed Requirements Document v2.0</strong> - 
+        <button class="btn btn-secondary" onclick="window.print()">🖨️ Print / Save as PDF</button>
+        <button class="btn btn-primary" onclick="downloadAsMarkdown()">📥 Download Markdown</button>
+    </div>
+
+    <!-- COVER PAGE -->
+    <div class="cover-page">
+        <h1>IthalaMed</h1>
+        <div class="tagline">Unified Healthcare Platform</div>
+        <div style="font-size: 32px; margin: 40px 0;">
+            Frontend Requirements Document
+        </div>
+        <div class="version-info">
+            <div><strong>Version:</strong> 2.0 (Final)</div>
+            <div><strong>Status:</strong> ✅ Ready for Development</div>
+            <div><strong>Date:</strong> November 15, 2025</div>
+            <div><strong>Confidential:</strong> For Internal Use Only</div>
+        </div>
+    </div>
+
+    <!-- DOCUMENT INFO -->
+    <div class="document-info">
+        <h2>Document Information</h2>
+        <div class="info-grid">
+            <div class="info-item">
+                <span class="info-label">Project Name:</span>
+                <span>IthalaMed Healthcare Platform</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Document Type:</span>
+                <span>Frontend Requirements Specification</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Version:</span>
+                <span>2.0 (Final)</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Author:</span>
+                <span>IthalaMed Product Team</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Last Updated:</span>
+                <span>November 15, 2025</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Status:</span>
+                <span><span class="status-indicator status-active"></span>Ready for Development</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Primary Color:</span>
+                <span><code>#00bfff</code> (Deep Sky Blue)</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Target Markets:</span>
+                <span>South Africa, Nigeria, Kenya, Ghana</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- VERSION HISTORY -->
+    <div class="highlight-box">
+        <h3>📋 Version History</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Version</th>
+                    <th>Date</th>
+                    <th>Changes</th>
+                    <th>Author</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>1.0</td>
+                    <td>Nov 10, 2025</td>
+                    <td>Initial requirements for 8 core applications</td>
+                    <td>Product Team</td>
+                </tr>
+                <tr>
+                    <td>2.0</td>
+                    <td>Nov 15, 2025</td>
+                    <td>Added: Staff management, Hospital rounds, Medical device integration (Mirth Connect), DICOM/PACS integration</td>
+                    <td>Product Team</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- TABLE OF CONTENTS -->
+    <div class="toc page-break">
+        <h2>📑 Table of Contents</h2>
+        <ul>
+            <li><a href="#executive-summary"><span class="section-number">1.</span> Executive Summary</a></li>
+            <li><a href="#platform-overview"><span class="section-number">2.</span> Platform Overview</a>
+                <ul>
+                    <li><a href="#mission-vision">2.1 Mission & Vision</a></li>
+                    <li><a href="#core-tech">2.2 Core Technologies</a></li>
+                    <li><a href="#target-markets">2.3 Target Markets & Languages</a></li>
+                </ul>
+            </li>
+            <li><a href="#architecture"><span class="section-number">3.</span> Application Architecture</a>
+                <ul>
+                    <li><a href="#multi-app">3.1 Multi-App Structure</a></li>
+                    <li><a href="#shared-packages">3.2 Shared Packages</a></li>
+                </ul>
+            </li>
+            <li><a href="#applications"><span class="section-number">4.</span> Core Applications</a>
+                <ul>
+                    <li><a href="#patient-app">4.1 Patient Mobile App</a></li>
+                    <li><a href="#provider-app">4.2 Healthcare Provider App</a></li>
+                    <li><a href="#pharmacy-app">4.3 Pharmacy Management System</a></li>
+                    <li><a href="#lab-app">4.4 Laboratory Information System</a></li>
+                    <li><a href="#ems-app">4.5 EMS Operations App</a></li>
+                    <li><a href="#hospital-app">4.6 Hospital Operations System</a></li>
+                    <li><a href="#medical-aid-app">4.7 Medical Aid Portal</a></li>
+                    <li><a href="#gov-app">4.8 Government Dashboard</a></li>
+                </ul>
+            </li>
+            <li><a href="#device-integration"><span class="section-number">5.</span> Medical Device Integration <span class="badge badge-new">NEW</span></a>
+                <ul>
+                    <li><a href="#mirth-connect">5.1 Mirth Connect Architecture</a></li>
+                    <li><a href="#supported-devices">5.2 Supported Devices</a></li>
+                    <li><a href="#real-time-monitoring">5.3 Real-Time Monitoring</a></li>
+                    <li><a href="#alert-system">5.4 Critical Alert System</a></li>
+                </ul>
+            </li>
+            <li><a href="#dicom-integration"><span class="section-number">6.</span> DICOM/Imaging Integration <span class="badge badge-new">NEW</span></a>
+                <ul>
+                    <li><a href="#pacs-setup">6.1 PACS Setup (Orthanc)</a></li>
+                    <li><a href="#dicom-viewer">6.2 Web-Based DICOM Viewer</a></li>
+                    <li><a href="#imaging-workflow">6.3 Imaging Workflow</a></li>
+                </ul>
+            </li>
+            <li><a href="#hospital-workflows"><span class="section-number">7.</span> Hospital Workflow Management <span class="badge badge-new">NEW</span></a>
+                <ul>
+                    <li><a href="#staff-management">7.1 Staff & Shift Management</a></li>
+                    <li><a href="#hospital-rounds">7.2 Hospital Rounds</a></li>
+                    <li><a href="#handover-system">7.3 Handover System</a></li>
+                </ul>
+            </li>
+            <li><a href="#technical-specs"><span class="section-number">8.</span> Technical Implementation</a>
+                <ul>
+                    <li><a href="#tech-stack">8.1 Complete Technology Stack</a></li>
+                    <li><a href="#data-models">8.2 Data Models</a></li>
+                    <li><a href="#api-endpoints">8.3 API Endpoints</a></li>
+                    <li><a href="#websocket-events">8.4 WebSocket Events</a></li>
+                </ul>
+            </li>
+            <li><a href="#security"><span class="section-number">9.</span> Security & Compliance</a>
+                <ul>
+                    <li><a href="#hipaa">9.1 HIPAA Compliance</a></li>
+                    <li><a href="#rbac">9.2 Role-Based Access Control</a></li>
+                    <li><a href="#audit-logs">9.3 Audit Logging</a></li>
+                </ul>
+            </li>
+            <li><a href="#performance"><span class="section-number">10.</span> Performance Requirements</a></li>
+            <li><a href="#deployment"><span class="section-number">11.</span> Deployment Strategy</a>
+                <ul>
+                    <li><a href="#roadmap">11.1 12-Month Roadmap</a></li>
+                    <li><a href="#infrastructure">11.2 Infrastructure</a></li>
+                    <li><a href="#team">11.3 Team Requirements</a></li>
+                    <li><a href="#budget">11.4 Budget Estimate</a></li>
+                </ul>
+            </li>
+            <li><a href="#maintenance"><span class="section-number">12.</span> Maintenance & Support</a></li>
+            <li><a href="#metrics"><span class="section-number">13.</span> Success Metrics & KPIs</a></li>
+            <li><a href="#risks"><span class="section-number">14.</span> Risk Management</a></li>
+            <li><a href="#conclusion"><span class="section-number">15.</span> Conclusion & Next Steps</a></li>
+            <li><a href="#appendices"><span class="section-number">16.</span> Appendices</a></li>
+        </ul>
+    </div>
+
+    <!-- EXECUTIVE SUMMARY -->
+    <div id="executive-summary" class="page-break">
+        <h1>1. Executive Summary</h1>
+        
+        <div class="highlight-box">
+            <h3>🎯 Project Overview</h3>
+            <p><strong>IthalaMed</strong> is Africa's comprehensive unified healthcare platform that connects the entire healthcare ecosystem into one seamless digital solution. The platform bridges patients, healthcare providers, hospitals, pharmacies, laboratories, emergency services, medical aid providers, and government regulators.</p>
+        </div>
+
+        <h2>Key Platform Components</h2>
+        
+        <div class="feature-grid">
+            <div class="feature-card">
+                <h4>📱 Patient Mobile App</h4>
+                <p>Complete health management, appointments, prescriptions, telemedicine, and emergency services</p>
+            </div>
+            
+            <div class="feature-card">
+                <h4>👨‍⚕️ Provider App</h4>
+                <p>40+ medical specialties, clinical documentation, orders, and patient management</p>
+            </div>
+            
+            <div class="feature-card">
+                <h4>💊 Pharmacy System</h4>
+                <p>E-prescriptions, inventory management, patient profiles, and claims processing</p>
+            </div>
+            
+            <div class="feature-card">
+                <h4>🔬 Laboratory System</h4>
+                <p>Order management, result reporting, quality control, and DICOM integration</p>
+            </div>
+            
+            <div class="feature-card">
+                <h4>🚑 EMS Operations</h4>
+                <p>Dispatch, GPS tracking, patient data access, and hospital coordination</p>
+            </div>
+            
+            <div class="feature-card">
+                <h4>🏥 Hospital Operations <span class="badge badge-new">ENHANCED</span></h4>
+                <p>Staff management, hospital rounds, device monitoring, bed management, and triage</p>
+            </div>
+            
+            <div class="feature-card">
+                <h4>🩺 Device Integration <span class="badge badge-new">NEW</span></h4>
+                <p>Real-time monitoring via Mirth Connect, critical alerts, and ICU central station</p>
+            </div>
+            
+            <div class="feature-card">
+                <h4>📷 DICOM/PACS <span class="badge badge-new">NEW</span></h4>
+                <p>Medical imaging workflow, web viewer, and radiology reporting</p>
+            </div>
+        </div>
+
+        <div class="success-box">
+            <h3>✨ Version 2.0 Enhancements</h3>
+            <ul>
+                <li><strong>Hospital Staff & Shift Management:</strong> Complete scheduling, certification tracking, and attendance system</li>
+                <li><strong>Digital Hospital Rounds:</strong> Mobile bedside documentation with SOAP notes and handover system</li>
+                <li><strong>Medical Device Integration:</strong> Real-time monitoring via Mirth Connect for ICU/CCU patients</li>
+                <li><strong>DICOM Server Integration:</strong> Complete medical imaging workflow with web-based viewer</li>
+                <li><strong>Critical Alert System:</strong> Automated escalation for life-threatening conditions</li>
+            </ul>
+        </div>
+
+        <h2>Target Metrics (Year 1)</h2>
+        
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0;">
+            <div class="metric-card">
+                <div class="metric-value">50,000</div>
+                <div class="metric-label">Registered Patients</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value">2,000</div>
+                <div class="metric-label">Healthcare Providers</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value">25</div>
+                <div class="metric-label">Hospitals Connected</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value">500</div>
+                <div class="metric-label">ICU Beds Monitored</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PLATFORM OVERVIEW -->
+    <div id="platform-overview" class="page-break">
+        <h1>2. Platform Overview</h1>
+        
+        <div id="mission-vision">
+            <h2>2.1 Mission & Vision</h2>
+            
+            <div class="highlight-box">
+                <h4>🎯 Mission</h4>
+                <p>To simplify and transform healthcare delivery by providing a unified, secure, and interoperable platform that enhances accessibility, coordination, and trust across the medical value chain.</p>
+            </div>
+            
+            <div class="highlight-box">
+                <h4>🚀 Vision</h4>
+                <p>To become Africa's leading digital healthcare ecosystem, connecting every element of healthcare through technology that empowers both patients and providers.</p>
+            </div>
+        </div>
+
+        <div id="core-tech">
+            <h2>2.2 Core Technologies</h2>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>Category</th>
+                        <th>Technology</th>
+                        <th>Purpose</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Frontend</strong></td>
+                        <td>React Native Expo SDK 51+</td>
+                        <td>Cross-platform mobile & web apps</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Language</strong></td>
+                        <td>TypeScript 5.3+</td>
+                        <td>Type-safe development</td>
+                    </tr>
+                    <tr>
+                        <td><strong>State Management</strong></td>
+                        <td>Redux Toolkit + RTK Query</td>
+                        <td>Global state & API caching</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Navigation</strong></td>
+                        <td>React Navigation 6.x</td>
+                        <td>App navigation & routing</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Real-time</strong></td>
+                        <td>Socket.io</td>
+                        <td>WebSocket for live updates</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Video Calls</strong></td>
+                        <td>Jitsi Meet SDK</td>
+                        <td>Telemedicine consultations</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Integration</strong></td>
+                        <td>Mirth Connect 4.x</td>
+                        <td>HL7/FHIR message processing</td>
+                    </tr>
+                    <tr>
+                        <td><strong>DICOM Server</strong></td>
+                        <td>Orthanc / DCM4CHEE</td>
+                        <td>Medical image storage (PACS)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>DICOM Viewer</strong></td>
+                        <td>Cornerstone.js</td>
+                        <td>Web-based medical imaging</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Backend API</strong></td>
+                        <td>Node.js + Express</td>
+                        <td>RESTful API & business logic</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Database</strong></td>
+                        <td>PostgreSQL 15+</td>
+                        <td>Primary data store</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Cache</strong></td>
+                        <td>Redis</td>
+                        <td>Session & data caching</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div id="target-markets">
+            <h2>2.3 Target Markets & Languages</h2>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div>
+                    <h4>Primary Markets</h4>
+                    <ul>
+                        <li>🇿🇦 South Africa</li>
+                        <li>🇳🇬 Nigeria</li>
+                        <li>🇰🇪 Kenya</li>
+                        <li>🇬🇭 Ghana</li>
+                    </ul>
+                </div>
+                <div>
+                    <h4>Supported Languages</h4>
+                    <ul>
+                        <li>English (Primary)</li>
+                        <li>Zulu</li>
+                        <li>Swahili</li>
+                        <li>Shona</li>
+                        <li>Yoruba</li>
+                        <li>Hausa</li>
+                        <li>Amharic</li>
+                        <li>French</li>
+                        <li>Portuguese</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- KEY FEATURES SUMMARY -->
+    <div class="page-break">
+        <h1>3. Key Features Summary</h1>
+        
+        <h2>3.1 Patient-Facing Features</h2>
+        <ul>
+            <li>Complete medical history & records</li>
+            <li>Appointment booking with real-time availability</li>
+            <li>Telemedicine video consultations</li>
+            <li>Digital prescriptions & pharmacy integration</li>
+            <li>Emergency ambulance request (GPS tracking)</li>
+            <li>Health tracking with device integration (smartwatches, glucose meters)</li>
+            <li>Growth charts & immunization records (pediatric)</li>
+            <li>Medical aid management & claims</li>
+            <li>Family/dependent management</li>
+            <li>Multi-language support</li>
+        </ul>
+
+        <h2>3.2 Healthcare Provider Features</h2>
+        <ul>
+            <li>40+ medical specialty workflows</li>
+            <li>Clinical documentation (voice, handwriting, typing)</li>
+            <li>Electronic prescribing with interaction checking</li>
+            <li>Lab & imaging order entry</li>
+            <li>DICOM medical imaging viewer</li>
+            <li>Hospital rounds with bedside mobile documentation</li>
+            <li>Patient monitoring dashboard</li>
+            <li>Telemedicine consultations</li>
+            <li>Schedule & availability management</li>
+            <li>Referral management</li>
+        </ul>
+
+        <h2>3.3 Hospital Operations Features <span class="badge badge-new">ENHANCED</span></h2>
+        <ul>
+            <li><strong>Staff Management:</strong> Complete employee database with certification tracking</li>
+            <li><strong>Shift Scheduling:</strong> Multi-shift support with skill-based assignments</li>
+            <li><strong>Attendance Tracking:</strong> Badge scan, biometric, and app-based clock-in</li>
+            <li><strong>Hospital Rounds:</strong> Digital rounding with SOAP notes and problem lists</li>
+            <li><strong>Handover System:</strong> SBAR-formatted patient handovers between shifts</li>
+            <li><strong>Bed Management:</strong> Real-time bed status across all departments</li>
+            <li><strong>ED Triage:</strong> ESI 5-level triage system</li>
+            <li><strong>Admission Management:</strong> Patient admission workflows</li>
+            <li><strong>Nursing Station:</strong> Ward-level patient monitoring</li>
+        </ul>
+
+        <h2>3.4 Medical Device Integration <span class="badge badge-new">NEW</span></h2>
+        <ul>
+            <li><strong>Real-Time Monitoring:</strong> Live vital signs from ICU monitors</li>
+            <li><strong>Supported Devices:</strong> Patient monitors, ventilators, infusion pumps, dialysis machines</li>
+            <li><strong>Mirth Connect:</strong> HL7 v2.x message processing middleware</li>
+            <li><strong>ICU Central Station:</strong> Multi-patient monitoring dashboard</li>
+            <li><strong>Critical Alerts:</strong> Automated escalation for life-threatening changes</li>
+            <li><strong>Early Warning Scores:</strong> NEWS2, qSOFA, PEWS auto-calculation</li>
+            <li><strong>Waveform Display:</strong> ECG, arterial line, respiratory waveforms</li>
+            <li><strong>Alert Management:</strong> Acknowledge, escalate, and resolve alerts</li>
+        </ul>
+
+        <h2>3.5 DICOM/Imaging Integration <span class="badge badge-new">NEW</span></h2>
+        <ul>
+            <li><strong>PACS Integration:</strong> Orthanc/DCM4CHEE DICOM server</li>
+            <li><strong>Web-Based Viewer:</strong> Cornerstone.js for CT, MRI, X-ray viewing</li>
+            <li><strong>Advanced Tools:</strong> Windowing, measurements, annotations, MPR, 3D rendering</li>
+            <li><strong>Worklist Management:</strong> Radiology scheduling and assignment</li>
+            <li><strong>Imaging Orders:</strong> Complete workflow from order to report</li>
+            <li><strong>Critical Findings:</strong> Automated alerts for urgent findings</li>
+            <li><strong>Mobile Viewer:</strong> Optimized for smartphones and tablets</li>
+            <li><strong>Image Sharing:</strong> Secure sharing with providers and patients</li>
+        </ul>
+    </div>
+
+    <!-- TECHNICAL ARCHITECTURE -->
+    <div id="architecture" class="page-break">
+        <h1>4. Technical Architecture</h1>
+        
+        <h2>4.1 System Architecture Diagram</h2>
+        
+        <pre><code>
+┌─────────────────────────────────────────────────────────────────┐
+│                    FRONTEND APPLICATIONS                         │
+├─────────────────────────────────────────────────────────────────┤
+│  Patient App  │ Provider App │ Pharmacy │ Lab │ EMS │ Hospital  │
+│  (Mobile/Web) │ (Mobile/Web) │  System  │ LIS │ Ops │   Ops     │
+└────────┬───────────┬──────────────┬──────┬─────┬──────┬─────────┘
+         │           │              │      │     │      │
+         └───────────┴──────────────┴──────┴─────┴──────┘
+                            │
+         ┌──────────────────┴──────────────────┐
+         │      API Gateway / Load Balancer    │
+         └──────────────────┬──────────────────┘
+                            │
+         ┌──────────────────┴──────────────────┐
+         │       Backend API (Node.js/Express) │
+         │     - Authentication (JWT)          │
+         │     - Business Logic                │
+         │     - FHIR REST API                 │
+         └──────────────────┬──────────────────┘
+                            │
+    ┌────────────┬──────────┼──────────┬────────────┐
+    │            │          │          │            │
+┌───▼───┐  ┌────▼────┐ ┌──▼───┐  ┌───▼────┐  ┌───▼────┐
+│ PostgreSQL │  Redis  │ S3/   │  │ Mirth  │  │ Orthanc │
+│ Database   │  Cache  │ Blob  │  │ Connect│  │ DICOM   │
+│            │         │Storage│  │        │  │ Server  │
+└────────────┴─────────┴───────┘  └───┬────┘  └────┬────┘
+                                       │            │
+                          ┌────────────┴────────────┘
+                          │
+        ┌─────────────────┼─────────────────┐
+        │                 │                 │
+    ┌───▼───────┐    ┌───▼────────┐   ┌───▼──────┐
+    │  Medical  │    │   PACS     │   │ Imaging  │
+    │  Devices  │    │  Systems   │   │ Modalities│
+    │ (HL7/MQTT)│    │  (DICOM)   │   │ (CT/MRI) │
+    └───────────┘    └────────────┘   └──────────┘
+        </code></pre>
+
+        <h2>4.2 Application Structure</h2>
+        
+        <pre><code>
+ithalamed-platform/
+├── apps/
+│   ├── patient-app/              # Patient & Guardian mobile app
+│   ├── provider-app/              # Doctor/Nurse/Clinical staff
+│   ├── pharmacy-app/              # Pharmacy management
+│   ├── lab-app/                   # Laboratory information system
+│   ├── ems-app/                   # Emergency medical services
+│   ├── hospital-ops-app/          # Hospital operations & ICU
+│   ├── medical-aid-app/           # Insurance portal
+│   └── gov-dashboard-app/         # Government regulator
+│
+├── packages/
+│   ├── shared-components/         # Reusable UI components
+│   ├── shared-utils/              # Utility functions
+│   ├── shared-hooks/              # Custom React hooks
+│   ├── shared-services/           # API clients, Socket.io
+│   ├── shared-theme/              # Theme (#00bfff)
+│   ├── medical-modules/
+│   │   ├── dicom-viewer/         # Web DICOM viewer
+│   │   ├── device-monitoring/    # Real-time displays
+│   │   ├── ehr-components/       # EHR UI components
+│   │   └── clinical-tools/       # Calculators, scores
+│   └── integration-services/
+│       ├── mirth-client/         # Mirth Connect API
+│       ├── orthanc-client/       # DICOM server API
+│       └── hl7-parser/           # HL7 message parser
+│
+└── mirth-channels/                # Mirth Connect configs
+    ├── hl7-inbound/               # Device data ingestion
+    ├── hl7-outbound/              # Orders to devices
+    ├── dicom-bridge/              # PACS integration
+    └── alert-engine/              # Critical alerts
+        </code></pre>
+    </div>
+
+    <!-- DEVELOPMENT ROADMAP -->
+    <div id="deployment" class="page-break">
+        <h1>5. Development Roadmap</h1>
+        
+        <h2>5.1 12-Month Implementation Plan</h2>
+        
+        <div class="timeline">
+            <div class="timeline-item">
+                <h4>Phase 1: Foundation (Months 1-2)</h4>
+                <ul>
+                    <li>Set up monorepo structure</li>
+                    <li>Implement authentication system</li>
+                    <li>Build shared component library</li>
+                    <li>Set up Mirth Connect infrastructure</li>
+                    <li>Configure DICOM server (Orthanc)</li>
+                    <li>Create database schemas</li>
+                </ul>
+            </div>
+            
+            <div class="timeline-item">
+                <h4>Phase 2: Core Apps (Months 3-4)</h4>
+                <ul>
+                    <li>Patient mobile app (MVP)</li>
+                    <li>Provider app with 10 specialties</li>
+                    <li>Basic appointment & prescription workflows</li>
+                    <li>Telemedicine integration</li>
+                </ul>
+            </div>
+            
+            <div class="timeline-item">
+                <h4>Phase 3: Hospital Operations (Months 5-6)</h4>
+                <ul>
+                    <li>Staff & shift management</li>
+                    <li>Hospital rounds workflow</li>
+                    <li>Handover system</li>
+                    <li>Bed management</li>
+                    <li>ED triage module</li>
+                </ul>
+            </div>
+            
+            <div class="timeline-item">
+                <h4>Phase 4: Device Integration (Months 7-8)</h4>
+                <ul>
+                    <li>Mirth Connect channels</li>
+                    <li>Real-time monitoring dashboard</li>
+                    <li>Alert management system</li>
+                    <li>Early warning scores</li>
+                    <li>ICU central station</li>
+                </ul>
+            </div>
+            
+            <div class="timeline-item">
+                <h4>Phase 5: DICOM Integration (Month 9)</h4>
+                <ul>
+                    <li>PACS integration (Orthanc)</li>
+                    <li>DICOM viewer (Cornerstone.js)</li>
+                    <li>Imaging order workflow</li>
+                    <li>Radiology reporting</li>
+                </ul>
+            </div>
+            
+            <div class="timeline-item">
+                <h4>Phase 6: Additional Apps (Month 10)</h4>
+                <ul>
+                    <li>Pharmacy management system</li>
+                    <li>Laboratory information system</li>
+                    <li>EMS dispatch & field operations</li>
+                    <li>Medical aid portal</li>
+                </ul>
+            </div>
+            
+            <div class="timeline-item">
+                <h4>Phase 7: Advanced Features (Month 11)</h4>
+                <ul>
+                    <li>All 40+ medical specialties</li>
+                    <li>Growth charts & pediatrics</li>
+                    <li>Wearable device integration</li>
+                    <li>Offline mode with sync</li>
+                    <li>Multi-language support</li>
+                </ul>
+            </div>
+            
+            <div class="timeline-item">
+                <h4>Phase 8: Testing & Launch (Month 12)</h4>
+                <ul>
+                    <li>Security audit & penetration testing</li>
+                    <li>Performance optimization</li>
+                    <li>Load testing (10,000 users)</li>
+                    <li>Beta testing (500 users)</li>
+                    <li>Staff training</li>
+                    <li>Soft launch (Johannesburg)</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- TEAM & BUDGET -->
+    <div class="page-break">
+        <h1>6. Team Requirements & Budget</h1>
+        
+        <h2>6.1 Recommended Team Structure (17 people)</h2>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Role</th>
+                    <th>Count</th>
+                    <th>Responsibilities</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Frontend Developers</strong></td>
+                    <td>6</td>
+                    <td>React Native development for all 8 applications</td>
+                </tr>
+                <tr>
+                    <td><strong>Backend Developers</strong></td>
+                    <td>2</td>
+                    <td>Node.js/Express API development</td>
+                </tr>
+                <tr>
+                    <td><strong>Integration Specialist</strong></td>
+                    <td>1</td>
+                    <td>Mirth Connect, HL7, FHIR integration</td>
+                </tr>
+                <tr>
+                    <td><strong>DICOM Specialist</strong></td>
+                    <td>1</td>
+                    <td>Orthanc, PACS, medical imaging</td>
+                </tr>
+                <tr>
+                    <td><strong>DevOps Engineer</strong></td>
+                    <td>1</td>
+                    <td>Infrastructure, CI/CD, deployment</td>
+                </tr>
+                <tr>
+                    <td><strong>QA Engineers</strong></td>
+                    <td>3</td>
+                    <td>Manual and automated testing</td>
+                </tr>
+                <tr>
+                    <td><strong>UI/UX Designer</strong></td>
+                    <td>1</td>
+                    <td>User interface and experience design</td>
+                </tr>
+                <tr>
+                    <td><strong>Project Manager</strong></td>
+                    <td>1</td>
+                    <td>Project coordination and planning</td>
+                </tr>
+                <tr>
+                    <td><strong>Product Owner</strong></td>
+                    <td>1</td>
+                    <td>Requirements and healthcare domain expertise</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>6.2 Budget Estimate (12 Months)</h2>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Category</th>
+                    <th>Cost (USD)</th>
+                    <th>Cost (ZAR)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Development Team (17 people × 12 months)</td>
+                    <td>$1,200,000</td>
+                    <td>22,200,000</td>
+                </tr>
+                <tr>
+                    <td>Software Licenses & Tools</td>
+                    <td>$50,000</td>
+                    <td>925,000</td>
+                </tr>
+                <tr>
+                    <td>Cloud Infrastructure (AWS/Azure)</td>
+                    <td>$100,000</td>
+                    <td>1,850,000</td>
+                </tr>
+                <tr>
+                    <td>DICOM Storage (1 PB)</td>
+                    <td>$50,000</td>
+                    <td>925,000</td>
+                </tr>
+                <tr>
+                    <td>Third-Party APIs (Twilio, SendGrid, etc.)</td>
+                    <td>$30,000</td>
+                    <td>555,000</td>
+                </tr>
+                <tr>
+                    <td>Legal & Compliance</td>
+                    <td>$50,000</td>
+                    <td>925,000</td>
+                </tr>
+                <tr>
+                    <td>Security Audits</td>
+                    <td>$30,000</td>
+                    <td>555,000</td>
+                </tr>
+                <tr>
+                    <td>Testing Devices & Equipment</td>
+                    <td>$25,000</td>
+                    <td>462,500</td>
+                </tr>
+                <tr>
+                    <td>Marketing & Launch</td>
+                    <td>$100,000</td>
+                    <td>1,850,000</td>
+                </tr>
+                <tr>
+                    <td>Training Materials</td>
+                    <td>$20,000</td>
+                    <td>370,000</td>
+                </tr>
+                <tr>
+                    <td>Contingency (10%)</td>
+                    <td>$165,500</td>
+                    <td>3,061,750</td>
+                </tr>
+                <tr style="font-weight: bold; background: #00bfff; color: white;">
+                    <td><strong>TOTAL</strong></td>
+                    <td><strong>$1,820,500</strong></td>
+                    <td><strong>33,679,250</strong></td>
+                </tr>
+            </tbody>
+        </table>
+        
+        <p style="margin-top: 20px;"><em>Note: Exchange rate used: 1 USD = 18.50 ZAR (approximate)</em></p>
+    </div>
+
+    <!-- KEY INTEGRATIONS -->
+    <div class="page-break">
+        <h1>7. Key Integrations</h1>
+        
+        <h2>7.1 Mirth Connect Integration Architecture</h2>
+        
+        <div class="highlight-box">
+            <h4>Overview</h4>
+            <p>Mirth Connect serves as the healthcare integration engine, processing HL7 v2.x and FHIR messages between medical devices, hospital systems, and the IthalaMed platform.</p>
+        </div>
+        
+        <h3>Channel 1: Device Data Ingestion</h3>
+        <table>
+            <tr>
+                <td><strong>Purpose:</strong></td>
+                <td>Receive continuous vital signs and device parameters</td>
+            </tr>
+            <tr>
+                <td><strong>Source:</strong></td>
+                <td>HL7 v2.x Listener (Port 6661, MLLP protocol)</td>
+            </tr>
+            <tr>
+                <td><strong>Message Types:</strong></td>
+                <td>ORU^R01 (Observation Results), OBX segments</td>
+            </tr>
+            <tr>
+                <td><strong>Transformation:</strong></td>
+                <td>HL7 to FHIR Observation resources</td>
+            </tr>
+            <tr>
+                <td><strong>Destination:</strong></td>
+                <td>IthalaMed API (HTTPS POST to /v1/observations)</td>
+            </tr>
+            <tr>
+                <td><strong>Frequency:</strong></td>
+                <td>Real-time (every 1-5 seconds per device)</td>
+            </tr>
+        </table>
+
+        <h3>Channel 2: Critical Alert Processing</h3>
+        <table>
+            <tr>
+                <td><strong>Purpose:</strong></td>
+                <td>Detect critical changes and trigger immediate notifications</td>
+            </tr>
+            <tr>
+                <td><strong>Source:</strong></td>
+                <td>Database reader (polls observations every 5 seconds)</td>
+            </tr>
+            <tr>
+                <td><strong>Rules Engine:</strong></td>
+                <td>
+                    <ul style="margin: 5px 0;">
+                        <li>Heart rate: >140 or <40 = Critical</li>
+                        <li>BP Systolic: <90 mmHg = Critical</li>
+                        <li>SpO2: <88% = Critical</li>
+                        <li>Ventilator disconnect = Critical</li>
+                    </ul>
+                </td>
+            </tr>
+            <tr>
+                <td><strong>Destinations:</strong></td>
+                <td>WebSocket (real-time UI), SMS (Twilio), Push notifications (FCM)</td>
+            </tr>
+            <tr>
+                <td><strong>Escalation:</strong></td>
+                <td>Bedside nurse → Charge nurse (30s) → Attending (1min) → Supervisor (2min)</td>
+            </tr>
+        </table>
+
+        <h3>Channel 3: DICOM Study Notification</h3>
+        <table>
+            <tr>
+                <td><strong>Purpose:</strong></td>
+                <td>Notify IthalaMed when new imaging studies are available</td>
+            </tr>
+            <tr>
+                <td><strong>Source:</strong></td>
+                <td>Orthanc Lua script (on-stored-instance.lua)</td>
+            </tr>
+            <tr>
+                <td><strong>Trigger:</strong></td>
+                <td>DICOM C-STORE completion from modality</td>
+            </tr>
+            <tr>
+                <td><strong>Transformation:</strong></td>
+                <td>Extract metadata (Patient ID, Study UID, Modality, Description)</td>
+            </tr>
+            <tr>
+                <td><strong>Destination:</strong></td>
+                <td>IthalaMed API (/v1/imaging/studies) + Push notification to ordering provider</td>
+            </tr>
+        </table>
+
+        <h2>7.2 Supported Medical Devices</h2>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Device Category</th>
+                    <th>Manufacturers</th>
+                    <th>Data Points</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Patient Monitors</strong></td>
+                    <td>Philips IntelliVue, GE Carescape, Nihon Kohden, Mindray</td>
+                    <td>ECG, BP, SpO2, Temp, RR, ICP, CO</td>
+                </tr>
+                <tr>
+                    <td><strong>Ventilators</strong></td>
+                    <td>Dräger, Hamilton, Medtronic, GE</td>
+                    <td>Mode, VT, RR, FiO2, PEEP, Pressures</td>
+                </tr>
+                <tr>
+                    <td><strong>Infusion Pumps</strong></td>
+                    <td>Baxter, B. Braun, Hospira</td>
+                    <td>Drug, Rate, Volume, Alarms</td>
+                </tr>
+                <tr>
+                    <td><strong>Dialysis Machines</strong></td>
+                    <td>Fresenius, Baxter</td>
+                    <td>Blood flow, Dialysate, UF rate</td>
+                </tr>
+                <tr>
+                    <td><strong>Blood Gas Analyzers</strong></td>
+                    <td>Radiometer, Siemens</td>
+                    <td>pH, pCO2, pO2, Lactate, Electrolytes</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- SECURITY & COMPLIANCE -->
+    <div id="security" class="page-break">
+        <h1>8. Security & Compliance</h1>
+        
+        <h2>8.1 HIPAA Compliance Checklist</h2>
+        
+        <div class="success-box">
+            <h4>✅ Implemented Controls</h4>
+            <ul>
+                <li><strong>Access Control:</strong> Unique user IDs, automatic logoff (15 min), emergency access procedures</li>
+                <li><strong>Encryption:</strong> Data at rest (AES-256), data in transit (TLS 1.3)</li>
+                <li><strong>Audit Logs:</strong> All PHI access logged with immutable audit trail</li>
+                <li><strong>Integrity:</strong> Digital signatures for clinical notes, version control</li>
+                <li><strong>Authentication:</strong> Multi-factor authentication (MFA) required</li>
+                <li><strong>Authorization:</strong> Role-based access control (RBAC)</li>
+                <li><strong>Backup & Recovery:</strong> Daily automated backups, 7-day retention</li>
+            </ul>
+        </div>
+
+        <h2>8.2 Role-Based Access Control (RBAC)</h2>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Role</th>
+                    <th>Key Permissions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Patient</strong></td>
+                    <td>View own records, book appointments, request prescriptions, emergency access</td>
+                </tr>
+                <tr>
+                    <td><strong>Guardian</strong></td>
+                    <td>Manage dependent records, book on behalf, view medical history</td>
+                </tr>
+                <tr>
+                    <td><strong>Attending Physician</strong></td>
+                    <td>Full patient access, create/sign notes, order medications/labs/imaging, view device data</td>
+                </tr>
+                <tr>
+                    <td><strong>Registered Nurse</strong></td>
+                    <td>View patient data, create nursing notes, acknowledge device alerts, administer medications</td>
+                </tr>
+                <tr>
+                    <td><strong>Pharmacist</strong></td>
+                    <td>View prescriptions, dispense medications, check interactions, manage inventory</td>
+                </tr>
+                <tr>
+                    <td><strong>Lab Technician</strong></td>
+                    <td>View lab orders, create results, quality control</td>
+                </tr>
+                <tr>
+                    <td><strong>Radiologist</strong></td>
+                    <td>View imaging studies, create reports, mark critical findings</td>
+                </tr>
+                <tr>
+                    <td><strong>Hospital Admin</strong></td>
+                    <td>Staff management, shift scheduling, view audit logs, system configuration</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>8.3 Data Protection Measures</h2>
+        
+        <div class="feature-grid">
+            <div class="feature-card">
+                <h4>🔐 Encryption</h4>
+                <p><strong>At Rest:</strong> AES-256<br>
+                <strong>In Transit:</strong> TLS 1.3<br>
+                <strong>Database:</strong> Transparent Data Encryption (TDE)</p>
+            </div>
+            
+            <div class="feature-card">
+                <h4>🔑 Authentication</h4>
+                <p><strong>Primary:</strong> JWT tokens<br>
+                <strong>MFA:</strong> SMS OTP, Email OTP<br>
+                <strong>Biometric:</strong> Fingerprint, Face ID</p>
+            </div>
+            
+            <div class="feature-card">
+                <h4>📋 Audit Logging</h4>
+                <p><strong>Events:</strong> All PHI access<br>
+                <strong>Storage:</strong> Immutable logs<br>
+                <strong>Retention:</strong> 7 years</p>
+            </div>
+            
+            <div class="feature-card">
+                <h4>🛡️ Network Security</h4>
+                <p><strong>Firewall:</strong> WAF enabled<br>
+                <strong>DDoS:</strong> CloudFlare protection<br>
+                <strong>VPN:</strong> For device integration</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- PERFORMANCE REQUIREMENTS -->
+    <div id="performance" class="page-break">
+        <h1>9. Performance Requirements</h1>
+        
+        <h2>9.1 Response Time Benchmarks</h2>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Operation</th>
+                    <th>Target</th>
+                    <th>Maximum</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Authentication (login)</td>
+                    <td>< 200ms</td>
+                    <td>500ms</td>
+                </tr>
+                <tr>
+                    <td>Patient lookup</td>
+                    <td>< 300ms</td>
+                    <td>800ms</td>
+                </tr>
+                <tr>
+                    <td>Load medical records</td>
+                    <td>< 500ms</td>
+                    <td>1s</td>
+                </tr>
+                <tr>
+                    <td>Device data retrieval (cached)</td>
+                    <td>< 100ms</td>
+                    <td>300ms</td>
+                </tr>
+                <tr>
+                    <td>Real-time vital signs (WebSocket)</td>
+                    <td>< 50ms</td>
+                    <td>100ms</td>
+                </tr>
+                <tr>
+                    <td>DICOM image load (preview)</td>
+                    <td>< 1s</td>
+                    <td>2s</td>
+                </tr>
+                <tr>
+                    <td>DICOM image load (full quality)</td>
+                    <td>< 3s</td>
+                    <td>5s</td>
+                </tr>
+                <tr>
+                    <td>App launch (cold start)</td>
+                    <td>< 3s</td>
+                    <td>5s</td>
+                </tr>
+                <tr>
+                    <td>Screen transitions</td>
+                    <td>60 FPS</td>
+                    <td>30 FPS minimum</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>9.2 Scalability Targets</h2>
+        
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+            <div class="metric-card">
+                <div class="metric-value">10,000</div>
+                <div class="metric-label">Concurrent Users</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value">1,000</div>
+                <div class="metric-label">Device Connections</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value">100K</div>
+                <div class="metric-label">API Requests/min</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value">99.9%</div>
+                <div class="metric-label">System Uptime</div>
+            </div>
+        </div>
+
+        <h2>9.3 Infrastructure Requirements</h2>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Component</th>
+                    <th>Specification</th>
+                    <th>Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>API Servers</strong></td>
+                    <td>4 cores, 16GB RAM each</td>
+                    <td>Auto-scaling (2-10 instances)</td>
+                </tr>
+                <tr>
+                    <td><strong>Database (PostgreSQL)</strong></td>
+                    <td>8 cores, 32GB RAM</td>
+                    <td>Multi-AZ, read replicas (3+)</td>
+                </tr>
+                <tr>
+                    <td><strong>Redis Cache</strong></td>
+                    <td>2 cores, 8GB RAM</td>
+                    <td>Clustered mode</td>
+                </tr>
+                <tr>
+                    <td><strong>Mirth Connect</strong></td>
+                    <td>4 cores, 16GB RAM</td>
+                    <td>3-node HA cluster</td>
+                </tr>
+                <tr>
+                    <td><strong>DICOM Server (Orthanc)</strong></td>
+                    <td>8 cores, 32GB RAM</td>
+                    <td>1 PB storage (S3)</td>
+                </tr>
+                <tr>
+                    <td><strong>Load Balancer</strong></td>
+                    <td>Application Load Balancer</td>
+                    <td>Multi-AZ, SSL termination</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- SUCCESS METRICS -->
+    <div id="metrics" class="page-break">
+        <h1>10. Success Metrics & KPIs</h1>
+        
+        <h2>10.1 User Adoption Metrics (Year 1)</h2>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th>Target</th>
+                    <th>Measurement</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Registered Patients</td>
+                    <td>50,000</td>
+                    <td>Total user accounts created</td>
+                </tr>
+                <tr>
+                    <td>Monthly Active Users (MAU)</td>
+                    <td>30,000</td>
+                    <td>Unique users per month</td>
+                </tr>
+                <tr>
+                    <td>Healthcare Providers</td>
+                    <td>2,000</td>
+                    <td>Verified provider accounts</td>
+                </tr>
+                <tr>
+                    <td>Hospitals Connected</td>
+                    <td>25</td>
+                    <td>Active hospital facilities</td>
+                </tr>
+                <tr>
+                    <td>ICU Beds Monitored</td>
+                    <td>500</td>
+                    <td>Beds with device integration</td>
+                </tr>
+                <tr>
+                    <td>App Store Rating</td>
+                    <td>4.5+ stars</td>
+                    <td>Average user rating</td>
+                </tr>
+                <tr>
+                    <td>Retention Rate (D30)</td>
+                    <td>60%</td>
+                    <td>Users active after 30 days</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>10.2 Clinical Quality Metrics</h2>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th>Target</th>
+                    <th>Impact</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Alert Response Time</td>
+                    <td>< 2 minutes</td>
+                    <td>Patient safety improvement</td>
+                </tr>
+                <tr>
+                    <td>Critical Alerts Acknowledged</td>
+                    <td>> 99%</td>
+                    <td>Staff responsiveness</td>
+                </tr>
+                <tr>
+                    <td>Medical Device Uptime</td>
+                    <td>> 99.5%</td>
+                    <td>Continuous monitoring</td>
+                </tr>
+                <tr>
+                    <td>Documentation Time Reduced</td>
+                    <td>40%</td>
+                    <td>Provider efficiency</td>
+                </tr>
+                <tr>
+                    <td>Time to Imaging Result</td>
+                    <td>< 2 hours</td>
+                    <td>Faster diagnosis</td>
+                </tr>
+                <tr>
+                    <td>Medication Error Reduction</td>
+                    <td>50%</td>
+                    <td>Patient safety</td>
+                </tr>
+                <tr>
+                    <td>Patient Satisfaction</td>
+                    <td>> 85%</td>
+                    <td>Quality of care</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- RISK MANAGEMENT -->
+    <div id="risks" class="page-break">
+        <h1>11. Risk Management</h1>
+        
+        <h2>11.1 Technical Risks</h2>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Risk</th>
+                    <th>Impact</th>
+                    <th>Probability</th>
+                    <th>Mitigation</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Medical device integration failure</td>
+                    <td>Critical</td>
+                    <td>Medium</td>
+                    <td>Redundant paths, heartbeat monitoring, auto-failover, weekly testing</td>
+                </tr>
+                <tr>
+                    <td>DICOM server failure</td>
+                    <td>High</td>
+                    <td>Low</td>
+                    <td>HA deployment (3 nodes), daily backups, DR site</td>
+                </tr>
+                <tr>
+                    <td>Database corruption</td>
+                    <td>Critical</td>
+                    <td>Very Low</td>
+                    <td>Point-in-time recovery, daily backups, Multi-AZ deployment</td>
+                </tr>
+                <tr>
+                    <td>Network latency for devices</td>
+                    <td>High</td>
+                    <td>Medium</td>
+                    <td>Local edge computing, data buffering, QoS network policies</td>
+                </tr>
+                <tr>
+                    <td>API overload</td>
+                    <td>Medium</td>
+                    <td>Medium</td>
+                    <td>Auto-scaling, rate limiting, caching strategy</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>11.2 Operational Risks</h2>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Risk</th>
+                    <th>Impact</th>
+                    <th>Probability</th>
+                    <th>Mitigation</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Staff resistance to adoption</td>
+                    <td>High</td>
+                    <td>Medium</td>
+                    <td>Training program, champion users, gradual rollout, 24/7 support</td>
+                </tr>
+                <tr>
+                    <td>Regulatory non-compliance</td>
+                    <td>Critical</td>
+                    <td>Low</td>
+                    <td>Annual audits, legal review, compliance officer, documentation</td>
+                </tr>
+                <tr>
+                    <td>Data breach</td>
+                    <td>Critical</td>
+                    <td>Low</td>
+                    <td>Encryption, penetration testing, security audits, incident response plan</td>
+                </tr>
+                <tr>
+                    <td>Vendor lock-in (cloud)</td>
+                    <td>Medium</td>
+                    <td>Medium</td>
+                    <td>Multi-cloud strategy, containerization, standard protocols</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- SUPPORT & MAINTENANCE -->
+    <div id="maintenance" class="page-break">
+        <h1>12. Support & Maintenance</h1>
+        
+        <h2>12.1 Support Tiers</h2>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Tier</th>
+                    <th>Users</th>
+                    <th>Channels</th>
+                    <th>Response Time</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Tier 1: Self-Service</strong></td>
+                    <td>All users</td>
+                    <td>Knowledge base, FAQs, Video tutorials, Chatbot</td>
+                    <td>Immediate</td>
+                </tr>
+                <tr>
+                    <td><strong>Tier 2: Standard</strong></td>
+                    <td>Patients, General staff</td>
+                    <td>Email, In-app messaging, Phone (business hours)</td>
+                    <td>4-24 hours</td>
+                </tr>
+                <tr>
+                    <td><strong>Tier 3: Priority</strong></td>
+                    <td>Healthcare providers</td>
+                    <td>Priority line, WhatsApp, Email</td>
+                    <td>1-4 hours (24/7)</td>
+                </tr>
+                <tr>
+                    <td><strong>Tier 4: Critical</strong></td>
+                    <td>Hospitals</td>
+                    <td>Dedicated manager, Direct line, On-site</td>
+                    <td>15 minutes (24/7)</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>12.2 Incident Response (SLA)</h2>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Severity</th>
+                    <th>Definition</th>
+                    <th>Response</th>
+                    <th>Resolution Target</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr style="background: #fee2e2;">
+                    <td><strong>P0 - Critical</strong></td>
+                    <td>System down, Data breach, Device integration failure</td>
+                    <td>15 minutes</td>
+                    <td>1 hour</td>
+                </tr>
+                <tr style="background: #fef3c7;">
+                    <td><strong>P1 - High</strong></td>
+                    <td>Major feature down (Telemedicine, DICOM viewer, Alerts)</td>
+                    <td>30 minutes</td>
+                    <td>4 hours</td>
+                </tr>
+                <tr style="background: #dbeafe;">
+                    <td><strong>P2 - Medium</strong></td>
+                    <td>Minor feature issues (Search, Reports)</td>
+                    <td>4 hours</td>
+                    <td>24 hours</td>
+                </tr>
+                <tr>
+                    <td><strong>P3 - Low</strong></td>
+                    <td>Cosmetic issues, UI glitches</td>
+                    <td>24 hours</td>
+                    <td>1 week</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>12.3 Monitoring & Alerting</h2>
+        
+        <div class="feature-grid">
+            <div class="feature-card">
+                <h4>📊 System Health</h4>
+                <ul style="font-size: 0.9em; margin: 10px 0;">
+                    <li>Uptime: 99.9% SLA</li>
+                    <li>API response time</li>
+                    <li>Database performance</li>
+                    <li>WebSocket latency</li>
+                </ul>
+            </div>
+            
+            <div class="feature-card">
+                <h4>🔔 Alerts</h4>
+                <ul style="font-size: 0.9em; margin: 10px 0;">
+                    <li>Error rate > 1%</li>
+                    <li>Response time > 1s</li>
+                    <li>Device disconnections</li>
+                    <li>Mirth channel down</li>
+                </ul>
+            </div>
+            
+            <div class="feature-card">
+                <h4>📈 Performance</h4>
+                <ul style="font-size: 0.9em; margin: 10px 0;">
+                    <li>Real User Monitoring</li>
+                    <li>Crash reporting</li>
+                    <li>Network requests</li>
+                    <li>User session replay</li>
+                </ul>
+            </div>
+            
+            <div class="feature-card">
+                <h4>🔐 Security</h4>
+                <ul style="font-size: 0.9em; margin: 10px 0;">
+                    <li>Failed login attempts</li>
+                    <li>Unauthorized access</li>
+                    <li>SSL expiry</li>
+                    <li>Penetration test results</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- API DOCUMENTATION -->
+    <div class="page-break">
+        <h1>13. API Documentation Summary</h1>
+        
+        <h2>13.1 Core API Endpoints</h2>
+        
+        <h3>Authentication & User Management</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 120px;">Method</th>
+                    <th>Endpoint</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><code>POST</code></td><td>/api/v1/auth/login</td><td>User authentication</td></tr>
+                <tr><td><code>POST</code></td><td>/api/v1/auth/register</td><td>New user registration</td></tr>
+                <tr><td><code>POST</code></td><td>/api/v1/auth/refresh-token</td><td>Refresh JWT token</td></tr>
+                <tr><td><code>POST</code></td><td>/api/v1/auth/logout</td><td>User logout</td></tr>
+            </tbody>
+        </table>
+
+        <h3>Medical Device Integration</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 120px;">Method</th>
+                    <th>Endpoint</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><code>GET</code></td><td>/api/v1/devices</td><td>List all devices</td></tr>
+                <tr><td><code>POST</code></td><td>/api/v1/devices/:id/assign</td><td>Assign device to patient</td></tr>
+                <tr><td><code>GET</code></td><td>/api/v1/devices/:id/readings</td><td>Get device readings</td></tr>
+                <tr><td><code>POST</code></td><td>/api/v1/devices/:id/readings</td><td>Submit reading (Mirth)</td></tr>
+                <tr><td><code>GET</code></td><td>/api/v1/patients/:id/monitoring</td><td>Get monitoring data</td></tr>
+                <tr><td><code>PUT</code></td><td>/api/v1/alerts/:id/acknowledge</td><td>Acknowledge alert</td></tr>
+                <tr><td><code>WS</code></td><td>/api/v1/monitoring/stream</td><td>Real-time vital signs</td></tr>
+            </tbody>
+        </table>
+
+        <h3>Staff & Shift Management</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 120px;">Method</th>
+                    <th>Endpoint</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><code>GET</code></td><td>/api/v1/staff</td><td>List all staff</td></tr>
+                <tr><td><code>POST</code></td><td>/api/v1/shifts</td><td>Create shift</td></tr>
+                <tr><td><code>POST</code></td><td>/api/v1/shifts/:id/assign</td><td>Assign staff to shift</td></tr>
+                <tr><td><code>POST</code></td><td>/api/v1/attendance/clock-in</td><td>Clock in</td></tr>
+                <tr><td><code>GET</code></td><td>/api/v1/departments/:id/staffing</td><td>Real-time staffing</td></tr>
+            </tbody>
+        </table>
+
+        <h3>Hospital Rounds</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 120px;">Method</th>
+                    <th>Endpoint</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><code>GET</code></td><td>/api/v1/rounds</td><td>List rounds</td></tr>
+                <tr><td><code>POST</code></td><td>/api/v1/rounds</td><td>Create round</td></tr>
+                <tr><td><code>POST</code></td><td>/api/v1/round-notes</td><td>Create round note</td></tr>
+                <tr><td><code>POST</code></td><td>/api/v1/round-notes/:id/sign</td><td>Sign note</td></tr>
+                <tr><td><code>POST</code></td><td>/api/v1/handovers</td><td>Create handover</td></tr>
+            </tbody>
+        </table>
+
+        <h3>DICOM/Imaging</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 120px;">Method</th>
+                    <th>Endpoint</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><code>POST</code></td><td>/api/v1/imaging/orders</td><td>Create imaging order</td></tr>
+                <tr><td><code>GET</code></td><td>/api/v1/imaging/studies/:uid</td><td>Get study details</td></tr>
+                <tr><td><code>GET</code></td><td>/api/v1/dicom/studies/:uid/metadata</td><td>DICOM metadata</td></tr>
+                <tr><td><code>GET</code></td><td>/api/v1/dicom/instances/:uid/file</td><td>Download DICOM</td></tr>
+                <tr><td><code>POST</code></td><td>/api/v1/imaging/reports</td><td>Create report</td></tr>
+                <tr><td><code>POST</code></td><td>/api/v1/imaging/critical-finding</td><td>Report critical finding</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- CONCLUSION -->
+    <div id="conclusion" class="page-break">
+        <h1>14. Conclusion & Next Steps</h1>
+        
+        <div class="success-box">
+            <h3>✅ Document Completeness</h3>
+            <p>This comprehensive requirements document provides all necessary specifications for development teams to begin building the IthalaMed unified healthcare platform. All technical details, user flows, integrations, and security measures have been thoroughly documented.</p>
+        </div>
+
+        <h2>14.1 What's Included</h2>
+        
+        <div class="feature-grid">
+            <div class="feature-card">
+                <h4>📱 8 Applications</h4>
+                <p>Complete specifications for Patient, Provider, Pharmacy, Lab, EMS, Hospital Ops, Medical Aid, and Government apps</p>
+            </div>
+            
+            <div class="feature-card">
+                <h4>🔌 Device Integration</h4>
+                <p>Mirth Connect channels, HL7 processing, real-time monitoring, and critical alerts</p>
+            </div>
+            
+            <div class="feature-card">
+                <h4>🏥 Hospital Workflows</h4>
+                <p>Staff management, shift scheduling, hospital rounds, and handover systems</p>
+            </div>
+            
+            <div class="feature-card">
+                <h4>📷 Medical Imaging</h4>
+                <p>DICOM/PACS integration, web viewer, imaging workflow, and radiology reporting</p>
+            </div>
+            
+            <div class="feature-card">
+                <h4>🔐 Security</h4>
+                <p>HIPAA compliance, RBAC, audit logging, and encryption standards</p>
+            </div>
+            
+            <div class="feature-card">
+                <h4>📊 Complete Specs</h4>
+                <p>API endpoints, data models, WebSocket events, and technical architecture</p>
+            </div>
+        </div>
+
+        <h2>14.2 Implementation Priorities</h2>
+        
+        <div class="timeline">
+            <div class="timeline-item">
+                <h4>Immediate (Start Now)</h4>
+                <ul>
+                    <li>Set up development environment and monorepo</li>
+                    <li>Configure Mirth Connect and Orthanc servers</li>
+                    <li>Begin authentication system development</li>
+                    <li>Create shared component library</li>
+                </ul>
+            </div>
+            
+            <div class="timeline-item">
+                <h4>Month 1-2</h4>
+                <ul>
+                    <li>Complete Patient & Provider apps (MVP)</li>
+                    <li>Implement basic appointment workflows</li>
+                    <li>Set up database schemas</li>
+                </ul>
+            </div>
+            
+            <div class="timeline-item">
+                <h4>Month 3-6</h4>
+                <ul>
+                    <li>Hospital operations modules</li>
+                    <li>Staff & shift management</li>
+                    <li>Medical device integration (Mirth)</li>
+                </ul>
+            </div>
+            
+            <div class="timeline-item">
+                <h4>Month 7-12</h4>
+                <ul>
+                    <li>DICOM integration and viewer</li>
+                    <li>Remaining applications (Pharmacy, Lab, EMS)</li>
+                    <li>Testing, security audit, and launch</li>
+                </ul>
+            </div>
+        </div>
+
+        <h2>14.3 Key Success Factors</h2>
+        
+        <div class="warning-box">
+            <h4>⚠️ Critical Success Factors</h4>
+            <ul>
+                <li><strong>Executive Sponsorship:</strong> C-level commitment to digital transformation</li>
+                <li><strong>Change Management:</strong> Staff training and adoption programs</li>
+                <li><strong>Phased Rollout:</strong> Start small (1-2 hospitals), validate, then scale</li>
+                <li><strong>24/7 Support:</strong> Dedicated support team during initial months</li>
+                <li><strong>Continuous Feedback:</strong> Regular user feedback and iterative improvements</li>
+                <li><strong>Security First:</strong> HIPAA compliance from day one, not an afterthought</li>
+                <li><strong>Performance Monitoring:</strong> Real-time monitoring and rapid issue resolution</li>
+            </ul>
+        </div>
+
+        <h2>14.4 Next Actions</h2>
+        
+        <div class="button-group">
+            <button class="btn btn-primary" onclick="alert('Contact: dev@ithalamed.com')">
+                📧 Contact Development Team
+            </button>
+            <button class="btn btn-primary" onclick="alert('Schedule meeting with Product Owner')">
+                📅 Schedule Kickoff Meeting
+            </button>
+            <button class="btn btn-secondary" onclick="window.print()">
+                🖨️ Print/Save Document
+            </button>
+        </div>
+    </div>
+
+    <!-- APPENDICES -->
+    <div id="appendices" class="page-break">
+        <h1>15. Appendices</h1>
+        
+        <h2>Appendix A: Glossary of Terms</h2>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Term</th>
+                    <th>Definition</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><strong>DICOM</strong></td><td>Digital Imaging and Communications in Medicine - standard for medical imaging</td></tr>
+                <tr><td><strong>PACS</strong></td><td>Picture Archiving and Communication System - medical imaging storage</td></tr>
+                <tr><td><strong>HL7</strong></td><td>Health Level 7 - healthcare data exchange standard</td></tr>
+                <tr><td><strong>FHIR</strong></td><td>Fast Healthcare Interoperability Resources - modern healthcare data standard</td></tr>
+                <tr><td><strong>Mirth Connect</strong></td><td>Open-source healthcare integration engine</td></tr>
+                <tr><td><strong>EWS</strong></td><td>Early Warning Score (NEWS2, qSOFA, MEWS) - patient deterioration detection</td></tr>
+                <tr><td><strong>ICU</strong></td><td>Intensive Care Unit - critical care ward</td></tr>
+                <tr><td><strong>SBAR</strong></td><td>Situation-Background-Assessment-Recommendation - handover format</td></tr>
+                <tr><td><strong>HIPAA</strong></td><td>Health Insurance Portability and Accountability Act - US healthcare privacy law</td></tr>
+                <tr><td><strong>POPIA</strong></td><td>Protection of Personal Information Act - South African privacy law</td></tr>
+                <tr><td><strong>ESI</strong></td><td>Emergency Severity Index - 5-level triage system</td></tr>
+                <tr><td><strong>RBAC</strong></td><td>Role-Based Access Control - permission system</td></tr>
+            </tbody>
+        </table>
+
+        <h2>Appendix B: External Resources</h2>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Resource</th>
+                    <th>URL</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>Mirth Connect Documentation</td><td>https://docs.nextgen.com/mirth/</td></tr>
+                <tr><td>Orthanc DICOM Server</td><td>https://www.orthanc-server.com/</td></tr>
+                <tr><td>Cornerstone.js (DICOM Viewer)</td><td>https://cornerstonejs.org/</td></tr>
+                <tr><td>HL7 FHIR Specification</td><td>https://www.hl7.org/fhir/</td></tr>
+                <tr><td>React Native Documentation</td><td>https://reactnative.dev/</td></tr>
+                <tr><td>Expo Documentation</td><td>https://docs.expo.dev/</td></tr>
+            </tbody>
+        </table>
+
+        <h2>Appendix C: Contact Information</h2>
+        
+        <div class="highlight-box">
+            <h4>IthalaMed Product Team</h4>
+            <p>
+                <strong>Email:</strong> dev@ithalamed.com<br>
+                <strong>Phone:</strong> +27 60 206 2762<br>
+                <strong>Address:</strong> Johannesburg, South Africa<br>
+                <strong>Website:</strong> https://ithalamed.netlify.app/<br>
+                <strong>Support:</strong> support@ithalamed.com
+            </p>
+        </div>
+
+        <h2>Appendix D: Document Distribution</h2>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Role</th>
+                    <th>Name</th>
+                    <th>Date Received</th>
+                    <th>Signature</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>Project Manager</td><td>_________________</td><td>_________</td><td>_________</td></tr>
+                <tr><td>Technical Architect</td><td>_________________</td><td>_________</td><td>_________</td></tr>
+                <tr><td>Business Analyst</td><td>_________________</td><td>_________</td><td>_________</td></tr>
+                <tr><td>Lead Developer (Frontend)</td><td>_________________</td><td>_________</td><td>_________</td></tr>
+                <tr><td>Lead Developer (Backend)</td><td>_________________</td><td>_________</td><td>_________</td></tr>
+                <tr><td>Integration Specialist</td><td>_________________</td><td>_________</td><td>_________</td></tr>
+                <tr><td>QA Lead</td><td>_________________</td><td>_________</td><td>_________</td></tr>
+                <tr><td>DevOps Engineer</td><td>_________________</td><td>_________</td><td>_________</td></tr>
+                <tr><td>Security Officer</td><td>_________________</td><td>_________</td><td>_________</td></tr>
+                <tr><td>Product Owner</td><td>_________________</td><td>_________</td><td>_________</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- FOOTER -->
+    <footer>
+        <div style="margin-bottom: 20px;">
+            <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 50'%3E%3Ctext x='10' y='35' font-family='Arial' font-size='24' fill='%2300bfff' font-weight='bold'%3EIthalaMed%3C/text%3E%3C/svg%3E" alt="IthalaMed Logo" style="height: 40px;">
+        </div>
+        
+        <div style="border-top: 2px solid #00bfff; padding-top: 20px;">
+            <p><strong>IthalaMed - Unified Healthcare Platform</strong></p>
+            <p>Frontend Requirements Document v2.0 (Final)</p>
+            <p>© 2025 IthalaMed. All Rights Reserved.</p>
+            <p style="margin-top: 15px; font-size: 0.9em;">
+                <strong>Confidentiality Notice:</strong> This document contains proprietary and confidential information. 
+                Unauthorized disclosure, copying, or distribution is strictly prohibited.
+            </p>
+        </div>
+        
+        <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+            <p style="font-size: 0.85em; color: #6b7280;">
+                <strong>Document Control:</strong><br>
+                Version: 2.0 | Status: Ready for Development | Date: November 15, 2025<br>
+                Classification: Internal Use Only | Pages: 45+ | Format: HTML/PDF
+            </p>
+        </div>
+    </footer>
+
+    <script>
+        // Add smooth scrolling
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        });
+
+        // Print function
+        function printDocument() {
+            window.print();
+        }
+
+        // Download as Markdown function
+        function downloadAsMarkdown() {
+            alert('To download as Markdown:\n\n1. Use the web version: Copy the markdown content from the artifact\n2. Or save this page as HTML and convert using a tool like Pandoc\n3. Command: pandoc document.html -o ithalamed-requirements.md');
+        }
+
+        // Add print date to footer when printing
+        window.addEventListener('beforeprint', function() {
+            const footer = document.querySelector('footer');
+            if (footer && !document.getElementById('print-date')) {
+                const printDate = document.createElement('p');
+                printDate.id = 'print-date';
+                printDate.style.marginTop = '10px';
+                printDate.style.fontSize = '0.85em';
+                printDate.innerHTML = `<strong>Printed:</strong> ${new Date().toLocaleString()}`;
+                footer.appendChild(printDate);
+            }
+        });
+
+        // Table of contents highlighting on scroll
+        let ticking = false;
+        window.addEventListener('scroll', function() {
+            if (!ticking) {
+                window.requestAnimationFrame(function() {
+                    updateTOC();
+                    ticking = false;
+                });
+                ticking = true;
+            }
+        });
+
+        function updateTOC() {
+            const sections = document.querySelectorAll('h1[id], h2[id]');
+            let currentSection = '';
+            
+            sections.forEach(section => {
+                const rect = section.getBoundingClientRect();
+                if (rect.top <= 100 && rect.bottom >= 0) {
+                    currentSection = section.id;
+                }
+            });
+
+            document.querySelectorAll('.toc a').forEach(link => {
+                link.style.color = '#1f2937';
+                link.style.fontWeight = 'normal';
+                if (link.getAttribute('href') === '#' + currentSection) {
+                    link.style.color = '#00bfff';
+                    link.style.fontWeight = '600';
+                }
+            });
+        }
+
+        // Add copy code functionality
+        document.querySelectorAll('pre code').forEach(block => {
+            const button = document.createElement('button');
+            button.className = 'btn btn-secondary';
+            button.style.position = 'absolute';
+            button.style.top = '10px';
+            button.style.right = '10px';
+            button.style.fontSize = '12px';
+            button.style.padding = '5px 10px';
+            button.textContent = 'Copy';
+            button.onclick = function() {
+                navigator.clipboard.writeText(block.textContent);
+                button.textContent = 'Copied!';
+                setTimeout(() => button.textContent = 'Copy', 2000);
+            };
+            block.parentElement.style.position = 'relative';
+            block.parentElement.appendChild(button);
+        });
+
+        // Add expand/collapse for long tables
+        document.querySelectorAll('table').forEach(table => {
+            if (table.rows.length > 15) {
+                const wrapper = document.createElement('div');
+                wrapper.style.maxHeight = '400px';
+                wrapper.style.overflow = 'auto';
+                wrapper.style.border = '1px solid #e5e7eb';
+                wrapper.style.borderRadius = '8px';
+                table.parentNode.insertBefore(wrapper, table);
+                wrapper.appendChild(table);
+            }
+        });
+
+        // Add page progress indicator
+        const progressBar = document.createElement('div');
+        progressBar.className = 'no-print';
+        progressBar.style.position = 'fixed';
+        progressBar.style.top = '0';
+        progressBar.style.left = '0';
+        progressBar.style.width = '0%';
+        progressBar.style.height = '3px';
+        progressBar.style.background = '#00bfff';
+        progressBar.style.zIndex = '9999';
+        progressBar.style.transition = 'width 0.3s';
+        document.body.appendChild(progressBar);
+
+        window.addEventListener('scroll', function() {
+            const scrollPercent = (window.scrollY / (document.documentElement.scrollHeight - window.innerHeight)) * 100;
+            progressBar.style.width = scrollPercent + '%';
+        });
+
+        // Add "Back to Top" button
+        const backToTop = document.createElement('button');
+        backToTop.className = 'btn btn-primary no-print';
+        backToTop.textContent = '↑ Top';
+        backToTop.style.position = 'fixed';
+        backToTop.style.bottom = '30px';
+        backToTop.style.right = '30px';
+        backToTop.style.display = 'none';
+        backToTop.style.zIndex = '1000';
+        backToTop.style.borderRadius = '50px';
+        backToTop.style.padding = '12px 20px';
+        backToTop.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+        backToTop.onclick = function() {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+        document.body.appendChild(backToTop);
+
+        window.addEventListener('scroll', function() {
+            if (window.scrollY > 500) {
+                backToTop.style.display = 'block';
+            } else {
+                backToTop.style.display = 'none';
+            }
+        });
+
+        // Add section numbering
+        let sectionNumber = 1;
+        let subsectionNumber = 1;
+        document.querySelectorAll('h1').forEach((h1, index) => {
+            if (index > 0 && !h1.closest('.cover-page') && !h1.closest('.toc')) {
+                const number = document.createElement('span');
+                number.style.color = '#00bfff';
+                number.style.marginRight = '10px';
+                number.textContent = sectionNumber + '.';
+                h1.insertBefore(number, h1.firstChild);
+                sectionNumber++;
+                subsectionNumber = 1;
+            }
+        });
+
+        // Console message
+        console.log('%c📄 IthalaMed Requirements Document v2.0', 'color: #00bfff; font-size: 20px; font-weight: bold;');
+        console.log('%cReady for Development | November 15, 2025', 'color: #10b981; font-size: 14px;');
+        console.log('%cFor support: dev@ithalamed.com', 'color: #6b7280; font-size: 12px;');
+    </script>
+</body>
+</html>

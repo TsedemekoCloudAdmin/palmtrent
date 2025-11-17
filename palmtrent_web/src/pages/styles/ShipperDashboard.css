@@ -1,0 +1,1086 @@
+/* Shipper Dashboard Styles - Updated Layout */
+.shipper-dashboard {
+  display: flex;
+  min-height: 100vh;
+  background-color: var(--background);
+}
+
+/* Sidebar Styles - Non-scrollable */
+.shipper-sidebar {
+  background-color: var(--primary);
+  color: white;
+  transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  overflow: hidden; /* Prevent sidebar scrolling */
+}
+
+.shipper-sidebar-open {
+  width: 280px;
+}
+
+.shipper-sidebar-closed {
+  width: 80px;
+}
+
+.shipper-sidebar-header {
+  padding: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--secondary);
+  flex-shrink: 0;
+}
+
+.shipper-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.shipper-brand-logo {
+  width: 40px;
+  height: 40px;
+  background: var(--accent);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.shipper-brand-logo .icon {
+  width: 24px;
+  height: 24px;
+  color: white;
+}
+
+.shipper-brand-text {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: white;
+}
+
+.shipper-sidebar-toggle {
+  background: var(--secondary);
+  border: none;
+  color: white;
+  padding: 0.5rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.shipper-sidebar-toggle:hover {
+  background: var(--accent);
+}
+
+/* Main Navigation - Non-scrollable */
+.shipper-sidebar-nav {
+  flex: 1;
+  padding: 1rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow: hidden; /* Prevent scrolling */
+}
+
+.shipper-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.8);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-decoration: none;
+  width: 100%;
+  font-size: 0.9rem;
+}
+
+.shipper-nav-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  transform: translateX(4px);
+}
+
+.shipper-nav-item-active {
+  background: var(--accent);
+  color: white;
+  box-shadow: 0 4px 12px rgba(243, 112, 33, 0.3);
+}
+
+.shipper-nav-icon {
+  display: flex;
+  align-items: center;
+  transition: transform 0.3s ease;
+}
+
+.shipper-nav-item:hover .shipper-nav-icon {
+  transform: scale(1.1);
+}
+
+.shipper-nav-icon .icon {
+  width: 20px;
+  height: 20px;
+}
+
+.shipper-nav-label {
+  flex: 1;
+  text-align: left;
+  font-weight: 500;
+}
+
+.shipper-nav-badge {
+  background: #ef4444;
+  color: white;
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 12px;
+  min-width: 20px;
+  text-align: center;
+  font-weight: 600;
+}
+
+/* Main Content Styles - Scrollable */
+.shipper-main-content {
+  flex: 1;
+  overflow: auto; /* Make main content scrollable */
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  margin-left: 280px;
+  transition: margin-left 0.3s ease;
+  height: 100vh;
+}
+
+.shipper-sidebar-closed + .shipper-main-content {
+  margin-left: 80px;
+}
+
+/* Top Bar Styles */
+.shipper-topbar {
+  background: white;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 1rem 2rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.shipper-topbar-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.shipper-topbar-left .shipper-page-title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--primary);
+  margin: 0;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.shipper-topbar-left .shipper-page-subtitle {
+  color: var(--text-light);
+  margin: 0.25rem 0 0 0;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.shipper-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.shipper-search-container {
+  position: relative;
+}
+
+.shipper-search-icon {
+  width: 18px;
+  height: 18px;
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-light);
+}
+
+.shipper-search-input {
+  padding: 0.6rem 1rem 0.6rem 2.5rem;
+  border: 2px solid #e5e7eb;
+  border-radius: 10px;
+  background: white;
+  color: var(--text-dark);
+  font-size: 0.85rem;
+  width: 250px;
+  transition: all 0.3s ease;
+}
+
+.shipper-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(243, 112, 33, 0.1);
+}
+
+.shipper-notification-btn {
+  padding: 0.6rem;
+  border: none;
+  background: white;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  border: 2px solid #f1f5f9;
+}
+
+.shipper-notification-btn:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.shipper-notification-btn:hover .icon {
+  color: white;
+}
+
+.shipper-notification-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  background: #ef4444;
+  border-radius: 50%;
+  border: 2px solid white;
+}
+
+.shipper-time-selector {
+  padding: 0.6rem 1rem;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  background: white;
+  color: var(--text-dark);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-weight: 500;
+}
+
+.shipper-time-selector:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* User Dropdown Styles */
+.shipper-user-dropdown {
+  position: relative;
+}
+
+.shipper-user-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  background: white;
+  border: 2px solid #e5e7eb;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  min-width: 180px;
+}
+
+.shipper-user-trigger:hover {
+  border-color: var(--accent);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.shipper-user-avatar {
+  width: 36px;
+  height: 36px;
+  background: linear-gradient(135deg, var(--accent) 0%, #fd7e14 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.shipper-user-avatar-text {
+  color: white;
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+.shipper-user-info {
+  flex: 1;
+  text-align: left;
+  min-width: 0;
+}
+
+.shipper-user-name {
+  color: var(--text-dark);
+  font-weight: 600;
+  font-size: 0.85rem;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shipper-user-role {
+  color: var(--text-light);
+  font-size: 0.75rem;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shipper-dropdown-arrow {
+  color: var(--text-light);
+  transition: transform 0.3s ease;
+}
+
+.shipper-user-dropdown.open .shipper-dropdown-arrow {
+  transform: rotate(180deg);
+}
+
+.shipper-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.5rem;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+  min-width: 220px;
+  z-index: 1000;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-10px);
+  transition: all 0.3s ease;
+}
+
+.shipper-user-dropdown.open .shipper-dropdown-menu {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.shipper-dropdown-header {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #f1f5f9;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: 12px 12px 0 0;
+}
+
+.shipper-dropdown-user {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.shipper-dropdown-avatar {
+  width: 44px;
+  height: 44px;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.shipper-dropdown-avatar-text {
+  color: white;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.shipper-dropdown-user-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.shipper-dropdown-user-name {
+  color: var(--text-dark);
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin: 0 0 0.1rem 0;
+}
+
+.shipper-dropdown-user-email {
+  color: var(--text-light);
+  font-size: 0.75rem;
+  margin: 0;
+}
+
+.shipper-dropdown-items {
+  padding: 0.5rem;
+}
+
+.shipper-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: none;
+  background: none;
+  color: var(--text-dark);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  width: 100%;
+  text-align: left;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.shipper-dropdown-item:hover {
+  background: var(--accent);
+  color: white;
+  transform: translateX(4px);
+}
+
+.shipper-dropdown-item:hover .shipper-dropdown-icon {
+  color: white;
+}
+
+.shipper-dropdown-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--text-light);
+  transition: color 0.3s ease;
+}
+
+.shipper-dropdown-divider {
+  height: 1px;
+  background: #f1f5f9;
+  margin: 0.25rem 0;
+}
+
+/* Content Area - Scrollable */
+.shipper-content {
+  padding: 1.5rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  min-height: calc(100vh - 80px); /* Adjust based on topbar height */
+}
+
+/* Rest of your existing styles for stats, cards, etc. remain the same */
+.shipper-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.5rem;
+}
+
+.shipper-stat-card {
+  background: white;
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  border: 1px solid #f0f0f0;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.shipper-stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--primary), var(--accent));
+}
+
+.shipper-stat-card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+}
+
+.shipper-stat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.shipper-stat-icon-wrapper {
+  padding: 0.75rem;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.3s ease;
+}
+
+.shipper-stat-card:hover .shipper-stat-icon-wrapper {
+  transform: scale(1.1);
+}
+
+.shipper-stat-icon-wrapper .icon {
+  width: 24px;
+  height: 24px;
+}
+
+.shipper-stat-change {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.shipper-stat-change.positive {
+  color: #10b981;
+}
+
+.shipper-stat-change.negative {
+  color: #ef4444;
+}
+
+.shipper-stat-change .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.shipper-stat-title {
+  color: var(--text-light);
+  font-size: 0.9rem;
+  margin: 0 0 0.5rem 0;
+  font-weight: 500;
+}
+
+.shipper-stat-value {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--text-dark);
+  margin: 0;
+}
+
+.shipper-stat-alert {
+  color: #ef4444;
+}
+
+/* Color variants for stat cards */
+.shipper-stat-card-primary .shipper-stat-icon-wrapper {
+  background: linear-gradient(135deg, rgba(12, 45, 72, 0.1) 0%, rgba(12, 45, 72, 0.2) 100%);
+  color: var(--primary);
+}
+
+.shipper-stat-card-secondary .shipper-stat-icon-wrapper {
+  background: linear-gradient(135deg, rgba(26, 74, 110, 0.1) 0%, rgba(26, 74, 110, 0.2) 100%);
+  color: var(--secondary);
+}
+
+.shipper-stat-card-accent .shipper-stat-icon-wrapper {
+  background: linear-gradient(135deg, rgba(243, 112, 33, 0.1) 0%, rgba(243, 112, 33, 0.2) 100%);
+  color: var(--accent);
+}
+
+.shipper-stat-card-success .shipper-stat-icon-wrapper {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.2) 100%);
+  color: #10b981;
+}
+
+/* Quick Actions Banner */
+.shipper-quick-actions {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+  border-radius: 20px;
+  padding: 2.5rem;
+  color: white;
+  position: relative;
+  overflow: hidden;
+}
+
+.shipper-quick-actions::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -20%;
+  width: 300px;
+  height: 300px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+}
+
+.shipper-quick-actions-content {
+  position: relative;
+  z-index: 2;
+}
+
+.shipper-quick-actions-title {
+  font-size: 2rem;
+  font-weight: 800;
+  margin: 0 0 0.5rem 0;
+}
+
+.shipper-quick-actions-subtitle {
+  font-size: 1.1rem;
+  opacity: 0.9;
+  margin: 0 0 2rem 0;
+}
+
+.shipper-quick-actions-btn {
+  background: white;
+  color: var(--primary);
+  border: none;
+  padding: 1rem 2rem;
+  border-radius: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 1rem;
+}
+
+.shipper-quick-actions-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 30px rgba(255, 255, 255, 0.2);
+}
+
+/* Content Grid */
+.shipper-content-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 2rem;
+}
+
+.shipper-shipments-section,
+.shipper-activity-section {
+  background: white;
+  border-radius: 16px;
+  padding: 2rem;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  border: 1px solid #f0f0f0;
+}
+
+.shipper-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.shipper-section-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--primary);
+  margin: 0;
+}
+
+.shipper-view-all-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+}
+
+.shipper-view-all-btn:hover {
+  background: rgba(243, 112, 33, 0.1);
+  transform: translateX(4px);
+}
+
+/* Shipments List */
+.shipper-shipments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.shipper-shipment-card {
+  border: 2px solid #f1f5f9;
+  border-radius: 12px;
+  padding: 1.5rem;
+  transition: all 0.3s ease;
+  background: white;
+}
+
+.shipper-shipment-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+}
+
+.shipper-shipment-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.shipper-shipment-id {
+  font-family: 'Monaco', 'Consolas', monospace;
+  font-size: 0.85rem;
+  color: var(--text-light);
+  font-weight: 600;
+}
+
+.shipper-shipment-status {
+  font-size: 0.8rem;
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.shipper-status-in-transit {
+  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+  color: #1e40af;
+}
+
+.shipper-status-loading {
+  background: linear-gradient(135deg, #fed7aa 0%, #fdba74 100%);
+  color: #c2410c;
+}
+
+.shipper-status-awaiting {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  color: #d97706;
+}
+
+.shipper-status-delivered {
+  background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+  color: #15803d;
+}
+
+.shipper-shipment-route {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.shipper-shipment-route .icon {
+  width: 20px;
+  height: 20px;
+  color: var(--accent);
+}
+
+.shipper-shipment-route span {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-dark);
+}
+
+.shipper-shipment-details {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  color: var(--text-light);
+  margin-bottom: 1rem;
+  font-weight: 500;
+}
+
+.shipper-shipment-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.shipper-progress-bar {
+  width: 100%;
+  height: 8px;
+  background: #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.shipper-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #fd7e14);
+  border-radius: 10px;
+  transition: width 0.8s ease;
+  position: relative;
+}
+
+.shipper-progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.shipper-progress-text {
+  font-size: 0.85rem;
+  color: var(--text-light);
+  text-align: right;
+  font-weight: 600;
+}
+
+.shipper-shipment-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.shipper-btn-track {
+  flex: 2;
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.shipper-btn-track:hover {
+  background: #e55c15;
+  transform: translateY(-2px);
+}
+
+.shipper-btn-contact {
+  flex: 1;
+  background: white;
+  color: var(--text-dark);
+  border: 2px solid #e5e7eb;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.shipper-btn-contact:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-2px);
+}
+
+/* Activity List */
+.shipper-activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.shipper-activity-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem;
+  border-radius: 12px;
+  transition: all 0.3s ease;
+  border: 2px solid transparent;
+}
+
+.shipper-activity-item:hover {
+  background: #f8fafc;
+  border-color: #f1f5f9;
+  transform: translateX(4px);
+}
+
+.shipper-activity-icon {
+  width: 44px;
+  height: 44px;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.shipper-activity-icon .icon {
+  width: 20px;
+  height: 20px;
+  color: white;
+}
+
+.shipper-activity-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.shipper-activity-event {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-dark);
+  margin: 0 0 0.25rem 0;
+}
+
+.shipper-activity-user {
+  font-size: 0.85rem;
+  color: var(--text-light);
+  margin: 0 0 0.25rem 0;
+  font-weight: 500;
+}
+
+.shipper-activity-time {
+  font-size: 0.8rem;
+  color: #9ca3af;
+  margin: 0;
+  font-weight: 500;
+}
+
+/* Bookings Table */
+.shipper-bookings-section {
+  background: white;
+  border-radius: 16px;
+  padding: 2rem;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  border: 1px solid #f0f0f0;
+}
+
+.shipper-bookings-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.shipper-bookings-table th {
+  text-align: left;
+  padding: 1rem;
+  font-weight: 700;
+  color: var(--primary);
+  border-bottom: 2px solid #f1f5f9;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.shipper-bookings-table td {
+  padding: 1rem;
+  border-bottom: 1px solid #f8fafc;
+  font-size: 0.9rem;
+}
+
+.shipper-bookings-table tr:hover {
+  background: #f8fafc;
+}
+
+.shipper-booking-status {
+  font-size: 0.8rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 15px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.shipper-booking-action {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+}
+
+.shipper-booking-action:hover {
+  background: rgba(243, 112, 33, 0.1);
+  transform: translateX(2px);
+}
+
+/* Responsive Design */
+@media (max-width: 1200px) {
+  .shipper-content-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .shipper-sidebar-open {
+    width: 240px;
+  }
+  
+  .shipper-main-content {
+    margin-left: 240px;
+  }
+  
+  .shipper-sidebar-closed + .shipper-main-content {
+    margin-left: 80px;
+  }
+  
+  .shipper-stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+  
+  .shipper-topbar {
+    padding: 1rem;
+  }
+  
+  .shipper-topbar-content {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+  
+  .shipper-topbar-right {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+  
+  .shipper-search-input {
+    width: 200px;
+  }
+  
+  .shipper-user-trigger {
+    min-width: auto;
+    padding: 0.5rem;
+  }
+  
+  .shipper-user-info {
+    display: none;
+  }
+  
+  .shipper-shipment-actions {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 480px) {
+  .shipper-content {
+    padding: 1rem;
+  }
+  
+  .shipper-stats-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .shipper-quick-actions {
+    padding: 1.5rem;
+  }
+  
+  .shipper-quick-actions-title {
+    font-size: 1.5rem;
+  }
+}
