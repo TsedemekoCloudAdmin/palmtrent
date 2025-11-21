@@ -12,11 +12,13 @@ import {
   ActivityIndicator
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import useAuth from '../../hook/useAuth'; // Updated import
+import useAuth from '../../hook/useAuth';
 
 const RegisterDetailsScreen = ({ navigation, route }) => {
-  const { signUp, isLoading } = useAuth(); // Using the hook
+  const { signUp, isLoading } = useAuth();
   const userType = route.params?.userType || 'shipper';
+  const phone = route.params?.phone || '';
+  
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -31,10 +33,10 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
   };
 
   const isFormValid = formData.agreeTerms && 
-                     formData.fullName && 
-                     formData.email && 
-                     formData.password && 
-                     formData.confirmPassword;
+                     formData.fullName.trim().length >= 2 && 
+                     /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/.test(formData.email) && 
+                     formData.password.length >= 8 && 
+                     formData.confirmPassword === formData.password;
 
   const handleCreateAccount = async () => {
     if (formData.password !== formData.confirmPassword) {
@@ -47,22 +49,26 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
       return;
     }
 
-    // Create user object
-    const userData = {
-      id: Math.random().toString(36).substring(7),
-      fullName: formData.fullName,
-      email: formData.email,
-      userType: userType,
-      phone: route.params?.phone || '', // Get phone from previous screen if available
-      isVerified: userType !== 'transporter',
-      createdAt: new Date().toISOString(),
-    };
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(formData.password)) {
+      Alert.alert(
+        'Weak Password', 
+        'Password must contain at least one lowercase letter, one uppercase letter, and one number'
+      );
+      return;
+    }
 
     try {
+      const userData = {
+        fullName: formData.fullName.trim(),
+        email: formData.email.toLowerCase(),
+        phone: `+263${phone}`,
+        password: formData.password,
+        userType: userType
+      };
+
       await signUp(userData);
-      // Navigation will happen automatically due to auth state change
     } catch (error) {
-      Alert.alert('Error', 'Failed to create account. Please try again.');
+      Alert.alert('Error', error.message || 'Failed to create account. Please try again.');
     }
   };
 
@@ -90,6 +96,7 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
                 onChangeText={(value) => updateField('fullName', value)}
                 placeholder="John Moyo"
                 editable={!isLoading}
+                autoCapitalize="words"
               />
             </View>
 
@@ -102,6 +109,7 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
                 placeholder="john@example.com"
                 keyboardType="email-address"
                 autoCapitalize="none"
+                autoComplete="email"
                 editable={!isLoading}
               />
             </View>
@@ -116,6 +124,7 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
                   placeholder="Minimum 8 characters"
                   secureTextEntry={!showPassword}
                   editable={!isLoading}
+                  autoComplete="new-password"
                 />
                 <TouchableOpacity
                   style={styles.eyeButton}
@@ -140,6 +149,7 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
                 placeholder="Re-enter password"
                 secureTextEntry={!showPassword}
                 editable={!isLoading}
+                autoComplete="new-password"
               />
             </View>
 
@@ -179,7 +189,6 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
   );
 };
 
-// Your existing styles remain the same...
 const styles = StyleSheet.create({
   container: {
     flex: 1,

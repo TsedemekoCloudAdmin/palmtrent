@@ -1,4 +1,4 @@
-// src/screens/UserTypeScreen.js - MINIMAL VERSION
+// src/screens/UserTypeScreen.js
 import React, { useState } from 'react';
 import {
   View,
@@ -8,8 +8,16 @@ import {
   SafeAreaView
 } from 'react-native';
 
-const UserTypeScreen = ({ navigation }) => {  // Use navigation prop
+const UserTypeScreen = ({ navigation }) => {
   const [selectedType, setSelectedType] = useState(null);
+
+  const handleContinue = () => {
+    if (!selectedType) return;
+    
+    navigation.navigate('PhoneVerify', { 
+      userType: selectedType 
+    });
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -23,7 +31,6 @@ const UserTypeScreen = ({ navigation }) => {  // Use navigation prop
       </View>
 
       <View style={styles.cardsContainer}>
-        {/* Simple buttons instead of UserTypeCard for now */}
         <TouchableOpacity
           style={[
             styles.simpleCard,
@@ -45,13 +52,24 @@ const UserTypeScreen = ({ navigation }) => {  // Use navigation prop
           <Text style={styles.simpleCardText}>Offer Transport Services</Text>
           <Text style={styles.simpleCardSubtext}>I own a truck/vehicle</Text>
         </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.simpleCard,
+            selectedType === 'trailer_owner' && styles.simpleCardSelected
+          ]}
+          onPress={() => setSelectedType('trailer_owner')}
+        >
+          <Text style={styles.simpleCardText}>Rent Out Trailers</Text>
+          <Text style={styles.simpleCardSubtext}>I own trailers for rental</Text>
+        </TouchableOpacity>
       </View>
 
       {selectedType && (
         <View style={styles.footer}>
           <TouchableOpacity
             style={styles.continueButton}
-            onPress={() => navigation.navigate('PhoneVerify')}
+            onPress={handleContinue}
           >
             <Text style={styles.continueButtonText}>Continue</Text>
           </TouchableOpacity>

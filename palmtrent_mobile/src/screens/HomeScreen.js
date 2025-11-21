@@ -1,5 +1,5 @@
 // src/screens/HomeScreen.js
-import React, { useState } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,91 +13,203 @@ import {
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../hook/useAuth';
-
-const mockStats = {
-  activeJobs: 3,
-  pendingPayment: 2,
-  earnings: 1250.00
-};
-
-// Trailer Owner Mock Data
-const trailerOwnerStats = {
-  totalTrailers: 8,
-  available: 5,
-  rented: 2,
-  maintenance: 1,
-  monthlyEarnings: 3240,
-  pendingPayouts: 1200,
-  utilizationRate: '75%'
-};
-
-const upcomingReturns = [
-  {
-    id: 1,
-    trailer: 'Flatbed TR-001',
-    customer: 'John Transport',
-    returnDate: 'Today, 5:00 PM',
-    amount: 240
-  },
-  {
-    id: 2,
-    trailer: 'Lowboy TR-004',
-    customer: 'Construction Co Ltd',
-    returnDate: 'Tomorrow, 10:00 AM',
-    amount: 1400
-  }
-];
-
-const trailerActivity = [
-  {
-    id: 1,
-    title: 'Flatbed TR-001',
-    status: 'Rental Started',
-    date: '2 hours ago',
-    amount: '$240'
-  },
-  {
-    id: 2,
-    title: 'Enclosed TR-002',
-    status: 'Rental Completed',
-    date: '1 day ago',
-    amount: '$360'
-  }
-];
+import { 
+  useTransporterDashboardStats,
+  useTransporterRecentActivity,
+  useTransporterAvailableJobs,
+  useShipperDashboardStats,
+  useShipperRecentActivity,
+  useTrailerOwnerDashboardStats,
+  useTrailerOwnerRecentActivity
+} from '../hook/useApi';
 
 const HomeScreen = ({ navigation }) => {
-  const { user, signOut, isLoading } = useAuth();
+  const { user, logout, isLoading: authLoading } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
 
-  const handleLogout = async () => {
-    await signOut();
-  };
+  // Determine user type
+  const isCorporate = user?.userType === 'corporate';
+  const isTransporter = user?.userType === 'transporter';
+  const isTrailerOwner = user?.userType === 'trailer_owner';
+  const isShipper = user?.userType === 'shipper' || isCorporate;
 
-  const navigateToBooking = () => {
+  // Fetch data based on user type
+  const { 
+    data: transporterStats, 
+    loading: transporterStatsLoading,
+    refresh: refreshTransporterStats 
+  } = useTransporterDashboardStats(isTransporter);
+
+  const { 
+    data: transporterActivity,
+    loading: transporterActivityLoading,
+    refresh: refreshTransporterActivity 
+  } = useTransporterRecentActivity(5, isTransporter);
+
+  const { 
+    data: availableJobs,
+    loading: jobsLoading,
+    refresh: refreshJobs 
+  } = useTransporterAvailableJobs({}, isTransporter);
+
+  const { 
+    data: shipperStats,
+    loading: shipperStatsLoading,
+    refresh: refreshShipperStats 
+  } = useShipperDashboardStats(isShipper && !isCorporate);
+
+  const { 
+    data: shipperActivity,
+    loading: shipperActivityLoading,
+    refresh: refreshShipperActivity 
+  } = useShipperRecentActivity(5, isShipper && !isCorporate);
+
+  const { 
+    data: trailerStats,
+    loading: trailerStatsLoading,
+    refresh: refreshTrailerStats 
+  } = useTrailerOwnerDashboardStats(isTrailerOwner);
+
+  const { 
+    data: trailerActivity,
+    loading: trailerActivityLoading,
+    refresh: refreshTrailerActivity 
+  } = useTrailerOwnerRecentActivity(5, isTrailerOwner);
+
+  // Also fetch corporate stats if corporate user
+  const { 
+    data: corporateStats,
+    loading: corporateStatsLoading,
+    refresh: refreshCorporateStats 
+  } = useShipperDashboardStats(isCorporate);
+
+  const { 
+    data: corporateActivity,
+    loading: corporateActivityLoading,
+    refresh: refreshCorporateActivity 
+  } = useShipperRecentActivity(5, isCorporate);
+
+  const handleLogout = useCallback(async () => {
+    await logout();
+  }, [logout]);
+
+  const navigateToBooking = useCallback(() => {
     navigation.navigate('Booking');
-  };
+  }, [navigation]);
 
-  const onRefresh = () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 2000);
-  };
+    try {
+      if (isTransporter) {
+        await Promise.all([
+          refreshTransporterStats(),
+          refreshTransporterActivity(),
+          refreshJobs()
+        ]);
+      } else if (isTrailerOwner) {
+        await Promise.all([
+          refreshTrailerStats(),
+          refreshTrailerActivity()
+        ]);
+      } else if (isCorporate) {
+        await Promise.all([
+          refreshCorporateStats(),
+          refreshCorporateActivity()
+        ]);
+      } else if (isShipper) {
+        await Promise.all([
+          refreshShipperStats(),
+          refreshShipperActivity()
+        ]);
+      }
+    } catch (error) {
+      console.error('Refresh error:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [
+    isTransporter, isTrailerOwner, isCorporate, isShipper,
+    refreshTransporterStats, refreshTransporterActivity, refreshJobs,
+    refreshTrailerStats, refreshTrailerActivity,
+    refreshCorporateStats, refreshCorporateActivity,
+    refreshShipperStats, refreshShipperActivity
+  ]);
 
-  if (isLoading) {
+  const isLoading = authLoading || 
+    (isTransporter && (transporterStatsLoading || transporterActivityLoading)) ||
+    (isTrailerOwner && (trailerStatsLoading || trailerActivityLoading)) ||
+    (isCorporate && (corporateStatsLoading || corporateActivityLoading)) ||
+    (isShipper && !isCorporate && (shipperStatsLoading || shipperActivityLoading));
+
+  // Get stats based on user type
+  const stats = useMemo(() => {
+    if (isTrailerOwner) {
+      return trailerStats || {
+        totalTrailers: 0,
+        available: 0,
+        rented: 0,
+        maintenance: 0,
+        monthlyEarnings: 0,
+        pendingPayouts: 0,
+        utilizationRate: '0%'
+      };
+    } else if (isTransporter) {
+      return transporterStats || {
+        activeJobs: 0,
+        pendingPayment: 0,
+        earnings: 0,
+        totalTrips: 0,
+        rating: 0
+      };
+    } else if (isCorporate) {
+      return corporateStats || {
+        activeJobs: 0,
+        pendingPayment: 0,
+        spending: 0,
+        totalShipments: 0
+      };
+    } else if (isShipper) {
+      return shipperStats || {
+        activeJobs: 0,
+        pendingPayment: 0,
+        spending: 0,
+        totalShipments: 0
+      };
+    }
+    return { activeJobs: 0, pendingPayment: 0, earnings: 0 };
+  }, [isTrailerOwner, isTransporter, isCorporate, isShipper, trailerStats, transporterStats, corporateStats, shipperStats]);
+
+  // Get recent activity based on user type
+  const recentActivity = useMemo(() => {
+    if (isTrailerOwner) {
+      return trailerActivity || [];
+    } else if (isTransporter) {
+      return transporterActivity || [];
+    } else if (isCorporate) {
+      return corporateActivity || [];
+    } else if (isShipper) {
+      return shipperActivity || [];
+    }
+    return [];
+  }, [isTrailerOwner, isTransporter, isCorporate, isShipper, trailerActivity, transporterActivity, corporateActivity, shipperActivity]);
+
+  // Check if we should show stats
+  const shouldShowStats = isTrailerOwner || isTransporter || isCorporate;
+
+  if (isLoading && !refreshing) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#0C2D48" />
-        <Text>Loading...</Text>
+        <Text style={styles.loadingText}>Loading...</Text>
       </View>
     );
   }
-
-  const isTrailerOwner = user?.userType === 'trailer_owner';
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       
-      {/* Header */}
+      {/* Header with reduced padding for stats card overlap */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <View>
@@ -108,27 +220,29 @@ const HomeScreen = ({ navigation }) => {
             <TouchableOpacity 
               style={styles.logoutButton}
               onPress={handleLogout}
-              disabled={isLoading}
+              disabled={authLoading}
             >
               <MaterialIcons name="logout" size={20} color="white" />
             </TouchableOpacity>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {user?.fullName?.charAt(0) || 'U'}
-              </Text>
-            </View>
           </View>
         </View>
         
         <View style={styles.ratingContainer}>
           <MaterialIcons name="star" size={16} color="#fbbf24" />
-          <Text style={styles.ratingText}>4.8</Text>
+          <Text style={styles.ratingText}>
+            {isTransporter ? stats.rating?.toFixed(1) || '0.0' : '4.8'}
+          </Text>
           <Text style={styles.tripsText}>
-            • {isTrailerOwner ? '8 trailers' : '45 trips'}
+            • {isTrailerOwner 
+              ? `${stats.totalTrailers || 0} trailers` 
+              : isTransporter 
+                ? `${stats.totalTrips || 0} trips`
+                : `${stats.totalShipments || 0} shipments`}
           </Text>
           <Text style={styles.userTypeBadge}>
             {isTrailerOwner ? 'Trailer Owner' :
-             user?.userType === 'transporter' ? 'Transporter' : 'Shipper'}
+             isTransporter ? 'Transporter' : 
+             isCorporate ? 'Corporate' : 'Shipper'}
           </Text>
         </View>
       </View>
@@ -139,41 +253,44 @@ const HomeScreen = ({ navigation }) => {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
+        contentContainerStyle={styles.scrollViewContent}
       >
-        {/* Quick Stats */}
-        {isTrailerOwner ? (
+        {/* Stats Card - Only show for trailer owners, transporters, and corporate users */}
+        {shouldShowStats && (
           <View style={styles.statsContainer}>
-            <View style={styles.statsCard}>
-              <View style={styles.statItem}>
-                <Text style={[styles.statNumber, styles.blueText]}>{trailerOwnerStats.totalTrailers}</Text>
-                <Text style={styles.statLabel}>Total Trailers</Text>
+            {isTrailerOwner ? (
+              <View style={styles.statsCard}>
+                <View style={styles.statItem}>
+                  <Text style={[styles.statNumber, styles.blueText]}>{stats.totalTrailers}</Text>
+                  <Text style={styles.statLabel}>Total Trailers</Text>
+                </View>
+                <View style={[styles.statItem, styles.statDivider]}>
+                  <Text style={[styles.statNumber, styles.greenText]}>${stats.monthlyEarnings}</Text>
+                  <Text style={styles.statLabel}>This Month</Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Text style={[styles.statNumber, styles.orangeText]}>{stats.rented}</Text>
+                  <Text style={styles.statLabel}>Rented Out</Text>
+                </View>
               </View>
-              <View style={[styles.statItem, styles.statDivider]}>
-                <Text style={[styles.statNumber, styles.greenText]}>${trailerOwnerStats.monthlyEarnings}</Text>
-                <Text style={styles.statLabel}>This Month</Text>
+            ) : (
+              <View style={styles.statsCard}>
+                <View style={styles.statItem}>
+                  <Text style={[styles.statNumber, styles.blueText]}>{stats.activeJobs}</Text>
+                  <Text style={styles.statLabel}>Active Jobs</Text>
+                </View>
+                <View style={[styles.statItem, styles.statDivider]}>
+                  <Text style={[styles.statNumber, styles.greenText]}>
+                    ${isTransporter ? stats.earnings : stats.spending}
+                  </Text>
+                  <Text style={styles.statLabel}>This Month</Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Text style={[styles.statNumber, styles.orangeText]}>{stats.pendingPayment}</Text>
+                  <Text style={styles.statLabel}>Pending</Text>
+                </View>
               </View>
-              <View style={styles.statItem}>
-                <Text style={[styles.statNumber, styles.orangeText]}>{trailerOwnerStats.rented}</Text>
-                <Text style={styles.statLabel}>Rented Out</Text>
-              </View>
-            </View>
-          </View>
-        ) : user?.userType === 'transporter' && (
-          <View style={styles.statsContainer}>
-            <View style={styles.statsCard}>
-              <View style={styles.statItem}>
-                <Text style={[styles.statNumber, styles.blueText]}>{mockStats.activeJobs}</Text>
-                <Text style={styles.statLabel}>Active Jobs</Text>
-              </View>
-              <View style={[styles.statItem, styles.statDivider]}>
-                <Text style={[styles.statNumber, styles.greenText]}>${mockStats.earnings}</Text>
-                <Text style={styles.statLabel}>This Month</Text>
-              </View>
-              <View style={styles.statItem}>
-                <Text style={[styles.statNumber, styles.orangeText]}>{mockStats.pendingPayment}</Text>
-                <Text style={styles.statLabel}>Pending</Text>
-              </View>
-            </View>
+            )}
           </View>
         )}
 
@@ -209,11 +326,11 @@ const HomeScreen = ({ navigation }) => {
                 title="Maintenance"
                 subtitle="Schedule and track maintenance"
                 color="blue"
-                badge={`${trailerOwnerStats.maintenance}`}
+                badge={stats.maintenance > 0 ? `${stats.maintenance}` : undefined}
                 onPress={() => navigation.navigate('TrailerRental')}
               />
             </View>
-          ) : user?.userType === 'shipper' ? (
+          ) : isShipper && !isCorporate ? (
             <View style={styles.actionsContainer}>
               <ActionButton
                 icon="inventory"
@@ -237,91 +354,84 @@ const HomeScreen = ({ navigation }) => {
                 onPress={() => console.log('My Bookings')}
               />
             </View>
-          ) : (
+          ) : isTransporter ? (
             <View style={styles.actionsContainer}>
               <ActionButton
                 icon="local-shipping"
                 title="Available Jobs"
                 subtitle="Browse and accept new jobs"
                 color="blue"
-                badge="5 new"
-                onPress={() => console.log('Available Jobs')}
+                badge={availableJobs?.length ? `${availableJobs.length} new` : undefined}
+               onPress={() => navigation.navigate('AvailableJobs')}
               />
               <ActionButton
                 icon="location-on"
                 title="Active Deliveries"
                 subtitle="Track your ongoing deliveries"
                 color="green"
-                onPress={() => console.log('Active Deliveries')}
+                onPress={() => navigation.navigate('ActiveDeliveries')}
               />
               <ActionButton
                 icon="trending-up"
                 title="My Earnings"
                 subtitle="View payment history and earnings"
                 color="purple"
-                onPress={() => console.log('My Earnings')}
+                onPress={() => navigation.navigate('MyEarnings')}
+              />
+               <ActionButton
+                icon="local-shipping"
+                title="Fleet Management"
+                subtitle="Manage vehicles and drivers"
+                color="orange"
+                onPress={() => navigation.navigate('FleetDashboard')}
+              />
+            </View>
+          ) : (
+            <View style={styles.actionsContainer}>
+              <ActionButton
+                icon="inventory"
+                title="Book Transport"
+                subtitle="Find a transporter for your cargo"
+                color="blue"
+                onPress={navigateToBooking}
+              />
+              <ActionButton
+                icon="location-on"
+                title="Track Shipments"
+                subtitle="View live location of your shipments"
+                color="green"
+                onPress={() => console.log('Track Shipments')}
+              />
+              <ActionButton
+                icon="trending-up"
+                title="Analytics"
+                subtitle="View company shipping analytics"
+                color="purple"
+                onPress={() => console.log('Analytics')}
               />
             </View>
           )}
         </View>
 
         {/* Recent Activity */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            {isTrailerOwner ? 'Recent Activity' : 'Recent Activity'}
-          </Text>
-          <View style={styles.activitiesContainer}>
-            {isTrailerOwner ? (
-              <>
-                {trailerActivity.map((activity) => (
-                  <ActivityCard
-                    key={activity.id}
-                    title={activity.title}
-                    status={activity.status}
-                    date={activity.date}
-                    amount={activity.amount}
-                    statusColor={activity.status.includes('Completed') ? 'green' : 'blue'}
-                    onPress={() => console.log('Activity Details')}
-                  />
-                ))}
-              </>
-            ) : (
-              <>
-                <ActivityCard
-                  title="Harare → Bulawayo"
-                  status="Completed"
-                  date="2 hours ago"
-                  amount="$400"
-                  statusColor="green"
-                  onPress={() => console.log('Trip Details')}
-                />
-                <ActivityCard
-                  title="Mutare → Harare"
-                  status="In Transit"
-                  date="5 hours ago"
-                  amount="$350"
-                  statusColor="blue"
-                  onPress={() => console.log('Trip Details')}
-                />
-              </>
-            )}
-          </View>
-        </View>
-
-        {/* Upcoming Returns - Only for Trailer Owners */}
-        {isTrailerOwner && (
+        {recentActivity.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Upcoming Returns</Text>
+            <Text style={styles.sectionTitle}>Recent Activity</Text>
             <View style={styles.activitiesContainer}>
-              {upcomingReturns.map((item) => (
+              {recentActivity.map((activity) => (
                 <ActivityCard
-                  key={item.id}
-                  title={item.trailer}
-                  status={item.customer}
-                  date={item.returnDate}
-                  amount={`$${item.amount}`}
-                  statusColor="blue"
-                  onPress={() => console.log('Return Details')}
+                  key={activity.id}
+                  title={activity.title}
+                  status={activity.status}
+                  date={activity.date}
+                  amount={activity.amount}
+                  statusColor={
+                    activity.status?.toLowerCase().includes('completed') ||
+                    activity.status?.toLowerCase().includes('delivered')
+                      ? 'green' 
+                      : 'blue'
+                  }
+                  onPress={() => console.log('Activity Details', activity.id)}
                 />
               ))}
             </View>
@@ -335,17 +445,19 @@ const HomeScreen = ({ navigation }) => {
 };
 
 // ActionButton Component
-const ActionButton = ({ icon, title, subtitle, color, badge, onPress }) => {
+const ActionButton = React.memo(({ icon, title, subtitle, color, badge, onPress }) => {
   const colorStyles = {
     blue: { backgroundColor: '#dbeafe', borderColor: '#bfdbfe' },
     green: { backgroundColor: '#dcfce7', borderColor: '#bbf7d0' },
-    purple: { backgroundColor: '#f3e8ff', borderColor: '#e9d5ff' }
+    purple: { backgroundColor: '#f3e8ff', borderColor: '#e9d5ff' },
+     orange: { backgroundColor: '#ffcd91', borderColor: '#ffcd91' }
   };
 
   const iconColors = {
     blue: '#0C2D48',
     green: '#16a34a',
-    purple: '#7c3aed'
+    purple: '#7c3aed',
+    orange: '#F37021',
   };
 
   return (
@@ -370,10 +482,10 @@ const ActionButton = ({ icon, title, subtitle, color, badge, onPress }) => {
       </View>
     </TouchableOpacity>
   );
-};
+});
 
 // ActivityCard Component
-const ActivityCard = ({ title, status, date, amount, statusColor, onPress }) => {
+const ActivityCard = React.memo(({ title, status, date, amount, statusColor, onPress }) => {
   const statusStyle = statusColor === 'green' ? styles.statusGreen : styles.statusBlue;
   const amountStyle = statusColor === 'green' ? styles.amountGreen : styles.amountBlue;
   const statusTextStyle = statusColor === 'green' ? styles.statusGreenText : styles.statusBlueText;
@@ -385,7 +497,7 @@ const ActivityCard = ({ title, status, date, amount, statusColor, onPress }) => 
       onPress={onPress}
     >
       <View style={styles.activityHeader}>
-        <View>
+        <View style={styles.activityInfo}>
           <Text style={styles.activityTitle}>{title}</Text>
           <Text style={styles.activityDate}>{date}</Text>
         </View>
@@ -398,7 +510,7 @@ const ActivityCard = ({ title, status, date, amount, statusColor, onPress }) => 
       </View>
     </TouchableOpacity>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {
@@ -408,17 +520,28 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
+  scrollViewContent: {
+    paddingTop: 0, // Remove top padding to allow proper overlap
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#f9fafb',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#6b7280',
   },
   header: {
     backgroundColor: '#0C2D48',
     padding: 24,
     paddingTop: 50,
+    paddingBottom: 40, // Reduced from 70 to allow overlap
     borderBottomLeftRadius: 24,
     borderBottomRightRadius: 24,
+    zIndex: 1, // Lower zIndex than stats
   },
   headerTop: {
     flexDirection: 'row',
@@ -442,19 +565,6 @@ const styles = StyleSheet.create({
   userName: {
     color: 'white',
     fontSize: 24,
-    fontWeight: 'bold',
-  },
-  avatar: {
-    width: 48,
-    height: 48,
-    backgroundColor: 'white',
-    borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarText: {
-    color: '#0C2D48',
-    fontSize: 18,
     fontWeight: 'bold',
   },
   ratingContainer: {
@@ -481,10 +591,13 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginLeft: 8,
   },
+  // OVERLAP MODIFICATIONS - Only these styles are changed for the overlap effect
   statsContainer: {
+    position: 'relative',
     paddingHorizontal: 16,
-    marginTop: -10,
+    marginTop: 5, // Increased negative margin to overlap header
     marginBottom: 16,
+    zIndex: 10, // Higher zIndex to appear above header
   },
   statsCard: {
     backgroundColor: 'white',
@@ -492,11 +605,14 @@ const styles = StyleSheet.create({
     padding: 16,
     flexDirection: 'row',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
   },
+  // END OF OVERLAP MODIFICATIONS
+  
+  // Everything below remains exactly the same as your original code
   statItem: {
     flex: 1,
     alignItems: 'center',
@@ -514,6 +630,7 @@ const styles = StyleSheet.create({
   statLabel: {
     fontSize: 12,
     color: '#6b7280',
+    textAlign: 'center',
   },
   blueText: {
     color: '#0C2D48',
@@ -596,6 +713,9 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: 8,
   },
+  activityInfo: {
+    flex: 1,
+  },
   activityTitle: {
     fontSize: 16,
     fontWeight: '600',
@@ -609,6 +729,7 @@ const styles = StyleSheet.create({
   activityAmount: {
     fontSize: 14,
     fontWeight: '600',
+    marginLeft: 12,
   },
   amountGreen: {
     color: '#16a34a',

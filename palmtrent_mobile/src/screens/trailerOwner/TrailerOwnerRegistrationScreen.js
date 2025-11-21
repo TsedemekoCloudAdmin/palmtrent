@@ -962,7 +962,7 @@ const styles = StyleSheet.create({
   },
   ownerTypeContainer: {
     marginBottom: 24,
-    marginTop:50,
+    marginTop:5,
   },
   ownerTypeButtons: {
     flexDirection: 'row',

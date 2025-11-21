@@ -7,17 +7,36 @@ import {
   TextInput,
   StyleSheet,
   SafeAreaView,
-  ScrollView
+  ScrollView,
+  Alert,
+  ActivityIndicator
 } from 'react-native';
+import { useApi } from '../../hook/useApi';
+import apiService from '../../services/apiService';
 
-const PhoneVerifyScreen = ({ navigation, route }) => {  // Use navigation prop
+const PhoneVerifyScreen = ({ navigation, route }) => {
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const [step, setStep] = useState('phone');
   const [timer, setTimer] = useState(59);
 
-  // Get userType from route params if needed
   const userType = route.params?.userType;
+
+  // API hooks
+  const { execute: sendCode, loading: sendLoading } = useApi(
+    (phone) => apiService.sendVerificationCode(phone),
+    false
+  );
+
+  const { execute: verifyCode, loading: verifyLoading } = useApi(
+    ({ phone, code }) => apiService.verifyCode(phone, code),
+    false
+  );
+
+  const { execute: resendCode, loading: resendLoading } = useApi(
+    (phone) => apiService.resendVerificationCode(phone),
+    false
+  );
 
   useEffect(() => {
     let interval;
@@ -29,8 +48,19 @@ const PhoneVerifyScreen = ({ navigation, route }) => {  // Use navigation prop
     return () => clearInterval(interval);
   }, [step, timer]);
 
-  const handlePhoneSubmit = () => {
-    setStep('code');
+  const handlePhoneSubmit = async () => {
+    if (phone.length < 9) {
+      Alert.alert('Error', 'Please enter a valid 9-digit phone number');
+      return;
+    }
+
+    try {
+      await sendCode(phone);
+      setStep('code');
+      setTimer(59);
+    } catch (error) {
+      Alert.alert('Error', error.message || 'Failed to send verification code. Please try again.');
+    }
   };
 
   const handleCodeChange = (index, value) => {
@@ -41,12 +71,47 @@ const PhoneVerifyScreen = ({ navigation, route }) => {  // Use navigation prop
     }
   };
 
+  const handleVerifyCode = async () => {
+    const verificationCode = code.join('');
+    
+    if (verificationCode.length !== 6) {
+      Alert.alert('Error', 'Please enter the complete 6-digit code');
+      return;
+    }
+
+    try {
+      await verifyCode({ phone, code: verificationCode });
+      
+      navigation.navigate('RegisterDetails', { 
+        userType: userType,
+        phone: phone
+      });
+    } catch (error) {
+      Alert.alert('Error', error.message || 'Invalid verification code. Please try again.');
+    }
+  };
+
+  const handleResendCode = async () => {
+    try {
+      await resendCode(phone);
+      setTimer(59);
+      Alert.alert('Success', 'Verification code sent successfully');
+    } catch (error) {
+      Alert.alert('Error', error.message || 'Failed to resend code. Please try again.');
+    }
+  };
+
   const isCodeComplete = code.every(digit => digit !== '');
+  const isLoading = sendLoading || verifyLoading;
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+        <TouchableOpacity 
+          onPress={() => navigation.goBack()} 
+          style={styles.backButton}
+          disabled={isLoading}
+        >
           <Text style={styles.backButtonText}>← Back</Text>
         </TouchableOpacity>
 
@@ -68,6 +133,7 @@ const PhoneVerifyScreen = ({ navigation, route }) => {  // Use navigation prop
                   placeholder="77 123 4567"
                   keyboardType="phone-pad"
                   maxLength={9}
+                  editable={!sendLoading}
                 />
               </View>
               <Text style={styles.helperText}>
@@ -76,11 +142,15 @@ const PhoneVerifyScreen = ({ navigation, route }) => {  // Use navigation prop
             </View>
 
             <TouchableOpacity
-              style={[styles.button, phone.length < 9 && styles.buttonDisabled]}
+              style={[styles.button, (phone.length < 9 || sendLoading) && styles.buttonDisabled]}
               onPress={handlePhoneSubmit}
-              disabled={phone.length < 9}
+              disabled={phone.length < 9 || sendLoading}
             >
-              <Text style={styles.buttonText}>Send Verification Code</Text>
+              {sendLoading ? (
+                <ActivityIndicator color="white" />
+              ) : (
+                <Text style={styles.buttonText}>Send Verification Code</Text>
+              )}
             </TouchableOpacity>
           </View>
         ) : (
@@ -100,27 +170,34 @@ const PhoneVerifyScreen = ({ navigation, route }) => {  // Use navigation prop
                   keyboardType="number-pad"
                   maxLength={1}
                   textAlign="center"
+                  editable={!verifyLoading}
                 />
               ))}
             </View>
 
-           <TouchableOpacity
-              style={[styles.button, !isCodeComplete && styles.buttonDisabled]}
-              onPress={() => navigation.navigate('RegisterDetails', { 
-              userType: userType,
-              phone: phone // Pass the phone number to the next screen
-            })}
-            disabled={!isCodeComplete}>
-            <Text style={styles.buttonText}>Verify & Continue</Text>
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.button, (!isCodeComplete || verifyLoading) && styles.buttonDisabled]}
+              onPress={handleVerifyCode}
+              disabled={!isCodeComplete || verifyLoading}
+            >
+              {verifyLoading ? (
+                <ActivityIndicator color="white" />
+              ) : (
+                <Text style={styles.buttonText}>Verify & Continue</Text>
+              )}
+            </TouchableOpacity>
 
             <View style={styles.resendContainer}>
               <Text style={styles.resendText}>Didn't receive code?</Text>
               {timer > 0 ? (
                 <Text style={styles.timerText}>Resend in {timer}s</Text>
               ) : (
-                <TouchableOpacity>
-                  <Text style={styles.resendButton}>Resend Code</Text>
+                <TouchableOpacity onPress={handleResendCode} disabled={resendLoading}>
+                  {resendLoading ? (
+                    <ActivityIndicator color="#0C2D48" size="small" />
+                  ) : (
+                    <Text style={styles.resendButton}>Resend Code</Text>
+                  )}
                 </TouchableOpacity>
               )}
             </View>

@@ -15,7 +15,7 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../../hook/useAuth';
 
 const LoginScreen = ({ navigation }) => {
-  const { signIn, isLoading } = useAuth(); // Using the hook
+  const { signIn, isLoading } = useAuth();
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -26,22 +26,24 @@ const LoginScreen = ({ navigation }) => {
       return;
     }
 
-    // Mock user data - replace with actual authentication
-    const userData = {
-      id: Math.random().toString(36).substring(7),
-      phone: phone,
-      userType: 'shipper', // This would come from your backend
-      fullName: 'Existing User', // This would come from your backend
-      email: 'user@example.com', // This would come from your backend
-    };
+    if (phone.length !== 9) {
+      Alert.alert('Error', 'Please enter a valid 9-digit phone number');
+      return;
+    }
 
     try {
-      await signIn(userData);
-      // Navigation will happen automatically due to auth state change
+      const credentials = {
+        phone: `+263${phone}`,
+        password
+      };
+
+      await signIn(credentials);
     } catch (error) {
-      Alert.alert('Error', 'Failed to sign in. Please check your credentials.');
+      Alert.alert('Error', error.message || 'Failed to sign in. Please check your credentials.');
     }
   };
+
+  const isFormValid = phone.length === 9 && password.length >= 8;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -112,9 +114,9 @@ const LoginScreen = ({ navigation }) => {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.button, isLoading && styles.buttonDisabled]}
+              style={[styles.button, (!isFormValid || isLoading) && styles.buttonDisabled]}
               onPress={handleSignIn}
-              disabled={isLoading}
+              disabled={!isFormValid || isLoading}
             >
               {isLoading ? (
                 <ActivityIndicator color="white" />
@@ -141,7 +143,6 @@ const LoginScreen = ({ navigation }) => {
   );
 };
 
-// Your existing styles remain the same...
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -241,6 +242,9 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
+  },
+  buttonDisabled: {
+    backgroundColor: '#d1d5db',
   },
   buttonText: {
     color: 'white',

@@ -9,6 +9,7 @@ import AvailableJobsScreen from '../screens/AvailableJobs';
 import ProfileScreen from '../screens/ProfileScreen';
 import TrackingScreen from '../screens/TrackingScreen';
 import PendingJobsScreen from '../screens/transporter/PendingJobsScreen';
+import FleetDashboardScreen from '../screens/transporter/FleetDashboardScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -79,15 +80,16 @@ const TransporterTabs = () => {
         }}
       />
       <Tab.Screen 
-        name="InTransit" 
-        component={TrackingScreen}
+        name="Fleet" 
+        component={FleetDashboardScreen}
         options={{
           tabBarIcon: ({ color, size }) => (
             <MaterialIcons name="local-shipping" size={size} color={color} />
           ),
-          title: 'In Transit',
+          title: 'Fleet',
         }}
       />
+      
       <Tab.Screen 
         name="Profile" 
         component={ProfileScreen}

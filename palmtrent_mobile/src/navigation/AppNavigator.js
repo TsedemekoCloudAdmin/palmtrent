@@ -32,6 +32,13 @@ import TrailerListScreen from '../screens/trailerOwner/TrailerListScreen';
 import TrailerTrackingScreen from '../screens/trailerOwner/TrailerTrackingScreen';
 import EditTrailerScreen from '../screens/trailerOwner/EditTrailerScreen';
 import CorporateAccountSetup from '../screens/shipper/CorporateAccountSetupScreen';
+import FleetDashboardScreen from '../screens/transporter/FleetDashboardScreen';
+import AddDriverScreen from '../screens/transporter/AddDriverScreen';
+import AddVehicleScreen from '../screens/transporter/AddVehicleScreen';
+import VehicleDetailsScreen from '../screens/transporter/VehicleDetailsScreen';
+import DriverDetailsScreen from '../screens/transporter/DriverDetailsScreen';
+import EditVehicleScreen from '../screens/transporter/EditVehicleScreen';
+import EditDriverScreen from '../screens/transporter/EditDriverScreen';
 
 
 const Stack = createStackNavigator();
@@ -83,6 +90,13 @@ const AppNavigator = () => {
       <Stack.Screen name="PickupChecklist" component={PickupChecklistScreen} />
       <Stack.Screen name="DeliveryChecklist" component={DeliveryChecklistScreen} />
       <Stack.Screen name="DeliveryCompleted" component={DeliveryCompletedScreen} />
+       <Stack.Screen name="FleetDashboard" component={FleetDashboardScreen} />
+       <Stack.Screen name="AddDriver" component={AddDriverScreen} />
+       <Stack.Screen name="AddVehicle" component={AddVehicleScreen} />
+       <Stack.Screen name="VehicleDetails" component={VehicleDetailsScreen} />
+      <Stack.Screen name="DriverDetails" component={DriverDetailsScreen} />
+      <Stack.Screen name="EditVehicle" component={EditVehicleScreen} />
+      <Stack.Screen name="EditDriver" component={EditDriverScreen} />
     </Stack.Navigator>
   );
 };

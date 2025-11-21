@@ -6,21 +6,25 @@ import {
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
-  StatusBar
+  StatusBar,
+  Image
 } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialIcons';
 
-const WelcomeScreen = ({ navigation }) => {  // Changed from onNavigate to navigation
+const WelcomeScreen = ({ navigation }) => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       <View style={styles.content}>
+        
         <View style={styles.logoContainer}>
           <View style={styles.logo}>
-            <Icon name="local-shipping" size={48} color="#0C2D48" />
+            <Image
+              source={require('../../../assets/splash-icon.png')} 
+              // or use: require('../../assets/splash-icon.png')
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
           </View>
-          <Text style={styles.title}>PalmTrent</Text>
-          <Text style={styles.subtitle}>Zimbabwe's #1 Logistics Marketplace</Text>
           <Text style={styles.description}>
             Connect with verified transporters or find loads for your truck
           </Text>
@@ -29,14 +33,14 @@ const WelcomeScreen = ({ navigation }) => {  // Changed from onNavigate to navig
         <View style={styles.buttonsContainer}>
           <TouchableOpacity
             style={styles.primaryButton}
-            onPress={() => navigation.navigate('UserType')}  // Updated to use navigation.navigate
+            onPress={() => navigation.navigate('UserType')}
           >
             <Text style={styles.primaryButtonText}>Get Started</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.secondaryButton}
-            onPress={() => navigation.navigate('Login')}  // Updated to use navigation.navigate
+            onPress={() => navigation.navigate('Login')}
           >
             <Text style={styles.secondaryButtonText}>Sign In</Text>
           </TouchableOpacity>
@@ -50,7 +54,6 @@ const WelcomeScreen = ({ navigation }) => {  // Changed from onNavigate to navig
   );
 };
 
-// Your existing styles remain the same...
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -66,8 +69,8 @@ const styles = StyleSheet.create({
     marginTop: 60,
   },
   logo: {
-    width: 96,
-    height: 96,
+    width: 210,
+    height: 210,
     backgroundColor: 'white',
     borderRadius: 24,
     justifyContent: 'center',
@@ -78,6 +81,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
+  },
+  logoImage: {
+    width: 195,
+    height:195,
   },
   title: {
     fontSize: 36,
