@@ -232,6 +232,10 @@ class ApiService {
     });
   }
 
+  async uploadVehiclePhoto(vehicleId, formData) {
+    return this.uploadRequest(`/vehicles/${vehicleId}/photos`, formData);
+  }
+
   // Driver APIs (compatible with short version)
   async getDrivers(params = '') {
     let url = '/drivers';
@@ -331,11 +335,12 @@ class ApiService {
   async getCurrentUser() {
     try {
       const response = await this.request('/auth/me');
-      // Update stored user data
-      if (response.data) {
-        await this.setUserData(response.data);
+      // Extract user from nested response and update stored user data
+      const userData = response.data?.user || response.data;
+      if (userData) {
+        await this.setUserData(userData);
       }
-      return response;
+      return { success: response.success, data: userData };
     } catch (error) {
       throw error;
     }
@@ -347,13 +352,14 @@ class ApiService {
         method: 'PUT',
         body: JSON.stringify(profileData),
       });
-      
-      // Update stored user data
-      if (response.data) {
-        await this.setUserData(response.data);
+
+      // Extract user from nested response and update stored user data
+      const userData = response.data?.user || response.data;
+      if (userData) {
+        await this.setUserData(userData);
       }
-      
-      return response;
+
+      return { success: response.success, data: userData, message: response.message };
     } catch (error) {
       throw error;
     }
@@ -743,6 +749,421 @@ async updateDriverStatus(driverId, status) {
   });
 }
 
+// Rating endpoints
+async submitRating(bookingId, ratingData) {
+  return this.request(`/ratings/booking/${bookingId}`, {
+    method: 'POST',
+    body: JSON.stringify(ratingData),
+  });
+}
+
+async checkCanRate(bookingId) {
+  return this.request(`/ratings/booking/${bookingId}/can-rate`);
+}
+
+async getBookingRatings(bookingId) {
+  return this.request(`/ratings/booking/${bookingId}`);
+}
+
+async getMyRatings() {
+  return this.request('/ratings/me');
+}
+
+async getMyGivenRatings(page = 1, limit = 10) {
+  return this.request(`/ratings/me/given?page=${page}&limit=${limit}`);
+}
+
+async getUserRating(userId) {
+  return this.request(`/ratings/user/${userId}`);
+}
+
+async getUserReviews(userId, page = 1, limit = 10) {
+  return this.request(`/ratings/user/${userId}/reviews?page=${page}&limit=${limit}`);
+}
+
+async respondToRating(ratingId, responseText) {
+  return this.request(`/ratings/${ratingId}/respond`, {
+    method: 'POST',
+    body: JSON.stringify({ responseText }),
+  });
+}
+
+async flagRating(ratingId, reason) {
+  return this.request(`/ratings/${ratingId}/flag`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+// ============ PAYMENT ENDPOINTS ============
+
+async createPayment(paymentData) {
+  return this.request('/payments/create', {
+    method: 'POST',
+    body: JSON.stringify(paymentData),
+  });
+}
+
+async initiatePaynowPayment(paymentData) {
+  return this.request('/payments/initiate-paynow', {
+    method: 'POST',
+    body: JSON.stringify(paymentData),
+  });
+}
+
+async confirmCashPayment(paymentData) {
+  return this.request('/payments/confirm-cash', {
+    method: 'POST',
+    body: JSON.stringify(paymentData),
+  });
+}
+
+async checkPaymentStatus(paymentReference) {
+  return this.request(`/payments/status/${paymentReference}`);
+}
+
+async checkPaymentExpiry(paymentReference) {
+  return this.request(`/payments/expiry/${paymentReference}`);
+}
+
+async getPaymentByReference(reference) {
+  return this.request(`/payments/${reference}`);
+}
+
+// Escrow endpoints
+async getEscrowStatus(bookingId) {
+  return this.request(`/payments/escrow/booking/${bookingId}`);
+}
+
+async confirmDeliveryForEscrow(bookingId) {
+  return this.request(`/payments/escrow/confirm-delivery/${bookingId}`, {
+    method: 'POST',
+  });
+}
+
+async raiseEscrowDispute(bookingId, disputeData) {
+  return this.request(`/payments/escrow/dispute/${bookingId}`, {
+    method: 'POST',
+    body: JSON.stringify(disputeData),
+  });
+}
+
+async cancelAndRefund(bookingId, reason) {
+  return this.request(`/payments/escrow/cancel/${bookingId}`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+async recordCashCollection(bookingId, collectionData) {
+  return this.request(`/payments/escrow/cash-collection/${bookingId}`, {
+    method: 'POST',
+    body: JSON.stringify(collectionData),
+  });
+}
+
+// ============ TRAILER ENDPOINTS ============
+
+async getMyTrailers() {
+  return this.request('/trailers/my-trailers');
+}
+
+async getAvailableTrailers() {
+  return this.request('/trailers/available');
+}
+
+async getTrailerById(trailerId) {
+  return this.request(`/trailers/${trailerId}`);
+}
+
+async createTrailer(trailerData) {
+  return this.request('/trailers', {
+    method: 'POST',
+    body: JSON.stringify(trailerData),
+  });
+}
+
+async updateTrailer(trailerId, trailerData) {
+  return this.request(`/trailers/${trailerId}`, {
+    method: 'PUT',
+    body: JSON.stringify(trailerData),
+  });
+}
+
+async deleteTrailer(trailerId) {
+  return this.request(`/trailers/${trailerId}`, {
+    method: 'DELETE',
+  });
+}
+
+async updateTrailerStatus(trailerId, status) {
+  return this.request(`/trailers/${trailerId}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+}
+
+async updateTrailerRentalSettings(trailerId, settings) {
+  return this.request(`/trailers/${trailerId}/rental-settings`, {
+    method: 'PATCH',
+    body: JSON.stringify(settings),
+  });
+}
+
+async getTrailerRentals(trailerId) {
+  return this.request(`/trailers/${trailerId}/rentals`);
+}
+
+// ============ RENTAL ENDPOINTS ============
+
+async getAvailableRentals() {
+  return this.request('/rentals/available');
+}
+
+async getRentalDetails(rentalId) {
+  return this.request(`/rentals/item/${rentalId}`);
+}
+
+async createRentalRequest(rentalData) {
+  return this.request('/rentals/request', {
+    method: 'POST',
+    body: JSON.stringify(rentalData),
+  });
+}
+
+async getMyRentals() {
+  return this.request('/rentals/my-rentals');
+}
+
+async getMyRentalListings() {
+  return this.request('/rentals/my-listings');
+}
+
+async getRentalById(rentalId) {
+  return this.request(`/rentals/${rentalId}`);
+}
+
+async approveRental(rentalId) {
+  return this.request(`/rentals/${rentalId}/approve`, {
+    method: 'POST',
+  });
+}
+
+async rejectRental(rentalId, reason) {
+  return this.request(`/rentals/${rentalId}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+async confirmRentalPickup(rentalId, pickupData) {
+  return this.request(`/rentals/${rentalId}/confirm-pickup`, {
+    method: 'POST',
+    body: JSON.stringify(pickupData),
+  });
+}
+
+async confirmRentalReturn(rentalId, returnData) {
+  return this.request(`/rentals/${rentalId}/confirm-return`, {
+    method: 'POST',
+    body: JSON.stringify(returnData),
+  });
+}
+
+// ============ CROSS-BORDER ENDPOINTS ============
+
+async getCrossBorderDestinations() {
+  return this.request('/cross-border/destinations');
+}
+
+async getCrossBorderDestinationByCode(countryCode) {
+  return this.request(`/cross-border/destinations/${countryCode}`);
+}
+
+async getBorderPosts(countryCode) {
+  return this.request(`/cross-border/border-posts/${countryCode}`);
+}
+
+async getRequiredDocuments(countryCode) {
+  return this.request(`/cross-border/documents/${countryCode}`);
+}
+
+async calculateCrossBorderPrice(bookingData) {
+  return this.request('/cross-border/calculate-price', {
+    method: 'POST',
+    body: JSON.stringify(bookingData),
+  });
+}
+
+async createCrossBorderBooking(bookingData) {
+  return this.request('/cross-border/bookings', {
+    method: 'POST',
+    body: JSON.stringify(bookingData),
+  });
+}
+
+async getMyCrossBorderBookings() {
+  return this.request('/cross-border/my-bookings');
+}
+
+// ============ CLAIMS/INSURANCE ENDPOINTS ============
+
+async getMyClaims() {
+  return this.request('/claims/me');
+}
+
+async createClaim(bookingId, claimData) {
+  return this.request(`/claims/booking/${bookingId}`, {
+    method: 'POST',
+    body: JSON.stringify(claimData),
+  });
+}
+
+async getClaimById(claimId) {
+  return this.request(`/claims/${claimId}`);
+}
+
+async uploadClaimDocument(claimId, documentData) {
+  return this.request(`/claims/${claimId}/documents`, {
+    method: 'POST',
+    body: JSON.stringify(documentData),
+  });
+}
+
+async submitClaim(claimId) {
+  return this.request(`/claims/${claimId}/submit`, {
+    method: 'POST',
+  });
+}
+
+async addClaimMessage(claimId, message) {
+  return this.request(`/claims/${claimId}/message`, {
+    method: 'POST',
+    body: JSON.stringify({ message }),
+  });
+}
+
+async withdrawClaim(claimId, reason) {
+  return this.request(`/claims/${claimId}/withdraw`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+// ============ FILE UPLOAD METHODS ============
+
+// Helper to create FormData from file URI
+createFileFormData(fileUri, fieldName = 'file', additionalFields = {}) {
+  const formData = new FormData();
+
+  // Extract filename from URI
+  const filename = fileUri.split('/').pop();
+
+  // Determine MIME type from extension
+  const ext = filename.split('.').pop().toLowerCase();
+  const mimeTypes = {
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'png': 'image/png',
+    'pdf': 'application/pdf',
+    'webp': 'image/webp'
+  };
+  const type = mimeTypes[ext] || 'application/octet-stream';
+
+  formData.append(fieldName, {
+    uri: fileUri,
+    name: filename,
+    type
+  });
+
+  // Add any additional fields
+  Object.keys(additionalFields).forEach(key => {
+    formData.append(key, additionalFields[key]);
+  });
+
+  return formData;
+}
+
+// Upload cargo photo
+async uploadCargoPhoto(fileUri) {
+  const formData = this.createFileFormData(fileUri);
+  return this.uploadRequest('/uploads/cargo', formData);
+}
+
+// Upload multiple cargo photos
+async uploadCargoPhotos(fileUris) {
+  const formData = new FormData();
+  fileUris.forEach((uri, index) => {
+    const filename = uri.split('/').pop();
+    const ext = filename.split('.').pop().toLowerCase();
+    const type = ext === 'png' ? 'image/png' : 'image/jpeg';
+    formData.append('files', { uri, name: filename, type });
+  });
+  return this.uploadRequest('/uploads/cargo/multiple', formData);
+}
+
+// Upload vehicle photo
+async uploadVehiclePhoto(vehicleId, fileUri, photoType) {
+  const formData = this.createFileFormData(fileUri, 'file', { photoType });
+  return this.uploadRequest(`/vehicles/${vehicleId}/photos`, formData);
+}
+
+// Upload verification document
+async uploadVerificationDocument(fileUri, documentType) {
+  const formData = this.createFileFormData(fileUri, 'file', { documentType });
+  return this.uploadRequest('/uploads/verification', formData);
+}
+
+// Upload profile photo
+async uploadProfilePhoto(fileUri) {
+  const formData = this.createFileFormData(fileUri);
+  return this.uploadRequest('/uploads/profiles', formData);
+}
+
+// Upload proof of delivery photo
+async uploadPODPhoto(fileUri, bookingId) {
+  const formData = this.createFileFormData(fileUri, 'file', { bookingId });
+  return this.uploadRequest('/uploads/pod', formData);
+}
+
+// Upload signature
+async uploadSignature(fileUri, bookingId) {
+  const formData = this.createFileFormData(fileUri, 'file', { bookingId });
+  return this.uploadRequest('/uploads/signatures', formData);
+}
+
+// Upload claim evidence
+async uploadClaimEvidence(fileUri, claimId) {
+  const formData = this.createFileFormData(fileUri, 'file', { claimId });
+  return this.uploadRequest('/uploads/claims', formData);
+}
+
+// Upload multiple claim evidence files
+async uploadMultipleClaimEvidence(fileUris, claimId) {
+  const formData = new FormData();
+  fileUris.forEach(uri => {
+    const filename = uri.split('/').pop();
+    const ext = filename.split('.').pop().toLowerCase();
+    const mimeTypes = { 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'pdf': 'application/pdf' };
+    const type = mimeTypes[ext] || 'application/octet-stream';
+    formData.append('files', { uri, name: filename, type });
+  });
+  formData.append('claimId', claimId);
+  return this.uploadRequest('/uploads/claims/multiple', formData);
+}
+
+// Upload corporate document
+async uploadCorporateDocument(fileUri, documentType) {
+  const formData = this.createFileFormData(fileUri, 'document', { documentType });
+  return this.uploadRequest('/corporate/documents', formData);
+}
+
+// Delete uploaded file
+async deleteUploadedFile(fileType, filename) {
+  return this.request(`/uploads/${fileType}/${filename}`, {
+    method: 'DELETE'
+  });
+}
 
 }
 

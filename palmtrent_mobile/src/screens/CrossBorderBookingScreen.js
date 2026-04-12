@@ -1,5 +1,5 @@
 // screens/CrossBorderBookingScreen.js
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,43 +8,201 @@ import {
   SafeAreaView,
   StatusBar,
   StyleSheet,
-  Switch
+  ActivityIndicator,
+  Alert
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import apiService from '../services/apiService';
 
-const CrossBorderBookingScreen = ({ onNavigate, bookingData, updateBookingData }) => {
+const CrossBorderBookingScreen = ({ navigation, route, onNavigate, bookingData, updateBookingData }) => {
+  // Support both navigation patterns
+  const navigateTo = (screen, params = {}) => {
+    if (onNavigate) {
+      onNavigate(screen, params);
+    } else if (navigation) {
+      const screenMap = {
+        'create-booking': 'CreateBooking',
+        'booking-review': 'BookingReview',
+      };
+      navigation.navigate(screenMap[screen] || screen, params);
+    }
+  };
+  const [loading, setLoading] = useState(true);
+  const [calculatingPrice, setCalculatingPrice] = useState(false);
+  const [countries, setCountries] = useState([]);
   const [selectedCountry, setSelectedCountry] = useState(null);
-  const [documents, setDocuments] = useState({
-    commercialInvoice: false,
-    packingList: false,
-    certificateOrigin: false,
-    cargoManifest: false
-  });
+  const [borderInfo, setBorderInfo] = useState(null);
+  const [documents, setDocuments] = useState({});
+  const [pricing, setPricing] = useState(null);
+  const [error, setError] = useState(null);
 
-  const countries = [
-    { code: 'ZA', name: 'South Africa', flag: '🇿🇦', border: 'Beitbridge', distance: 1000, popular: true },
-    { code: 'BW', name: 'Botswana', flag: '🇧🇼', border: 'Plumtree', distance: 500, popular: true },
-    { code: 'ZM', name: 'Zambia', flag: '🇿🇲', border: 'Chirundu', distance: 400, popular: true },
-    { code: 'MZ', name: 'Mozambique', flag: '🇲🇿', border: 'Forbes', distance: 300, popular: false }
-  ];
+  // Fetch destinations on mount
+  useEffect(() => {
+    fetchDestinations();
+  }, []);
+
+  // Fetch border info and calculate price when country selected
+  useEffect(() => {
+    if (selectedCountry) {
+      fetchBorderInfo(selectedCountry.countryCode);
+      calculatePrice(selectedCountry.countryCode);
+      initializeDocuments(selectedCountry);
+    }
+  }, [selectedCountry]);
+
+  const fetchDestinations = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await apiService.get('/cross-border/destinations');
+
+      if (response.data.success) {
+        setCountries(response.data.data);
+      }
+    } catch (err) {
+      console.error('Error fetching destinations:', err);
+      setError('Failed to load destinations. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchBorderInfo = async (countryCode) => {
+    try {
+      const response = await apiService.get(`/cross-border/border-posts/${countryCode}`);
+
+      if (response.data.success) {
+        setBorderInfo(response.data.data.borderPosts[0]); // Get first border post
+      }
+    } catch (err) {
+      console.error('Error fetching border info:', err);
+    }
+  };
+
+  const calculatePrice = async (countryCode) => {
+    try {
+      setCalculatingPrice(true);
+      const basePrice = bookingData?.pricing?.basePrice || 800;
+
+      const response = await apiService.post('/cross-border/calculate-price', {
+        countryCode,
+        basePrice,
+        insuranceRequired: true
+      });
+
+      if (response.data.success) {
+        setPricing(response.data.data);
+      }
+    } catch (err) {
+      console.error('Error calculating price:', err);
+    } finally {
+      setCalculatingPrice(false);
+    }
+  };
+
+  const initializeDocuments = (country) => {
+    if (country.requiredDocuments) {
+      const docState = {};
+      country.requiredDocuments.forEach(doc => {
+        docState[doc.name.toLowerCase().replace(/\s+/g, '')] = false;
+      });
+      setDocuments(docState);
+    }
+  };
+
+  const toggleDocument = (docKey) => {
+    setDocuments(prev => ({
+      ...prev,
+      [docKey]: !prev[docKey]
+    }));
+  };
 
   const handleContinue = () => {
+    // Validate all required documents are checked
+    if (selectedCountry?.requiredDocuments) {
+      const allChecked = selectedCountry.requiredDocuments
+        .filter(doc => doc.required)
+        .every(doc => documents[doc.name.toLowerCase().replace(/\s+/g, '')]);
+
+      if (!allChecked) {
+        Alert.alert(
+          'Documents Required',
+          'Please confirm all required documents before continuing.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+    }
+
     updateBookingData({
       crossBorder: true,
+      isCrossBorder: true,
       destinationCountry: selectedCountry,
-      requiredDocuments: documents
+      borderPost: borderInfo?.name || selectedCountry?.borderPosts?.[0]?.name,
+      requiredDocuments: documents,
+      crossBorderPricing: pricing
     });
-    onNavigate('booking-review');
+    navigateTo('booking-review');
   };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={() => navigateTo('create-booking')}
+            style={styles.backButton}
+          >
+            <MaterialIcons name="arrow-back" size={24} color="white" />
+          </TouchableOpacity>
+          <View style={styles.headerContent}>
+            <Text style={styles.headerTitle}>Cross-Border Shipping</Text>
+            <Text style={styles.headerSubtitle}>SADC regional transport</Text>
+          </View>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#0C2D48" />
+          <Text style={styles.loadingText}>Loading destinations...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (error) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={() => navigateTo('create-booking')}
+            style={styles.backButton}
+          >
+            <MaterialIcons name="arrow-back" size={24} color="white" />
+          </TouchableOpacity>
+          <View style={styles.headerContent}>
+            <Text style={styles.headerTitle}>Cross-Border Shipping</Text>
+          </View>
+        </View>
+        <View style={styles.errorContainer}>
+          <MaterialIcons name="error-outline" size={64} color="#dc2626" />
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={fetchDestinations}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
-      
+
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity 
-          onPress={() => onNavigate('create-booking')} 
+        <TouchableOpacity
+          onPress={() => navigateTo('create-booking')}
           style={styles.backButton}
         >
           <MaterialIcons name="arrow-back" size={24} color="white" />
@@ -63,9 +221,9 @@ const CrossBorderBookingScreen = ({ onNavigate, bookingData, updateBookingData }
             <View style={styles.countriesContainer}>
               {countries.map((country) => (
                 <CountryCard
-                  key={country.code}
+                  key={country.countryCode}
                   country={country}
-                  selected={selectedCountry?.code === country.code}
+                  selected={selectedCountry?.countryCode === country.countryCode}
                   onSelect={() => setSelectedCountry(country)}
                 />
               ))}
@@ -86,100 +244,124 @@ const CrossBorderBookingScreen = ({ onNavigate, bookingData, updateBookingData }
               </View>
 
               {/* Driver Requirements */}
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>Driver Requirements</Text>
-                <View style={styles.requirementsList}>
-                  <RequirementItem text="Valid passport (6+ months validity)" checked />
-                  <RequirementItem text="Cross-border experience (10+ trips)" checked />
-                  <RequirementItem text="Yellow Card insurance (SADC)" checked />
-                  <RequirementItem text="Valid vehicle documentation" checked />
+              {selectedCountry.driverRequirements && (
+                <View style={styles.card}>
+                  <Text style={styles.cardTitle}>Driver Requirements</Text>
+                  <View style={styles.requirementsList}>
+                    {selectedCountry.driverRequirements.map((req, index) => (
+                      <RequirementItem
+                        key={index}
+                        text={req.requirement}
+                        checked={req.mandatory}
+                      />
+                    ))}
+                  </View>
                 </View>
-              </View>
+              )}
 
               {/* Document Checklist */}
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>Required Documents</Text>
-                <View style={styles.documentsList}>
-                  <DocumentCheckItem
-                    label="Commercial Invoice"
-                    required
-                    checked={documents.commercialInvoice}
-                    onToggle={() => setDocuments({...documents, commercialInvoice: !documents.commercialInvoice})}
-                  />
-                  <DocumentCheckItem
-                    label="Packing List"
-                    required
-                    checked={documents.packingList}
-                    onToggle={() => setDocuments({...documents, packingList: !documents.packingList})}
-                  />
-                  <DocumentCheckItem
-                    label="Certificate of Origin"
-                    required
-                    checked={documents.certificateOrigin}
-                    onToggle={() => setDocuments({...documents, certificateOrigin: !documents.certificateOrigin})}
-                  />
-                  <DocumentCheckItem
-                    label="Cargo Manifest"
-                    required
-                    checked={documents.cargoManifest}
-                    onToggle={() => setDocuments({...documents, cargoManifest: !documents.cargoManifest})}
-                  />
+              {selectedCountry.requiredDocuments && (
+                <View style={styles.card}>
+                  <Text style={styles.cardTitle}>Required Documents</Text>
+                  <View style={styles.documentsList}>
+                    {selectedCountry.requiredDocuments.map((doc, index) => {
+                      const docKey = doc.name.toLowerCase().replace(/\s+/g, '');
+                      return (
+                        <DocumentCheckItem
+                          key={index}
+                          label={doc.name}
+                          description={doc.description}
+                          required={doc.required}
+                          checked={documents[docKey] || false}
+                          onToggle={() => toggleDocument(docKey)}
+                        />
+                      );
+                    })}
+                  </View>
                 </View>
-              </View>
+              )}
 
               {/* Border Information */}
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>Border Information</Text>
-                <View style={styles.borderInfo}>
-                  <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>Border Post</Text>
-                    <Text style={styles.infoValue}>{selectedCountry.border}</Text>
-                  </View>
-                  <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>Current Wait Time</Text>
-                    <Text style={[styles.infoValue, styles.waitTime]}>2-4 hours</Text>
-                  </View>
-                  <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>Operating Hours</Text>
-                    <Text style={styles.infoValue}>24/7</Text>
-                  </View>
-                  <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>Best Crossing Time</Text>
-                    <Text style={[styles.infoValue, styles.bestTime]}>6AM - 10AM</Text>
+              {borderInfo && (
+                <View style={styles.card}>
+                  <Text style={styles.cardTitle}>Border Information</Text>
+                  <View style={styles.borderInfo}>
+                    <View style={styles.infoRow}>
+                      <Text style={styles.infoLabel}>Border Post</Text>
+                      <Text style={styles.infoValue}>{borderInfo.name}</Text>
+                    </View>
+                    <View style={styles.infoRow}>
+                      <Text style={styles.infoLabel}>Current Status</Text>
+                      <Text style={[
+                        styles.infoValue,
+                        borderInfo.currentStatus === 'open' ? styles.statusOpen : styles.statusCongested
+                      ]}>
+                        {borderInfo.currentStatus?.charAt(0).toUpperCase() + borderInfo.currentStatus?.slice(1)}
+                      </Text>
+                    </View>
+                    <View style={styles.infoRow}>
+                      <Text style={styles.infoLabel}>Current Wait Time</Text>
+                      <Text style={[styles.infoValue, styles.waitTime]}>
+                        {borderInfo.averageWaitTime?.min}-{borderInfo.averageWaitTime?.max} hours
+                      </Text>
+                    </View>
+                    <View style={styles.infoRow}>
+                      <Text style={styles.infoLabel}>Operating Hours</Text>
+                      <Text style={styles.infoValue}>{borderInfo.operatingHours}</Text>
+                    </View>
+                    <View style={styles.infoRow}>
+                      <Text style={styles.infoLabel}>Best Crossing Time</Text>
+                      <Text style={[styles.infoValue, styles.bestTime]}>
+                        {borderInfo.bestCrossingTimes}
+                      </Text>
+                    </View>
                   </View>
                 </View>
-              </View>
+              )}
 
               {/* Pricing */}
-              <View style={styles.pricingCard}>
-                <Text style={styles.cardTitle}>Pricing Estimate</Text>
-                <View style={styles.pricingBreakdown}>
-                  <View style={styles.priceRow}>
-                    <Text style={styles.priceLabel}>Base transport</Text>
-                    <Text style={styles.priceValue}>$800</Text>
+              {calculatingPrice ? (
+                <View style={styles.pricingCard}>
+                  <ActivityIndicator size="small" color="#0C2D48" />
+                  <Text style={styles.calculatingText}>Calculating price...</Text>
+                </View>
+              ) : pricing && (
+                <View style={styles.pricingCard}>
+                  <Text style={styles.cardTitle}>Pricing Estimate</Text>
+                  <View style={styles.pricingBreakdown}>
+                    <View style={styles.priceRow}>
+                      <Text style={styles.priceLabel}>Base transport</Text>
+                      <Text style={styles.priceValue}>${pricing.breakdown.baseTransport}</Text>
+                    </View>
+                    <View style={styles.priceRow}>
+                      <Text style={styles.priceLabel}>Cross-border surcharge</Text>
+                      <Text style={styles.priceValue}>${pricing.breakdown.crossBorderSurcharge}</Text>
+                    </View>
+                    <View style={styles.priceRow}>
+                      <Text style={styles.priceLabel}>Yellow Card insurance</Text>
+                      <Text style={styles.priceValue}>${pricing.breakdown.yellowCardInsurance}</Text>
+                    </View>
+                    <View style={styles.priceRow}>
+                      <Text style={styles.priceLabel}>Documentation handling</Text>
+                      <Text style={styles.priceValue}>${pricing.breakdown.documentationHandling}</Text>
+                    </View>
+                    {pricing.breakdown.customsClearanceFee > 0 && (
+                      <View style={styles.priceRow}>
+                        <Text style={styles.priceLabel}>Customs clearance</Text>
+                        <Text style={styles.priceValue}>${pricing.breakdown.customsClearanceFee}</Text>
+                      </View>
+                    )}
+                    <View style={styles.priceRow}>
+                      <Text style={styles.priceLabel}>Platform fee ({pricing.breakdown.platformFeePercentage}%)</Text>
+                      <Text style={styles.priceValue}>${pricing.breakdown.platformFee}</Text>
+                    </View>
                   </View>
-                  <View style={styles.priceRow}>
-                    <Text style={styles.priceLabel}>Cross-border surcharge</Text>
-                    <Text style={styles.priceValue}>$50</Text>
-                  </View>
-                  <View style={styles.priceRow}>
-                    <Text style={styles.priceLabel}>Yellow Card insurance</Text>
-                    <Text style={styles.priceValue}>$50</Text>
-                  </View>
-                  <View style={styles.priceRow}>
-                    <Text style={styles.priceLabel}>Documentation handling</Text>
-                    <Text style={styles.priceValue}>$30</Text>
-                  </View>
-                  <View style={styles.priceRow}>
-                    <Text style={styles.priceLabel}>Platform fee (12%)</Text>
-                    <Text style={styles.priceValue}>$120</Text>
+                  <View style={styles.totalRow}>
+                    <Text style={styles.totalLabel}>Total Estimate</Text>
+                    <Text style={styles.totalValue}>${pricing.total}</Text>
                   </View>
                 </View>
-                <View style={styles.totalRow}>
-                  <Text style={styles.totalLabel}>Total Estimate</Text>
-                  <Text style={styles.totalValue}>$1,050</Text>
-                </View>
-              </View>
+              )}
             </>
           )}
         </View>
@@ -215,15 +397,15 @@ const CountryCard = ({ country, selected, onSelect }) => (
       <Text style={styles.countryFlag}>{country.flag}</Text>
       <View style={styles.countryInfo}>
         <View style={styles.countryHeader}>
-          <Text style={styles.countryName}>{country.name}</Text>
-          {country.popular && (
+          <Text style={styles.countryName}>{country.countryName}</Text>
+          {country.isPopular && (
             <View style={styles.popularBadge}>
               <Text style={styles.popularText}>Popular</Text>
             </View>
           )}
         </View>
         <Text style={styles.countryDetails}>
-          via {country.border} • {country.distance} km
+          via {country.borderPosts?.[0]?.name || 'Border'} • {country.distanceFromOrigin?.value || 0} {country.distanceFromOrigin?.unit || 'km'}
         </Text>
       </View>
       {selected && (
@@ -244,8 +426,8 @@ const RequirementItem = ({ text, checked }) => (
   </View>
 );
 
-const DocumentCheckItem = ({ label, required, checked, onToggle }) => (
-  <TouchableOpacity 
+const DocumentCheckItem = ({ label, description, required, checked, onToggle }) => (
+  <TouchableOpacity
     style={styles.documentItem}
     onPress={onToggle}
     activeOpacity={0.7}
@@ -298,6 +480,39 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 14,
     opacity: 0.9,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#6b7280',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#dc2626',
+    textAlign: 'center',
+    marginTop: 12,
+    marginBottom: 20,
+  },
+  retryButton: {
+    backgroundColor: '#0C2D48',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: 'white',
+    fontWeight: '600',
   },
   scrollView: {
     flex: 1,
@@ -483,6 +698,12 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#1f2937',
   },
+  statusOpen: {
+    color: '#059669',
+  },
+  statusCongested: {
+    color: '#ea580c',
+  },
   waitTime: {
     color: '#ea580c',
   },
@@ -496,6 +717,11 @@ const styles = StyleSheet.create({
     borderColor: '#e9d5ff',
     padding: 16,
     gap: 16,
+  },
+  calculatingText: {
+    textAlign: 'center',
+    color: '#6b7280',
+    marginTop: 8,
   },
   pricingBreakdown: {
     gap: 8,

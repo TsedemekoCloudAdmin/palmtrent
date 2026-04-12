@@ -6,24 +6,38 @@ const rentalSchema = new mongoose.Schema({
     required: true,
     unique: true
   },
-  
+
+  // Item type - vehicle or trailer (centralized rental system)
+  itemType: {
+    type: String,
+    enum: ['vehicle', 'trailer'],
+    required: true,
+    default: 'vehicle'
+  },
+
   // Parties involved
   owner: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
   },
-  
+
   renter: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
   },
-  
+
+  // Reference to vehicle (if itemType is 'vehicle')
   vehicle: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Vehicle',
-    required: true
+    ref: 'Vehicle'
+  },
+
+  // Reference to trailer (if itemType is 'trailer')
+  trailer: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Trailer'
   },
   
   // Rental period

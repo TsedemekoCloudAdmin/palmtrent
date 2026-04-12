@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,45 +8,318 @@ import {
   SafeAreaView,
   StatusBar,
   Dimensions,
-  Alert
+  Alert,
+  ActivityIndicator,
+  RefreshControl
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../hook/useAuth';
+import apiService from '../services/apiService';
 
 const { width } = Dimensions.get('window');
 
-const TrackingScreen = ({ navigation, onNavigate }) => {
+// Status Step Component for waiting states
+const StatusStep = ({ label, completed, active }) => (
+  <View style={statusStepStyles.container}>
+    <View style={[
+      statusStepStyles.dot,
+      completed && statusStepStyles.dotCompleted,
+      active && statusStepStyles.dotActive
+    ]}>
+      {completed && <MaterialIcons name="check" size={12} color="white" />}
+    </View>
+    <Text style={[
+      statusStepStyles.label,
+      completed && statusStepStyles.labelCompleted,
+      active && statusStepStyles.labelActive
+    ]}>
+      {label}
+    </Text>
+  </View>
+);
+
+const statusStepStyles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  dot: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#e5e7eb',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  dotCompleted: {
+    backgroundColor: '#16a34a',
+  },
+  dotActive: {
+    backgroundColor: '#0C2D48',
+  },
+  label: {
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  labelCompleted: {
+    color: '#16a34a',
+  },
+  labelActive: {
+    color: '#0C2D48',
+    fontWeight: '600',
+  },
+});
+
+const TrackingScreen = ({ navigation, onNavigate, route }) => {
   const { user } = useAuth();
-  
-  const [jobDetails] = useState({
-    id: 'PT-2025-001234',
-    status: 'in_transit',
-    progress: 48,
-    driver: {
-      name: 'Trust Ncube',
-      rating: 4.8,
-      phone: '+263 71 234 5678',
-      vehicle: 'Toyota Hilux (ABD 1234)'
-    },
-    route: {
-      from: 'Mbare Musika, Harare',
-      to: 'National Foods, Bulawayo',
-      distance: 440,
-      covered: 210,
-      remaining: 230
-    },
-    timing: {
-      started: '06:15 AM',
-      eta: '5:30 PM',
-      elapsed: '3h 15m'
-    },
-    currentLocation: 'Near Chivhu',
-    recentActivity: [
-      { time: '12:30 PM', event: 'Fuel stop (Chivhu Total) - 10 mins', type: 'stop' },
-      { time: '10:45 AM', event: 'VID checkpoint (cleared)', type: 'checkpoint' },
-      { time: '06:15 AM', event: 'Pickup complete', type: 'pickup' }
-    ]
-  });
+  const shipmentId = route?.params?.shipmentId;
+  const bookingId = route?.params?.bookingId;
+  const rentalId = route?.params?.rentalId;
+
+  const [jobDetails, setJobDetails] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
+
+  const isTrailerOwner = user?.userType === 'trailer_owner';
+
+  const fetchShipmentData = useCallback(async () => {
+    try {
+      setError(null);
+      let response;
+
+      // Handle trailer owner - fetch rentals instead of shipments
+      if (isTrailerOwner) {
+        if (rentalId) {
+          response = await apiService.request(`/rentals/${rentalId}`);
+        } else {
+          response = await apiService.request('/rentals/active');
+        }
+
+        if (response.success && response.data) {
+          const rental = Array.isArray(response.data) ? response.data[0] : response.data;
+
+          if (rental) {
+            const progress = calculateRentalProgress(rental);
+
+            setJobDetails({
+              id: rental.rentalReference || rental._id?.slice(-8).toUpperCase(),
+              rentalId: rental._id,
+              status: rental.status,
+              progress,
+              isRental: true,
+              renter: {
+                name: rental.renter?.name || 'Renter',
+                rating: rental.renter?.rating?.average || 4.5,
+                phone: rental.renter?.phone || 'Not available'
+              },
+              trailer: {
+                type: rental.trailer?.trailerType || 'Trailer',
+                registration: rental.trailer?.registration || 'N/A',
+                location: rental.trailer?.currentLocation?.address || 'Location updating...'
+              },
+              route: {
+                from: rental.pickupLocation || 'Pickup Location',
+                to: rental.returnLocation || 'Return Location',
+                distance: 0,
+                covered: 0,
+                remaining: 0
+              },
+              timing: {
+                started: formatTime(rental.startDate),
+                eta: formatTime(rental.endDate),
+                elapsed: calculateElapsed(rental.startDate)
+              },
+              currentLocation: rental.trailer?.currentLocation?.address || 'Location updating...',
+              recentActivity: formatRentalActivityLog(rental),
+              rawData: rental
+            });
+          } else {
+            setJobDetails(null);
+          }
+        } else {
+          setJobDetails(null);
+        }
+      } else {
+        // Handle shipper/transporter - fetch shipments
+        if (shipmentId) {
+          response = await apiService.request(`/shipments/${shipmentId}`);
+        } else if (bookingId) {
+          response = await apiService.request(`/bookings/${bookingId}`);
+        } else {
+          response = await apiService.request('/shipments/active');
+        }
+
+        if (response.success && response.data) {
+          const shipment = Array.isArray(response.data) ? response.data[0] : response.data;
+
+          if (shipment) {
+            const distance = shipment.route?.distance || 0;
+            const progress = calculateProgress(shipment);
+            const covered = Math.round(distance * (progress / 100));
+
+            setJobDetails({
+              id: shipment.bookingReference || shipment._id,
+              shipmentId: shipment._id,
+              status: shipment.status,
+              progress,
+              isRental: false,
+              driver: {
+                name: shipment.transporter?.name || shipment.driver?.name || 'Transporter',
+                rating: shipment.transporter?.rating?.average || 4.5,
+                phone: shipment.transporter?.phone || 'Not available',
+                vehicle: shipment.vehicle?.registration || 'Not assigned'
+              },
+              route: {
+                from: shipment.route?.pickup?.address || shipment.route?.pickup?.city || 'Pickup',
+                to: shipment.route?.delivery?.address || shipment.route?.delivery?.city || 'Delivery',
+                distance,
+                covered,
+                remaining: distance - covered
+              },
+              timing: {
+                started: formatTime(shipment.timeline?.pickedUpAt),
+                eta: calculateETA(shipment),
+                elapsed: calculateElapsed(shipment.timeline?.pickedUpAt)
+              },
+              currentLocation: shipment.tracking?.currentLocation?.address || 'Location updating...',
+              recentActivity: formatActivityLog(shipment),
+              rawData: shipment
+            });
+          } else {
+            setJobDetails(null);
+          }
+        } else {
+          setJobDetails(null);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching data:', err);
+      setError(err.message || 'Failed to load tracking data');
+      setJobDetails(null);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [shipmentId, bookingId, rentalId, isTrailerOwner]);
+
+  const calculateRentalProgress = (rental) => {
+    const statusProgress = {
+      'pending': 10,
+      'confirmed': 25,
+      'active': 50,
+      'returning': 75,
+      'completed': 100,
+      'cancelled': 0
+    };
+    return statusProgress[rental.status] || 0;
+  };
+
+  const formatRentalActivityLog = (rental) => {
+    const activities = [];
+
+    if (rental.completedAt) {
+      activities.push({ time: formatTime(rental.completedAt), event: 'Rental completed', type: 'delivery' });
+    }
+    if (rental.status === 'active') {
+      activities.push({ time: formatTime(rental.startDate), event: 'Rental started', type: 'pickup' });
+    }
+    if (rental.confirmedAt) {
+      activities.push({ time: formatTime(rental.confirmedAt), event: 'Rental confirmed', type: 'assigned' });
+    }
+    if (rental.createdAt) {
+      activities.push({ time: formatTime(rental.createdAt), event: 'Rental request created', type: 'pending' });
+    }
+
+    return activities.length > 0 ? activities : [
+      { time: '--:--', event: 'Waiting for updates...', type: 'pending' }
+    ];
+  };
+
+  useEffect(() => {
+    fetchShipmentData();
+    // Refresh every 30 seconds for live tracking
+    const interval = setInterval(fetchShipmentData, 30000);
+    return () => clearInterval(interval);
+  }, [fetchShipmentData]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchShipmentData();
+  }, [fetchShipmentData]);
+
+  const calculateProgress = (shipment) => {
+    const statusProgress = {
+      'pending': 0,
+      'payment_confirmed': 5,
+      'finding_transporter': 10,
+      'transporter_assigned': 15,
+      'assigned': 15,
+      'en_route_pickup': 25,
+      'picked_up': 40,
+      'in_transit': 60,
+      'arrived_delivery': 85,
+      'delivered': 95,
+      'completed': 100
+    };
+    return statusProgress[shipment.status] || 0;
+  };
+
+  const formatTime = (dateStr) => {
+    if (!dateStr) return '--:--';
+    return new Date(dateStr).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  };
+
+  const calculateETA = (shipment) => {
+    if (shipment.schedule?.estimatedArrival) {
+      return formatTime(shipment.schedule.estimatedArrival);
+    }
+    // Estimate based on distance (average 60 km/h)
+    const distance = shipment.route?.distance || 0;
+    const hours = distance / 60;
+    const eta = new Date(Date.now() + hours * 60 * 60 * 1000);
+    return formatTime(eta);
+  };
+
+  const calculateElapsed = (startTime) => {
+    if (!startTime) return '--';
+    const start = new Date(startTime);
+    const now = new Date();
+    const diffMs = now - start;
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    return `${hours}h ${minutes}m`;
+  };
+
+  const formatActivityLog = (shipment) => {
+    const activities = [];
+    const timeline = shipment.timeline || {};
+
+    if (timeline.deliveredAt) {
+      activities.push({ time: formatTime(timeline.deliveredAt), event: 'Delivery completed', type: 'delivery' });
+    }
+    if (timeline.arrivedDeliveryAt) {
+      activities.push({ time: formatTime(timeline.arrivedDeliveryAt), event: 'Arrived at delivery location', type: 'arrival' });
+    }
+    if (timeline.inTransitAt) {
+      activities.push({ time: formatTime(timeline.inTransitAt), event: 'In transit to destination', type: 'transit' });
+    }
+    if (timeline.pickedUpAt) {
+      activities.push({ time: formatTime(timeline.pickedUpAt), event: 'Pickup completed', type: 'pickup' });
+    }
+    if (timeline.enRoutePickupAt) {
+      activities.push({ time: formatTime(timeline.enRoutePickupAt), event: 'Transporter en route to pickup', type: 'enroute' });
+    }
+    if (timeline.transporterAssignedAt) {
+      activities.push({ time: formatTime(timeline.transporterAssignedAt), event: 'Transporter assigned', type: 'assigned' });
+    }
+
+    return activities.length > 0 ? activities : [
+      { time: '--:--', event: 'Waiting for updates...', type: 'pending' }
+    ];
+  };
 
   const navigateTo = (screen, params = {}) => {
     if (onNavigate) {
@@ -105,16 +378,219 @@ const TrackingScreen = ({ navigation, onNavigate }) => {
   const getActivityColor = (type) => {
     switch (type) {
       case 'pickup': return '#16a34a';
+      case 'delivery': return '#16a34a';
       case 'stop': return '#ea580c';
       case 'checkpoint': return '#0C2D48';
+      case 'transit': return '#0C2D48';
+      case 'enroute': return '#f59e0b';
+      case 'assigned': return '#8b5cf6';
       default: return '#6b7280';
     }
   };
 
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
+        <View style={styles.header}>
+          <Text style={styles.jobId}>Tracking</Text>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#0C2D48" />
+          <Text style={styles.loadingText}>Loading tracking data...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!jobDetails) {
+    const isTransporter = user?.userType === 'transporter';
+
+    const getEmptyTitle = () => {
+      if (isTrailerOwner) return 'No Active Rentals';
+      if (isTransporter) return 'No Active Deliveries';
+      return 'No Active Shipments';
+    };
+
+    const getEmptySubtitle = () => {
+      if (isTrailerOwner) return 'Your trailer rentals will appear here when they are active';
+      if (isTransporter) return 'Accept a job from Available Jobs to start tracking your deliveries';
+      return 'Your shipments will appear here once a transporter has been assigned and is in transit';
+    };
+
+    const getEmptyIcon = () => {
+      if (isTrailerOwner) return 'rv-hookup';
+      return 'local-shipping';
+    };
+
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
+        <View style={styles.header}>
+          <View style={styles.headerWithBack}>
+            {navigation && (
+              <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                <MaterialIcons name="arrow-back" size={24} color="white" />
+              </TouchableOpacity>
+            )}
+            <Text style={styles.jobId}>{isTrailerOwner ? 'Rental Tracking' : 'Tracking'}</Text>
+          </View>
+        </View>
+        <View style={styles.emptyContainer}>
+          <MaterialIcons name={getEmptyIcon()} size={64} color="#d1d5db" />
+          <Text style={styles.emptyTitle}>{getEmptyTitle()}</Text>
+          <Text style={styles.emptySubtitle}>{getEmptySubtitle()}</Text>
+          <TouchableOpacity style={styles.refreshButtonLarge} onPress={onRefresh}>
+            <Text style={styles.refreshButtonText}>Refresh</Text>
+          </TouchableOpacity>
+          {isTrailerOwner ? (
+            <TouchableOpacity
+              style={styles.viewJobsButton}
+              onPress={() => navigation?.navigate('TrailerList')}
+            >
+              <Text style={styles.viewJobsButtonText}>View My Trailers</Text>
+            </TouchableOpacity>
+          ) : isTransporter ? (
+            <TouchableOpacity
+              style={styles.viewJobsButton}
+              onPress={() => navigation?.navigate('AvailableJobs')}
+            >
+              <Text style={styles.viewJobsButtonText}>View Available Jobs</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.viewJobsButton}
+              onPress={() => navigation?.navigate('BookingHistory')}
+            >
+              <Text style={styles.viewJobsButtonText}>View My Bookings</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Check if waiting for transporter
+  const waitingStatuses = ['pending', 'payment_confirmed', 'finding_transporter'];
+  if (waitingStatuses.includes(jobDetails.status)) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
+        <View style={styles.header}>
+          <View style={styles.headerWithBack}>
+            {navigation && (
+              <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                <MaterialIcons name="arrow-back" size={24} color="white" />
+              </TouchableOpacity>
+            )}
+            <View>
+              <Text style={styles.jobIdLabel}>Booking</Text>
+              <Text style={styles.jobId}>{jobDetails.id}</Text>
+            </View>
+          </View>
+        </View>
+        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+          <View style={styles.waitingContainer}>
+            <View style={styles.waitingCard}>
+              <ActivityIndicator size="large" color="#0C2D48" />
+              <Text style={styles.waitingTitle}>
+                {jobDetails.status === 'finding_transporter'
+                  ? 'Finding a Transporter'
+                  : jobDetails.status === 'payment_confirmed'
+                  ? 'Payment Confirmed'
+                  : 'Booking Pending'
+                }
+              </Text>
+              <Text style={styles.waitingSubtitle}>
+                {jobDetails.status === 'finding_transporter'
+                  ? 'We\'re matching your shipment with the best available transporter. This usually takes 1-2 hours.'
+                  : jobDetails.status === 'payment_confirmed'
+                  ? 'Your payment has been received. We\'re now looking for a transporter.'
+                  : 'Your booking is being processed. Please complete payment to proceed.'
+                }
+              </Text>
+            </View>
+
+            {/* Route Preview */}
+            <View style={[styles.card, { marginHorizontal: 16, marginTop: 16 }]}>
+              <Text style={styles.cardTitle}>Route Details</Text>
+              <View style={styles.routeItem}>
+                <View style={[styles.routeDot, styles.routeDotStart]} />
+                <View style={styles.routeContent}>
+                  <Text style={styles.routeLabel}>PICKUP</Text>
+                  <Text style={styles.routeText}>{jobDetails.route.from}</Text>
+                </View>
+              </View>
+              <View style={styles.routeLine} />
+              <View style={styles.routeItem}>
+                <View style={[styles.routeDot, styles.routeDotEnd]} />
+                <View style={styles.routeContent}>
+                  <Text style={styles.routeLabel}>DELIVERY</Text>
+                  <Text style={styles.routeText}>{jobDetails.route.to}</Text>
+                </View>
+              </View>
+              <View style={styles.distanceRow}>
+                <MaterialIcons name="straighten" size={16} color="#6b7280" />
+                <Text style={styles.distanceText}>{jobDetails.route.distance} km</Text>
+              </View>
+            </View>
+
+            {/* Status Steps */}
+            <View style={[styles.card, { marginHorizontal: 16, marginTop: 16 }]}>
+              <Text style={styles.cardTitle}>Booking Status</Text>
+              <View style={styles.statusSteps}>
+                <StatusStep
+                  label="Booking Created"
+                  completed={true}
+                  active={jobDetails.status === 'pending'}
+                />
+                <StatusStep
+                  label="Payment Confirmed"
+                  completed={jobDetails.status !== 'pending'}
+                  active={jobDetails.status === 'payment_confirmed'}
+                />
+                <StatusStep
+                  label="Finding Transporter"
+                  completed={false}
+                  active={jobDetails.status === 'finding_transporter'}
+                />
+                <StatusStep
+                  label="Transporter Assigned"
+                  completed={false}
+                  active={false}
+                />
+              </View>
+            </View>
+
+            {/* Actions */}
+            {jobDetails.status === 'pending' && (
+              <TouchableOpacity
+                style={[styles.actionButton, styles.payButton, { marginHorizontal: 16, marginTop: 16 }]}
+                onPress={() => navigation?.navigate('MobileMoneyPayment', { bookingId: jobDetails.shipmentId })}
+              >
+                <MaterialIcons name="payment" size={20} color="white" />
+                <Text style={styles.emergencyButtonText}>Complete Payment</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={[styles.actionButton, styles.shareButton, { marginHorizontal: 16, marginTop: 16 }]}
+              onPress={() => navigation?.navigate('JobDetails', { bookingId: jobDetails.shipmentId })}
+            >
+              <MaterialIcons name="info" size={20} color="#0C2D48" />
+              <Text style={styles.shareButtonText}>View Booking Details</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.bottomPadding} />
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
-      
+
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
@@ -128,7 +604,13 @@ const TrackingScreen = ({ navigation, onNavigate }) => {
         </View>
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0C2D48']} />
+        }
+      >
         {/* Map Section */}
         <View style={styles.mapSection}>
           <View style={styles.mapPlaceholder}>
@@ -309,7 +791,7 @@ const TrackingScreen = ({ navigation, onNavigate }) => {
 
         {/* Action Buttons */}
         <View style={styles.section}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.actionButton, styles.shareButton]}
             onPress={handleShareTracking}
           >
@@ -317,15 +799,33 @@ const TrackingScreen = ({ navigation, onNavigate }) => {
             <Text style={styles.shareButtonText}>Share Tracking Link</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={[styles.actionButton, styles.arriveButton]}
-             onPress={() => navigateTo('DeliveryChecklist', { job: jobDetails })}
-          >
-            <MaterialIcons name="share" size={20} color="#0C2D48" />
-            <Text style={styles.emergencyButtonText}>Arrived at Destination</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
+          {/* Show Rate Driver button for shippers when delivery is completed */}
+          {(jobDetails.status === 'completed' || jobDetails.status === 'delivered') && user?.userType === 'shipper' && (
+            <TouchableOpacity
+              style={[styles.actionButton, styles.rateButton]}
+              onPress={() => navigateTo('Rating', {
+                bookingId: jobDetails.shipmentId || jobDetails.rawData?._id,
+                booking: jobDetails.rawData,
+                userType: 'shipper'
+              })}
+            >
+              <MaterialIcons name="star" size={20} color="white" />
+              <Text style={styles.rateButtonText}>Rate Driver</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Show transporter actions when not completed */}
+          {user?.userType === 'transporter' && jobDetails.status !== 'completed' && (
+            <TouchableOpacity
+              style={[styles.actionButton, styles.arriveButton]}
+              onPress={() => navigateTo('DeliveryChecklist', { job: jobDetails })}
+            >
+              <MaterialIcons name="location-on" size={20} color="white" />
+              <Text style={styles.emergencyButtonText}>Arrived at Destination</Text>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity
             style={[styles.actionButton, styles.emergencyButton]}
             onPress={handleReportIssue}
           >
@@ -711,6 +1211,14 @@ const styles = StyleSheet.create({
   emergencyButton: {
     backgroundColor: '#dc2626',
   },
+  rateButton: {
+    backgroundColor: '#f59e0b',
+  },
+  rateButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
   emergencyButtonText: {
     color: 'white',
     fontSize: 16,
@@ -718,6 +1226,115 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: 20, // Reduced from 80 since no bottom nav
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#6b7280',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#374151',
+    marginTop: 16,
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+    marginTop: 8,
+    lineHeight: 20,
+  },
+  refreshButtonLarge: {
+    marginTop: 24,
+    backgroundColor: '#0C2D48',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  refreshButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  viewJobsButton: {
+    marginTop: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#0C2D48',
+  },
+  viewJobsButtonText: {
+    color: '#0C2D48',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  headerWithBack: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  backButton: {
+    padding: 4,
+  },
+  waitingContainer: {
+    paddingTop: 16,
+  },
+  waitingCard: {
+    backgroundColor: 'white',
+    marginHorizontal: 16,
+    borderRadius: 16,
+    padding: 32,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  waitingTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1f2937',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  waitingSubtitle: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  statusSteps: {
+    paddingLeft: 8,
+  },
+  distanceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+  },
+  distanceText: {
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  payButton: {
+    backgroundColor: '#16a34a',
   },
 });
 

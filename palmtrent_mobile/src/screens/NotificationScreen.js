@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,52 +7,91 @@ import {
   StyleSheet,
   SafeAreaView,
   StatusBar,
-  Dimensions
+  Dimensions,
+  ActivityIndicator,
+  RefreshControl
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import apiService from '../services/apiService';
 
 const { width } = Dimensions.get('window');
 
+// Helper function to format time
+const formatTimeAgo = (dateString) => {
+  const date = new Date(dateString);
+  const now = new Date();
+  const seconds = Math.floor((now - date) / 1000);
+
+  if (seconds < 60) return 'Just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min${minutes > 1 ? 's' : ''} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days} day${days > 1 ? 's' : ''} ago`;
+  const weeks = Math.floor(days / 7);
+  return `${weeks} week${weeks > 1 ? 's' : ''} ago`;
+};
+
 const NotificationScreen = ({ navigation, onNavigate }) => {
   const [filter, setFilter] = useState('all');
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const notifications = [
-    {
-      id: 1,
-      type: 'job',
-      title: 'New job available',
-      message: 'Harare → Bulawayo • $400',
-      time: '5 mins ago',
-      read: false
-    },
-    {
-      id: 2,
-      type: 'payment',
-      title: 'Payment received',
-      message: '$400 deposited to your account',
-      time: '1 hour ago',
-      read: false
-    },
-    {
-      id: 3,
-      type: 'rating',
-      title: 'New rating received',
-      message: 'John Moyo rated you 5 stars',
-      time: '2 hours ago',
-      read: true
-    },
-    {
-      id: 4,
-      type: 'system',
-      title: 'Document expiring soon',
-      message: 'Your VID certificate expires in 30 days',
-      time: '1 day ago',
-      read: true
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const response = await apiService.get('/notifications');
+      if (response.success) {
+        setNotifications(response.data || []);
+        setUnreadCount(response.unreadCount || 0);
+      }
+    } catch (error) {
+      console.error('Failed to fetch notifications:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-  ];
+  }, []);
 
-  const filteredNotifications = filter === 'all' 
-    ? notifications 
+  useEffect(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchNotifications();
+  };
+
+  const handleMarkAllAsRead = async () => {
+    try {
+      const response = await apiService.post('/notifications/mark-all-read');
+      if (response.success) {
+        setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+        setUnreadCount(0);
+      }
+    } catch (error) {
+      console.error('Failed to mark all as read:', error);
+    }
+  };
+
+  const handleMarkAsRead = async (notificationId) => {
+    try {
+      const response = await apiService.post(`/notifications/${notificationId}/read`);
+      if (response.success) {
+        setNotifications(prev => prev.map(n =>
+          n._id === notificationId ? { ...n, read: true } : n
+        ));
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      }
+    } catch (error) {
+      console.error('Failed to mark as read:', error);
+    }
+  };
+
+  const filteredNotifications = filter === 'all'
+    ? notifications
     : notifications.filter(n => !n.read);
 
   const navigateTo = (screen, params = {}) => {
@@ -65,20 +104,32 @@ const NotificationScreen = ({ navigation, onNavigate }) => {
 
   const getNotificationIcon = (type) => {
     switch (type) {
-      case 'job': return 'local-shipping';
-      case 'payment': return 'attach-money';
-      case 'rating': return 'star';
-      case 'system': return 'info';
+      case 'booking_confirmed': return 'check-circle';
+      case 'transporter_assigned': return 'local-shipping';
+      case 'pickup_started': return 'directions-car';
+      case 'in_transit': return 'local-shipping';
+      case 'delivery_completed': return 'inventory';
+      case 'payment_received':
+      case 'payment_released': return 'attach-money';
+      case 'rating_received': return 'star';
+      case 'claim_update': return 'gavel';
+      case 'system_message': return 'info';
       default: return 'notifications';
     }
   };
 
   const getNotificationColor = (type) => {
     switch (type) {
-      case 'job': return '#0C2D48';
-      case 'payment': return '#16a34a';
-      case 'rating': return '#f59e0b';
-      case 'system': return '#dc2626';
+      case 'booking_confirmed': return '#0C2D48';
+      case 'transporter_assigned': return '#0C2D48';
+      case 'pickup_started':
+      case 'in_transit': return '#3b82f6';
+      case 'delivery_completed': return '#16a34a';
+      case 'payment_received':
+      case 'payment_released': return '#16a34a';
+      case 'rating_received': return '#f59e0b';
+      case 'claim_update': return '#dc2626';
+      case 'system_message': return '#6b7280';
       default: return '#6b7280';
     }
   };
@@ -86,34 +137,46 @@ const NotificationScreen = ({ navigation, onNavigate }) => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
-      
+
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <Text style={styles.headerTitle}>Notifications</Text>
-          <TouchableOpacity style={styles.markAllButton}>
-            <Text style={styles.markAllText}>Mark all as read</Text>
-          </TouchableOpacity>
+          {unreadCount > 0 && (
+            <TouchableOpacity style={styles.markAllButton} onPress={handleMarkAllAsRead}>
+              <Text style={styles.markAllText}>Mark all as read</Text>
+            </TouchableOpacity>
+          )}
         </View>
-        
+
         <View style={styles.filterContainer}>
-          <FilterButton 
-            label="All" 
+          <FilterButton
+            label="All"
             count={notifications.length}
             active={filter === 'all'}
             onPress={() => setFilter('all')}
           />
-          <FilterButton 
-            label="Unread" 
-            count={notifications.filter(n => !n.read).length}
+          <FilterButton
+            label="Unread"
+            count={unreadCount}
             active={filter === 'unread'}
             onPress={() => setFilter('unread')}
           />
         </View>
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {filteredNotifications.length === 0 ? (
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+        }
+      >
+        {loading ? (
+          <View style={styles.loadingState}>
+            <ActivityIndicator size="large" color="#0C2D48" />
+          </View>
+        ) : filteredNotifications.length === 0 ? (
           <View style={styles.emptyState}>
             <MaterialIcons name="notifications-off" size={64} color="#d1d5db" />
             <Text style={styles.emptyTitle}>No notifications</Text>
@@ -124,11 +187,20 @@ const NotificationScreen = ({ navigation, onNavigate }) => {
         ) : (
           <View style={styles.notificationsList}>
             {filteredNotifications.map((notif) => (
-              <NotificationItem 
-                key={notif.id} 
-                notification={notif}
+              <NotificationItem
+                key={notif._id}
+                notification={{
+                  ...notif,
+                  message: notif.body,
+                  time: formatTimeAgo(notif.createdAt)
+                }}
                 icon={getNotificationIcon(notif.type)}
                 color={getNotificationColor(notif.type)}
+                onPress={() => {
+                  if (!notif.read) {
+                    handleMarkAsRead(notif._id);
+                  }
+                }}
               />
             ))}
           </View>
@@ -172,15 +244,19 @@ const FilterButton = ({ label, count, active, onPress }) => (
   </TouchableOpacity>
 );
 
-const NotificationItem = ({ notification, icon, color }) => (
-  <TouchableOpacity style={[
-    styles.notificationItem,
-    !notification.read && styles.notificationItemUnread
-  ]}>
+const NotificationItem = ({ notification, icon, color, onPress }) => (
+  <TouchableOpacity
+    style={[
+      styles.notificationItem,
+      !notification.read && styles.notificationItemUnread
+    ]}
+    onPress={onPress}
+    activeOpacity={0.7}
+  >
     <View style={[styles.notificationIcon, { backgroundColor: `${color}20` }]}>
       <MaterialIcons name={icon} size={20} color={color} />
     </View>
-    
+
     <View style={styles.notificationContent}>
       <View style={styles.notificationHeader}>
         <Text style={styles.notificationTitle}>{notification.title}</Text>
@@ -268,6 +344,10 @@ const styles = StyleSheet.create({
   },
   filterCountTextActive: {
     color: 'white',
+  },
+  loadingState: {
+    alignItems: 'center',
+    paddingVertical: 48,
   },
   emptyState: {
     alignItems: 'center',

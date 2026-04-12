@@ -249,6 +249,63 @@ const getMe = async (req, res) => {
   }
 };
 
+// Change password (for logged in users)
+const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Current password and new password are required'
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password must be at least 6 characters long'
+      });
+    }
+
+    // Find user and include password for comparison
+    const user = await User.findById(req.user.id).select('+password');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Verify current password
+    const isPasswordValid = await user.comparePassword(currentPassword);
+
+    if (!isPasswordValid) {
+      return res.status(400).json({
+        success: false,
+        message: 'Current password is incorrect'
+      });
+    }
+
+    // Update password
+    user.password = newPassword;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Password changed successfully'
+    });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error changing password',
+      error: error.message
+    });
+  }
+};
+
 // Update user profile
 const updateProfile = async (req, res) => {
   try {
@@ -284,11 +341,106 @@ const updateProfile = async (req, res) => {
   }
 };
 
+// Get user activity history
+const getActivityHistory = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userType = req.user.userType;
+    const { page = 1, limit = 20 } = req.query;
+
+    const activities = [];
+
+    // Get bookings based on user type
+    const Booking = require('../models/Booking');
+    const Rental = require('../models/Rental');
+
+    if (userType === 'shipper' || userType === 'corporate') {
+      const bookings = await Booking.find({ user: userId })
+        .select('bookingReference status createdAt updatedAt totalPrice')
+        .sort({ createdAt: -1 })
+        .limit(10);
+
+      bookings.forEach(booking => {
+        activities.push({
+          id: booking._id,
+          type: 'booking',
+          title: `Booking ${booking.bookingReference || booking._id.toString().slice(-8).toUpperCase()}`,
+          description: `Status: ${booking.status}`,
+          status: booking.status,
+          amount: booking.totalPrice,
+          date: booking.createdAt
+        });
+      });
+    }
+
+    if (userType === 'transporter') {
+      const Shipment = require('../models/Shipment');
+      const shipments = await Shipment.find({ transporter: userId })
+        .select('bookingReference status createdAt transporterEarnings')
+        .sort({ createdAt: -1 })
+        .limit(10);
+
+      shipments.forEach(shipment => {
+        activities.push({
+          id: shipment._id,
+          type: 'job',
+          title: `Job ${shipment.bookingReference || shipment._id.toString().slice(-8).toUpperCase()}`,
+          description: `Status: ${shipment.status}`,
+          status: shipment.status,
+          amount: shipment.transporterEarnings,
+          date: shipment.createdAt
+        });
+      });
+    }
+
+    if (userType === 'trailer_owner') {
+      const rentals = await Rental.find({ owner: userId })
+        .select('status createdAt pricing')
+        .sort({ createdAt: -1 })
+        .limit(10);
+
+      rentals.forEach(rental => {
+        activities.push({
+          id: rental._id,
+          type: 'rental',
+          title: `Rental ${rental._id.toString().slice(-8).toUpperCase()}`,
+          description: `Status: ${rental.status}`,
+          status: rental.status,
+          amount: rental.pricing?.total,
+          date: rental.createdAt
+        });
+      });
+    }
+
+    // Sort by date
+    activities.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    res.status(200).json({
+      success: true,
+      data: activities.slice(0, parseInt(limit)),
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: activities.length
+      }
+    });
+  } catch (error) {
+    console.error('Get activity history error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch activity history',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   register,
   login,
   forgotPassword,
   resetPassword,
+  changePassword,
   getMe,
-  updateProfile
+  updateProfile,
+  getActivityHistory
 };

@@ -1,5 +1,5 @@
 // screens/CreateBookingScreen.js
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,11 +14,15 @@ import {
   Alert,
   Platform,
   Modal,
-  TouchableWithoutFeedback
+  TouchableWithoutFeedback,
+  ActivityIndicator
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../../hook/useAuth';
 import * as ImagePicker from 'expo-image-picker';
+import locationService from '../../services/locationService';
+import vehicleService from '../../services/vehicleService';
+import apiService from '../../services/apiService';
 
 const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }) => {
   const { user } = useAuth();
@@ -27,10 +31,31 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
   const [tempDate, setTempDate] = useState('');
   const [tempTime, setTempTime] = useState('');
   const [images, setImages] = useState(bookingData.images || []);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState(bookingData.paymentMethod || null);
-  
+  const [loading, setLoading] = useState(false);
+  const [routeInfo, setRouteInfo] = useState(null);
+  const [vehicleRecommendation, setVehicleRecommendation] = useState(null);
+  const [locationSearchResults, setLocationSearchResults] = useState({
+    pickup: [],
+    delivery: []
+  });
+
+  // Reference data from API
+  const [cargoTypes, setCargoTypes] = useState([]);
+  const [insuranceOptions, setInsuranceOptions] = useState([]);
+  const [dataLoading, setDataLoading] = useState(true);
+
+  // Selection modals
+  const [showCargoTypeModal, setShowCargoTypeModal] = useState(false);
+  const [showInsuranceModal, setShowInsuranceModal] = useState(false);
+  const [selectedCargoType, setSelectedCargoType] = useState(null);
+  const [selectedInsurance, setSelectedInsurance] = useState(null);
+
+  // ADDED: Pricing state
+  const [calculatedPricing, setCalculatedPricing] = useState(null);
+
   const [formData, setFormData] = useState({
     cargoType: bookingData.cargoType || '',
+    cargoTypeId: bookingData.cargoTypeId || null,
     weight: bookingData.weight || '',
     pickupLocation: bookingData.pickupLocation || '',
     deliveryLocation: bookingData.deliveryLocation || '',
@@ -38,49 +63,179 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
     cargoValue: bookingData.cargoValue || '',
     specialInstructions: bookingData.specialInstructions || '',
     insurance: bookingData.insurance || false,
+    insuranceOption: bookingData.insuranceOption || null,
     bookingType: bookingData.bookingType || 'single'
   });
 
-  const [estimatedPrice, setEstimatedPrice] = useState({
-    transport: 400,
-    platformFee: 48,
-    insurance: 45,
-    total: 493
-  });
+  // Fetch reference data on mount
+  useEffect(() => {
+    fetchReferenceData();
+  }, []);
 
-  // Payment methods data
-  const paymentMethods = [
-    {
-      id: 'ecocash',
-      name: "EcoCash / OneMoney",
-      description: "Instant confirmation • 12% fee",
-      recommended: true
-    },
-    {
-      id: 'cash_agent',
-      name: "Cash via EcoCash Agent",
-      description: "Pay at any agent • 12% fee",
-      recommended: false
-    },
-    {
-      id: 'cash_pickup',
-      name: "Cash on Pickup",
-      description: "Driver collects • 15% fee",
-      recommended: false
+  const fetchReferenceData = async () => {
+    setDataLoading(true);
+    try {
+      const [cargoResponse, insuranceResponse] = await Promise.all([
+        apiService.request('/reference/cargo-types/grouped'),
+        apiService.request('/reference/insurance-options/by-category')
+      ]);
+
+      if (cargoResponse.success) {
+        setCargoTypes(cargoResponse.data);
+      }
+      if (insuranceResponse.success) {
+        setInsuranceOptions(insuranceResponse.data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch reference data:', error);
+    } finally {
+      setDataLoading(false);
     }
-  ];
+  };
 
-  // Update form fields
+  // Load vehicle recommendation when cargo details change
+  useEffect(() => {
+    if (formData.cargoType && formData.weight) {
+      loadVehicleRecommendation();
+    }
+  }, [formData.cargoType, formData.weight]);
+
+  // Calculate route when locations change
+  useEffect(() => {
+    if (formData.pickupLocation && formData.deliveryLocation) {
+      calculateRoute();
+    }
+  }, [formData.pickupLocation, formData.deliveryLocation]);
+
+  // ADDED: Calculate pricing when all data is available
+  useEffect(() => {
+    if (routeInfo && vehicleRecommendation && formData.pickupDate) {
+      calculatePricing();
+    }
+  }, [routeInfo, vehicleRecommendation, formData, images]);
+
+  const loadVehicleRecommendation = async () => {
+    try {
+      const recommendation = await vehicleService.getVehicleRecommendation({
+        cargoType: formData.cargoType,
+        weight: formData.weight,
+        cargoValue: formData.cargoValue
+      });
+      setVehicleRecommendation(recommendation);
+    } catch (error) {
+      console.error('Failed to load vehicle recommendation:', error);
+    }
+  };
+
+  const calculateRoute = async () => {
+    try {
+      const route = await locationService.calculateRoute(
+        formData.pickupLocation,
+        formData.deliveryLocation
+      );
+      setRouteInfo(route);
+    } catch (error) {
+      console.error('Failed to calculate route:', error);
+      setRouteInfo({
+        distance: 440,
+        duration: '7-8 hours',
+        route: `${formData.pickupLocation} → ${formData.deliveryLocation}`
+      });
+    }
+  };
+
+  // ADDED: Calculate pricing function
+  const calculatePricing = async () => {
+    try {
+      const pricingData = {
+        route: {
+          distance: routeInfo?.distance || 0,
+          pickup: { address: formData.pickupLocation },
+          delivery: { address: formData.deliveryLocation }
+        },
+        cargoDetails: {
+          type: formData.cargoType,
+          weight: parseFloat(formData.weight) || 0,
+          value: parseFloat(formData.cargoValue) || 0,
+          specialRequirements: formData.specialInstructions ? [formData.specialInstructions] : []
+        },
+        vehicleType: vehicleRecommendation?.vehicleType,
+        insurance: { required: formData.insurance },
+        isCrossBorder: isCrossBorderDestination(formData.deliveryLocation),
+        paymentMethod: 'digital', // Default for calculation
+        bookingType: formData.bookingType || 'single',
+        urgency: 'standard' // Default urgency
+      };
+
+      const response = await apiService.post('/bookings/calculate-pricing', pricingData);
+      
+      if (response.success) {
+        setCalculatedPricing(response.data);
+      }
+    } catch (error) {
+      console.error('Failed to calculate pricing:', error);
+      // Fallback pricing
+      setCalculatedPricing({
+        breakdown: {
+          baseTransportFee: 400,
+          platformFee: 48,
+          platformFeeRate: 0.12,
+          insurance: formData.insurance ? 45 : 0,
+          insuranceRate: 0.0045,
+          specialCargoFee: 0,
+          crossBorderFees: { total: 0 }
+        },
+        totals: {
+          subtotal: formData.insurance ? 493 : 448,
+          total: formData.insurance ? 493 : 448
+        }
+      });
+    }
+  };
+
+  const handleUseCurrentLocation = async (field) => {
+    setLoading(true);
+    try {
+      const location = await locationService.getCurrentLocation();
+      const address = await locationService.reverseGeocode(
+        location.latitude,
+        location.longitude
+      );
+      
+      updateField(field, address.fullAddress);
+      Alert.alert('Location Set', `Your current location has been set to: ${address.fullAddress}`);
+    } catch (error) {
+      Alert.alert('Location Error', error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLocationSearch = async (query, field) => {
+    // Map form field to state key
+    const stateKey = field === 'pickupLocation' ? 'pickup' : 'delivery';
+
+    if (query.length < 3) {
+      setLocationSearchResults(prev => ({ ...prev, [stateKey]: [] }));
+      return;
+    }
+
+    try {
+      const results = await locationService.searchLocations(query);
+      setLocationSearchResults(prev => ({ ...prev, [stateKey]: results }));
+    } catch (error) {
+      console.error('Location search error:', error);
+    }
+  };
+
   const updateField = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+    
+    if ((field === 'pickupLocation' || field === 'deliveryLocation') && value.length >= 3) {
+      handleLocationSearch(value, field);
+    }
   };
 
-  // Handle payment method selection
-  const handlePaymentMethodSelect = (methodId) => {
-    setSelectedPaymentMethod(methodId);
-  };
-
-  // Date/Time Modal Functions
   const showDateTimeModal = () => {
     if (formData.pickupDate) {
       const [datePart, timePart] = formData.pickupDate.split(' ');
@@ -117,7 +272,6 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
     }
   };
 
-  // Image Picker Functions
   const requestPermissions = async () => {
     if (Platform.OS !== 'web') {
       const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
@@ -198,39 +352,117 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
     );
   };
 
-  // Validation
   const isStep1Valid = formData.cargoType && formData.weight && formData.cargoValue;
   const isStep2Valid = formData.pickupLocation && formData.deliveryLocation && formData.pickupDate;
-  const isStep3Valid = selectedPaymentMethod !== null;
 
-  const crossBorderCountries = ['South Africa', 'Botswana', 'Zambia', 'Mozambique', 'Namibia','Zimbabwe'];
+  const crossBorderCountries = ['South Africa', 'Botswana', 'Zambia', 'Mozambique', 'Namibia'];
 
-const isCrossBorderDestination = (deliveryLocation) => {
-  if (!deliveryLocation) return false;
-  return crossBorderCountries.some(country => 
-    deliveryLocation.toLowerCase().includes(country.toLowerCase())
-  );
-};
+  const isCrossBorderDestination = (deliveryLocation) => {
+    if (!deliveryLocation) return false;
+    return crossBorderCountries.some(country => 
+      deliveryLocation.toLowerCase().includes(country.toLowerCase())
+    );
+  };
 
- const handleContinue = () => {
-  if (step === 2 && true) {
-    // Update booking data first
-    updateBookingData({
-      ...formData,
-      isCrossBorder: true
-    });
-    onNavigate('cross-border-booking');
-  } else if (step === 3 && isStep3Valid) {
-    updateBookingData({
-      ...formData,
-      paymentMethod: selectedPaymentMethod,
-      images: images
-    });
-    onNavigate('booking-review');
-  } else if (step < 3) {
-    setStep(step + 1);
-  }
-};
+  // UPDATED: Handle continue with proper data mapping
+  const handleContinue = () => {
+    if (step === 2 && isCrossBorderDestination(formData.deliveryLocation)) {
+      // Prepare data for cross-border booking
+      const bookingDataForReview = {
+        // Basic booking info
+        bookingType: formData.bookingType,
+        
+        // Cargo details (mapped to backend structure)
+        cargoType: formData.cargoType,
+        weight: parseFloat(formData.weight),
+        cargoValue: parseFloat(formData.cargoValue),
+        specialInstructions: formData.specialInstructions,
+        images: images,
+        
+        // Route details (mapped to backend structure)
+        pickupLocation: formData.pickupLocation,
+        deliveryLocation: formData.deliveryLocation,
+        pickupDate: formData.pickupDate,
+        
+        // Additional data
+        insurance: formData.insurance,
+        isCrossBorder: true,
+        
+        // Calculated data
+        routeInfo: routeInfo,
+        vehicleRecommendation: vehicleRecommendation,
+        pricing: calculatedPricing
+      };
+
+      updateBookingData(bookingDataForReview);
+      onNavigate('cross-border-booking');
+    } else if (step === 2 && isStep2Valid) {
+      // Prepare complete booking data for review
+      const bookingDataForReview = {
+        // Basic booking info
+        bookingType: formData.bookingType || 'single',
+        
+        // Cargo details (mapped to backend structure)
+        cargoType: formData.cargoType,
+        weight: parseFloat(formData.weight),
+        cargoValue: parseFloat(formData.cargoValue),
+        specialInstructions: formData.specialInstructions,
+        images: images,
+        
+        // Route details (mapped to backend structure)
+        pickupLocation: formData.pickupLocation,
+        deliveryLocation: formData.deliveryLocation,
+        pickupDate: formData.pickupDate,
+        
+        // Insurance and cross-border
+        insurance: formData.insurance,
+        isCrossBorder: isCrossBorderDestination(formData.deliveryLocation),
+        
+        // Calculated data
+        routeInfo: routeInfo,
+        vehicleRecommendation: vehicleRecommendation,
+        pricing: calculatedPricing
+      };
+
+      console.log("Sending to review screen:", bookingDataForReview);
+      updateBookingData(bookingDataForReview);
+      onNavigate('booking-review');
+    } else if (step < 2) {
+      setStep(step + 1);
+    }
+  };
+
+  const renderLocationSearchResults = (stateKey) => {
+    const results = locationSearchResults[stateKey];
+    if (!results || results.length === 0) return null;
+
+    // Map state key back to form field
+    const formField = stateKey === 'pickup' ? 'pickupLocation' : 'deliveryLocation';
+
+    return (
+      <View style={styles.searchResults}>
+        <ScrollView
+          nestedScrollEnabled={true}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={true}
+        >
+          {results.slice(0, 5).map((item, index) => (
+            <TouchableOpacity
+              key={index}
+              style={styles.searchResultItem}
+              onPress={() => {
+                updateField(formField, item.address);
+                setLocationSearchResults(prev => ({ ...prev, [stateKey]: [] }));
+              }}
+            >
+              <MaterialIcons name="location-on" size={16} color="#6b7280" />
+              <Text style={styles.searchResultText} numberOfLines={2}>{item.address}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -243,9 +475,8 @@ const isCrossBorderDestination = (deliveryLocation) => {
           <View style={styles.progressBar}>
             <View style={[styles.progressStep, step >= 1 && styles.progressStepActive]} />
             <View style={[styles.progressStep, step >= 2 && styles.progressStepActive]} />
-            <View style={[styles.progressStep, step >= 3 && styles.progressStepActive]} />
           </View>
-          <Text style={styles.progressText}>Step {step} of 3</Text>
+          <Text style={styles.progressText}>Step {step} of 2</Text>
         </View>
       </View>
 
@@ -255,18 +486,31 @@ const isCrossBorderDestination = (deliveryLocation) => {
             <View style={styles.stepContainer}>
               <Text style={styles.stepTitle}>Cargo Details</Text>
 
-              {/* Cargo Type */}
               <View style={styles.inputContainer}>
                 <Text style={styles.label}>What are you transporting? *</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g., 5 tonnes maize in bags"
-                  value={formData.cargoType}
-                  onChangeText={(value) => updateField('cargoType', value)}
-                />
+                <TouchableOpacity
+                  style={styles.selectInput}
+                  onPress={() => setShowCargoTypeModal(true)}
+                >
+                  <Text style={selectedCargoType ? styles.selectInputText : styles.selectInputPlaceholder}>
+                    {selectedCargoType?.name || 'Select cargo type...'}
+                  </Text>
+                  <MaterialIcons name="arrow-drop-down" size={24} color="#6b7280" />
+                </TouchableOpacity>
+                {selectedCargoType && (
+                  <View style={styles.cargoTypeInfo}>
+                    <Text style={styles.cargoTypeCategory}>
+                      Category: {selectedCargoType.category}
+                    </Text>
+                    {selectedCargoType.specialRequirements?.length > 0 && (
+                      <Text style={styles.cargoTypeRequirements}>
+                        Requirements: {selectedCargoType.specialRequirements.join(', ')}
+                      </Text>
+                    )}
+                  </View>
+                )}
               </View>
 
-              {/* Weight */}
               <View style={styles.inputContainer}>
                 <Text style={styles.label}>Weight (kg) *</Text>
                 <TextInput
@@ -278,7 +522,6 @@ const isCrossBorderDestination = (deliveryLocation) => {
                 />
               </View>
 
-              {/* Cargo Value */}
               <View style={styles.inputContainer}>
                 <Text style={styles.label}>Cargo Value (USD) *</Text>
                 <TextInput
@@ -291,7 +534,54 @@ const isCrossBorderDestination = (deliveryLocation) => {
                 <Text style={styles.helperText}>Required for insurance calculation</Text>
               </View>
 
-              {/* Special Instructions */}
+              {/* Insurance Selection */}
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Insurance Coverage</Text>
+                <TouchableOpacity
+                  style={styles.selectInput}
+                  onPress={() => setShowInsuranceModal(true)}
+                >
+                  <View style={styles.insuranceSelectContent}>
+                    <MaterialIcons
+                      name={formData.insurance ? "verified-user" : "security"}
+                      size={20}
+                      color={formData.insurance ? "#16a34a" : "#6b7280"}
+                    />
+                    <Text style={selectedInsurance ? styles.selectInputText : styles.selectInputPlaceholder}>
+                      {selectedInsurance?.name || (formData.insurance ? 'Insurance Selected' : 'No Insurance (Tap to add)')}
+                    </Text>
+                  </View>
+                  <MaterialIcons name="arrow-drop-down" size={24} color="#6b7280" />
+                </TouchableOpacity>
+                {selectedInsurance && (
+                  <View style={styles.insuranceInfo}>
+                    <View style={styles.insuranceInfoRow}>
+                      <Text style={styles.insuranceInfoLabel}>Rate:</Text>
+                      <Text style={styles.insuranceInfoValue}>
+                        {((selectedInsurance.baseRate || selectedInsurance.rate || 0) * 100).toFixed(2)}%
+                      </Text>
+                    </View>
+                    {formData.cargoValue && (
+                      <View style={styles.insuranceInfoRow}>
+                        <Text style={styles.insuranceInfoLabel}>Est. Premium:</Text>
+                        <Text style={styles.insuranceInfoValue}>
+                          ${(parseFloat(formData.cargoValue) * (selectedInsurance.baseRate || selectedInsurance.rate || 0)).toFixed(2)}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={styles.insuranceInfoRow}>
+                      <Text style={styles.insuranceInfoLabel}>Max Premium:</Text>
+                      <Text style={styles.insuranceInfoValue}>
+                        ${(selectedInsurance.calculation?.maxPremium || selectedInsurance.maxCoverage)?.toLocaleString() || 'N/A'}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+                <Text style={styles.helperText}>
+                  Choose insurance based on cargo type: livestock, dangerous goods, agriculture, etc.
+                </Text>
+              </View>
+
               <View style={styles.inputContainer}>
                 <Text style={styles.label}>Special Instructions (Optional)</Text>
                 <TextInput
@@ -305,12 +595,10 @@ const isCrossBorderDestination = (deliveryLocation) => {
                 />
               </View>
 
-              {/* Photo Upload */}
               <View style={styles.photoSection}>
                 <Text style={styles.label}>Cargo Photos (Optional)</Text>
                 <Text style={styles.helperText}>Help transporters see your cargo</Text>
                 
-                {/* Selected Images */}
                 {images.length > 0 && (
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imagesContainer}>
                     {images.map((uri, index) => (
@@ -327,7 +615,6 @@ const isCrossBorderDestination = (deliveryLocation) => {
                   </ScrollView>
                 )}
 
-                {/* Upload Button */}
                 <TouchableOpacity 
                   style={styles.photoUpload} 
                   activeOpacity={0.7}
@@ -339,6 +626,21 @@ const isCrossBorderDestination = (deliveryLocation) => {
                   <Text style={styles.photoButton}>Choose Photos</Text>
                 </TouchableOpacity>
               </View>
+
+              {/* ADDED: Show estimated pricing in step 1 */}
+              {calculatedPricing && (
+                <View style={styles.pricePreview}>
+                  <Text style={styles.pricePreviewTitle}>Estimated Price</Text>
+                  <Text style={styles.pricePreviewAmount}>
+                    USD ${calculatedPricing.totals?.total || 0}
+                  </Text>
+                  <Text style={styles.pricePreviewBreakdown}>
+                    Base: ${calculatedPricing.breakdown?.baseTransportFee || 0} • 
+                    Platform: ${calculatedPricing.breakdown?.platformFee || 0} • 
+                    Insurance: ${calculatedPricing.breakdown?.insurance || 0}
+                  </Text>
+                </View>
+              )}
             </View>
           )}
 
@@ -346,8 +648,7 @@ const isCrossBorderDestination = (deliveryLocation) => {
             <View style={styles.stepContainer}>
               <Text style={styles.stepTitle}>Route & Schedule</Text>
 
-              {/* Pickup Location */}
-              <View style={styles.inputContainer}>
+              <View style={[styles.inputContainer, { zIndex: 100 }]}>
                 <Text style={styles.label}>Pickup Location *</Text>
                 <View style={styles.inputWithIcon}>
                   <MaterialIcons name="location-on" size={20} color="#9ca3af" style={styles.inputIcon} />
@@ -358,13 +659,20 @@ const isCrossBorderDestination = (deliveryLocation) => {
                     onChangeText={(value) => updateField('pickupLocation', value)}
                   />
                 </View>
-                <TouchableOpacity>
-                  <Text style={styles.locationButton}>📍 Use Current Location</Text>
+                {renderLocationSearchResults('pickup')}
+                <TouchableOpacity
+                  onPress={() => handleUseCurrentLocation('pickupLocation')}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <ActivityIndicator size="small" color="#0C2D48" />
+                  ) : (
+                    <Text style={styles.locationButton}>Use Current Location</Text>
+                  )}
                 </TouchableOpacity>
               </View>
 
-              {/* Delivery Location */}
-              <View style={styles.inputContainer}>
+              <View style={[styles.inputContainer, { zIndex: 50 }]}>
                 <Text style={styles.label}>Delivery Location *</Text>
                 <View style={styles.inputWithIcon}>
                   <MaterialIcons name="location-on" size={20} color="#9ca3af" style={styles.inputIcon} />
@@ -375,23 +683,22 @@ const isCrossBorderDestination = (deliveryLocation) => {
                     onChangeText={(value) => updateField('deliveryLocation', value)}
                   />
                 </View>
+                {renderLocationSearchResults('delivery')}
               </View>
 
-              {/* Distance & Route Info */}
-              {formData.pickupLocation && formData.deliveryLocation && (
+              {routeInfo && (
                 <View style={styles.routeInfo}>
                   <View style={styles.routeRow}>
                     <Text style={styles.routeLabel}>Distance</Text>
-                    <Text style={styles.routeValue}>440 km</Text>
+                    <Text style={styles.routeValue}>{routeInfo.distance} km</Text>
                   </View>
                   <View style={styles.routeRow}>
                     <Text style={styles.routeLabel}>Est. Duration</Text>
-                    <Text style={styles.routeDuration}>7-8 hours</Text>
+                    <Text style={styles.routeDuration}>{routeInfo.duration}</Text>
                   </View>
                 </View>
               )}
 
-              {/* Pickup Date & Time */}
               <View style={styles.inputContainer}>
                 <Text style={styles.label}>Pickup Date & Time *</Text>
                 
@@ -408,128 +715,31 @@ const isCrossBorderDestination = (deliveryLocation) => {
                 </TouchableOpacity>
               </View>
 
-              {/* Recommended Vehicle */}
-              <View style={styles.vehicleRecommendation}>
-                <Text style={styles.vehicleTitle}>✅ Recommended Vehicle</Text>
-                <Text style={styles.vehicleType}>7-tonne truck with tarpaulin</Text>
-                <Text style={styles.vehicleSubtitle}>Based on your cargo weight and type</Text>
-              </View>
-            </View>
-          )}
-
-          {step === 3 && (
-            <View style={styles.stepContainer}>
-              <Text style={styles.stepTitle}>Review & Payment</Text>
-
-              {/* Booking Summary */}
-              <View style={styles.summaryCard}>
-                <View style={styles.summarySection}>
-                  <Text style={styles.summaryLabel}>CARGO</Text>
-                  <Text style={styles.summaryValue}>{formData.cargoType || 'Not specified'}</Text>
-                </View>
-                <View style={styles.summaryDivider} />
-                <View style={styles.summarySection}>
-                  <Text style={styles.summaryLabel}>ROUTE</Text>
-                  <Text style={styles.summaryValue}>
-                    {formData.pickupLocation || 'Not specified'} → {formData.deliveryLocation || 'Not specified'}
-                  </Text>
-                  <Text style={styles.routeDistance}>440 km • 7-8 hours</Text>
-                </View>
-                <View style={styles.summaryDivider} />
-                <View style={styles.summarySection}>
-                  <Text style={styles.summaryLabel}>PICKUP</Text>
-                  <Text style={styles.summaryValue}>
-                    {formData.pickupDate ? formatDisplayDate(formData.pickupDate) : 'Not specified'}
-                  </Text>
-                </View>
-                
-                {images.length > 0 && (
-                  <>
-                    <View style={styles.summaryDivider} />
-                    <View style={styles.summarySection}>
-                      <Text style={styles.summaryLabel}>PHOTOS</Text>
-                      <Text style={styles.summaryValue}>{images.length} photo(s) attached</Text>
-                    </View>
-                  </>
-                )}
-              </View>
-
-              {/* Insurance Option */}
-              <View style={styles.insuranceCard}>
-                <View style={styles.insuranceHeader}>
-                  <Switch
-                    value={formData.insurance}
-                    onValueChange={(value) => updateField('insurance', value)}
-                    trackColor={{ false: '#767577', true: '#0C2D48' }}
-                    thumbColor={formData.insurance ? '#f5dd4b' : '#f4f3f4'}
-                  />
-                  <View style={styles.insuranceContent}>
-                    <View style={styles.insuranceTitleRow}>
-                      <MaterialIcons name="security" size={20} color="#0C2D48" />
-                      <Text style={styles.insuranceTitle}>Protect Your Cargo</Text>
-                    </View>
-                    <Text style={styles.insuranceDescription}>
-                      Full replacement coverage if damaged, lost, or stolen
+              {vehicleRecommendation && (
+                <View style={styles.vehicleRecommendation}>
+                  <Text style={styles.vehicleTitle}>✅ Recommended Vehicle</Text>
+                  <Text style={styles.vehicleType}>{vehicleRecommendation.displayName}</Text>
+                  <Text style={styles.vehicleSubtitle}>{vehicleRecommendation.reason}</Text>
+                  {vehicleRecommendation.features && (
+                    <Text style={styles.vehicleFeatures}>
+                      Features: {vehicleRecommendation.features.join(', ')}
                     </Text>
-                    <View style={styles.insuranceDetails}>
-                      <Text style={styles.insuranceDetail}>
-                        <Text style={styles.detailLabel}>Coverage:</Text> USD ${formData.cargoValue || '0'}
-                      </Text>
-                      <Text style={styles.insuranceDetail}>
-                        <Text style={styles.detailLabel}>Premium:</Text> USD $45 (0.45%)
-                      </Text>
-                      <Text style={styles.insuranceProvider}>Provider: Zimnat Lion Insurance ⭐⭐⭐⭐⭐</Text>
-                    </View>
-                  </View>
+                  )}
                 </View>
-              </View>
+              )}
 
-              {/* Price Breakdown */}
-              <View style={styles.priceCard}>
-                <Text style={styles.priceTitle}>Price Breakdown</Text>
-                <View style={styles.priceRow}>
-                  <Text style={styles.priceLabel}>Transport Fee</Text>
-                  <Text style={styles.priceValue}>USD ${estimatedPrice.transport}</Text>
-                </View>
-                <View style={styles.priceRow}>
-                  <Text style={styles.priceLabel}>Platform Fee (12%)</Text>
-                  <Text style={styles.priceValue}>USD ${estimatedPrice.platformFee}</Text>
-                </View>
-                {formData.insurance && (
-                  <View style={styles.priceRow}>
-                    <Text style={styles.priceLabel}>Insurance</Text>
-                    <Text style={styles.priceValue}>USD ${estimatedPrice.insurance}</Text>
-                  </View>
-                )}
-                <View style={styles.priceTotal}>
-                  <Text style={styles.totalLabel}>Total</Text>
-                  <Text style={styles.totalValue}>
-                    USD ${formData.insurance ? estimatedPrice.total : estimatedPrice.total - estimatedPrice.insurance}
+              {/* ADDED: Show final pricing in step 2 */}
+              {calculatedPricing && (
+                <View style={styles.finalPricePreview}>
+                  <Text style={styles.finalPriceTitle}>Final Estimated Price</Text>
+                  <Text style={styles.finalPriceAmount}>
+                    USD ${calculatedPricing.totals?.total || 0}
+                  </Text>
+                  <Text style={styles.finalPriceNote}>
+                    This includes all fees and {formData.insurance ? 'insurance' : 'no insurance'}
                   </Text>
                 </View>
-              </View>
-
-              {/* Payment Method */}
-              <View style={styles.paymentContainer}>
-                <Text style={styles.paymentTitle}>Payment Method *</Text>
-                <View style={styles.paymentOptions}>
-                  {paymentMethods.map((method) => (
-                    <PaymentOption
-                      key={method.id}
-                      name={method.name}
-                      description={method.description}
-                      recommended={method.recommended}
-                      isSelected={selectedPaymentMethod === method.id}
-                      onPress={() => handlePaymentMethodSelect(method.id)}
-                    />
-                  ))}
-                </View>
-                {selectedPaymentMethod && (
-                  <Text style={styles.selectedPaymentText}>
-                    Selected: {paymentMethods.find(m => m.id === selectedPaymentMethod)?.name}
-                  </Text>
-                )}
-              </View>
+              )}
             </View>
           )}
         </View>
@@ -537,7 +747,7 @@ const isCrossBorderDestination = (deliveryLocation) => {
         <View style={styles.bottomPadding} />
       </ScrollView>
 
-      {/* Date/Time Selection Modal */}
+      {/* Date/Time Modal */}
       <Modal
         visible={showDateModal}
         transparent={true}
@@ -549,7 +759,7 @@ const isCrossBorderDestination = (deliveryLocation) => {
             <TouchableWithoutFeedback>
               <View style={styles.modalContent}>
                 <Text style={styles.modalTitle}>Select Pickup Date & Time</Text>
-                
+
                 <View style={styles.modalInputContainer}>
                   <Text style={styles.modalLabel}>Date</Text>
                   <TextInput
@@ -575,19 +785,220 @@ const isCrossBorderDestination = (deliveryLocation) => {
                 </View>
 
                 <View style={styles.modalButtons}>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={[styles.modalButton, styles.modalCancelButton]}
                     onPress={handleDateTimeCancel}
                   >
                     <Text style={styles.modalCancelButtonText}>Cancel</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={[styles.modalButton, styles.modalConfirmButton]}
                     onPress={handleDateTimeConfirm}
                   >
                     <Text style={styles.modalConfirmButtonText}>Confirm</Text>
                   </TouchableOpacity>
                 </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* Cargo Type Selection Modal */}
+      <Modal
+        visible={showCargoTypeModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowCargoTypeModal(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setShowCargoTypeModal(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.selectionModalContent}>
+                <View style={styles.selectionModalHeader}>
+                  <Text style={styles.modalTitle}>Select Cargo Type</Text>
+                  <TouchableOpacity onPress={() => setShowCargoTypeModal(false)}>
+                    <MaterialIcons name="close" size={24} color="#6b7280" />
+                  </TouchableOpacity>
+                </View>
+
+                {dataLoading ? (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color="#0C2D48" />
+                    <Text style={styles.loadingText}>Loading cargo types...</Text>
+                  </View>
+                ) : (
+                  <ScrollView style={styles.selectionList}>
+                    {Object.entries(cargoTypes).map(([category, categoryData]) => (
+                      <View key={category} style={styles.categorySection}>
+                        <Text style={styles.categoryTitle}>
+                          {categoryData?.label || category.replace(/_/g, ' ').toUpperCase()}
+                        </Text>
+                        {(Array.isArray(categoryData) ? categoryData : categoryData?.items || []).map((item) => (
+                          <TouchableOpacity
+                            key={item._id}
+                            style={[
+                              styles.selectionItem,
+                              selectedCargoType?._id === item._id && styles.selectionItemSelected
+                            ]}
+                            onPress={() => {
+                              setSelectedCargoType(item);
+                              updateField('cargoType', item.name);
+                              updateField('cargoTypeId', item._id);
+                              setShowCargoTypeModal(false);
+                            }}
+                          >
+                            <View style={styles.selectionItemContent}>
+                              <Text style={[
+                                styles.selectionItemText,
+                                selectedCargoType?._id === item._id && styles.selectionItemTextSelected
+                              ]}>
+                                {item.name}
+                              </Text>
+                              {item.description && (
+                                <Text style={styles.selectionItemDescription}>
+                                  {item.description}
+                                </Text>
+                              )}
+                              {item.specialRequirements?.length > 0 && (
+                                <View style={styles.requirementTags}>
+                                  {item.specialRequirements.map((req, idx) => (
+                                    <View key={idx} style={styles.requirementTag}>
+                                      <Text style={styles.requirementTagText}>{req}</Text>
+                                    </View>
+                                  ))}
+                                </View>
+                              )}
+                            </View>
+                            {selectedCargoType?._id === item._id && (
+                              <MaterialIcons name="check-circle" size={24} color="#0C2D48" />
+                            )}
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    ))}
+                  </ScrollView>
+                )}
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* Insurance Selection Modal */}
+      <Modal
+        visible={showInsuranceModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowInsuranceModal(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setShowInsuranceModal(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.selectionModalContent}>
+                <View style={styles.selectionModalHeader}>
+                  <Text style={styles.modalTitle}>Select Insurance Option</Text>
+                  <TouchableOpacity onPress={() => setShowInsuranceModal(false)}>
+                    <MaterialIcons name="close" size={24} color="#6b7280" />
+                  </TouchableOpacity>
+                </View>
+
+                {dataLoading ? (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color="#0C2D48" />
+                    <Text style={styles.loadingText}>Loading insurance options...</Text>
+                  </View>
+                ) : (
+                  <ScrollView style={styles.selectionList}>
+                    {/* No Insurance Option */}
+                    <TouchableOpacity
+                      style={[
+                        styles.selectionItem,
+                        !formData.insurance && styles.selectionItemSelected
+                      ]}
+                      onPress={() => {
+                        setSelectedInsurance(null);
+                        updateField('insurance', false);
+                        updateField('insuranceOption', null);
+                        setShowInsuranceModal(false);
+                      }}
+                    >
+                      <View style={styles.selectionItemContent}>
+                        <Text style={[
+                          styles.selectionItemText,
+                          !formData.insurance && styles.selectionItemTextSelected
+                        ]}>
+                          No Insurance
+                        </Text>
+                        <Text style={styles.selectionItemDescription}>
+                          Proceed without cargo insurance coverage
+                        </Text>
+                      </View>
+                      {!formData.insurance && (
+                        <MaterialIcons name="check-circle" size={24} color="#0C2D48" />
+                      )}
+                    </TouchableOpacity>
+
+                    {Object.entries(insuranceOptions).map(([category, categoryData]) => (
+                      <View key={category} style={styles.categorySection}>
+                        <Text style={styles.categoryTitle}>
+                          {categoryData?.label ||
+                           (category === 'dangerous_goods' ? 'DANGEROUS GOODS' :
+                           category === 'livestock' ? 'LIVESTOCK' :
+                           category === 'agriculture' ? 'AGRICULTURE' :
+                           category.replace(/_/g, ' ').toUpperCase())}
+                        </Text>
+                        {(Array.isArray(categoryData) ? categoryData : categoryData?.options || categoryData?.items || []).map((item) => (
+                          <TouchableOpacity
+                            key={item._id}
+                            style={[
+                              styles.selectionItem,
+                              selectedInsurance?._id === item._id && styles.selectionItemSelected
+                            ]}
+                            onPress={() => {
+                              setSelectedInsurance(item);
+                              updateField('insurance', true);
+                              updateField('insuranceOption', item);
+                              setShowInsuranceModal(false);
+                            }}
+                          >
+                            <View style={styles.selectionItemContent}>
+                              <View style={styles.insuranceItemHeader}>
+                                <Text style={[
+                                  styles.selectionItemText,
+                                  selectedInsurance?._id === item._id && styles.selectionItemTextSelected
+                                ]}>
+                                  {item.name}
+                                </Text>
+                                <View style={styles.insuranceRateBadge}>
+                                  <Text style={styles.insuranceRateText}>
+                                    {((item.baseRate || item.rate || 0) * 100).toFixed(2)}%
+                                  </Text>
+                                </View>
+                              </View>
+                              {item.description && (
+                                <Text style={styles.selectionItemDescription}>
+                                  {item.description}
+                                </Text>
+                              )}
+                              {formData.cargoValue && (
+                                <Text style={styles.insuranceEstimate}>
+                                  Est. Premium: ${(parseFloat(formData.cargoValue) * (item.baseRate || item.rate || 0)).toFixed(2)}
+                                </Text>
+                              )}
+                              <Text style={styles.insuranceCoverage}>
+                                Max Premium: ${(item.calculation?.maxPremium || item.maxCoverage)?.toLocaleString() || 'N/A'}
+                              </Text>
+                            </View>
+                            {selectedInsurance?._id === item._id && (
+                              <MaterialIcons name="check-circle" size={24} color="#0C2D48" />
+                            )}
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    ))}
+                  </ScrollView>
+                )}
               </View>
             </TouchableWithoutFeedback>
           </View>
@@ -609,14 +1020,14 @@ const isCrossBorderDestination = (deliveryLocation) => {
           <TouchableOpacity
             style={[
               styles.continueButton,
-              ((step === 1 && !isStep1Valid) || (step === 2 && !isStep2Valid) || (step === 3 && !isStep3Valid)) && styles.continueButtonDisabled
+              ((step === 1 && !isStep1Valid) || (step === 2 && !isStep2Valid)) && styles.continueButtonDisabled
             ]}
             onPress={handleContinue}
-            disabled={(step === 1 && !isStep1Valid) || (step === 2 && !isStep2Valid) || (step === 3 && !isStep3Valid)}
+            disabled={(step === 1 && !isStep1Valid) || (step === 2 && !isStep2Valid)}
             activeOpacity={0.7}
           >
             <Text style={styles.continueButtonText}>
-              {step < 3 ? 'Continue' : 'Proceed to Review'}
+              {step < 2 ? 'Continue' : 'Review Booking'}
             </Text>
             <MaterialIcons name="arrow-forward" size={20} color="white" />
           </TouchableOpacity>
@@ -625,40 +1036,6 @@ const isCrossBorderDestination = (deliveryLocation) => {
     </SafeAreaView>
   );
 };
-
-const PaymentOption = ({ name, description, recommended, isSelected, onPress }) => (
-  <TouchableOpacity 
-    style={[
-      styles.paymentOption,
-      isSelected && styles.paymentOptionSelected
-    ]} 
-    activeOpacity={0.7}
-    onPress={onPress}
-  >
-    <View style={styles.radioContainer}>
-      <View style={[
-        styles.radioOuter,
-        isSelected && styles.radioOuterSelected
-      ]}>
-        {isSelected && <View style={styles.radioInner} />}
-      </View>
-    </View>
-    <View style={styles.paymentInfo}>
-      <View style={styles.paymentHeader}>
-        <Text style={[
-          styles.paymentName,
-          isSelected && styles.paymentNameSelected
-        ]}>{name}</Text>
-        {recommended && (
-          <View style={styles.recommendedBadge}>
-            <Text style={styles.recommendedText}>Recommended</Text>
-          </View>
-        )}
-      </View>
-      <Text style={styles.paymentDescription}>{description}</Text>
-    </View>
-  </TouchableOpacity>
-);
 
 const styles = StyleSheet.create({
   container: {
@@ -716,6 +1093,8 @@ const styles = StyleSheet.create({
   },
   inputContainer: {
     gap: 8,
+    position: 'relative',
+    zIndex: 1,
   },
   label: {
     fontSize: 14,
@@ -945,6 +1324,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6b7280',
     marginTop: 4,
+  },
+  vehicleFeatures: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 4,
+    fontStyle: 'italic',
   },
   summaryCard: {
     backgroundColor: 'white',
@@ -1210,6 +1595,266 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: 'white',
+  },
+  searchResults: {
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    marginTop: 4,
+    maxHeight: 200,
+    position: 'absolute',
+    top: 68,
+    left: 0,
+    right: 0,
+    zIndex: 1000,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+  },
+  searchResultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  searchResultText: {
+    fontSize: 14,
+    color: '#374151',
+    flex: 1,
+  },pricePreview: {
+    backgroundColor: '#f0f9ff',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    borderRadius: 8,
+    padding: 16,
+    marginTop: 16,
+  },
+  pricePreviewTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1e40af',
+    marginBottom: 4,
+  },
+  pricePreviewAmount: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#0C2D48',
+    marginBottom: 4,
+  },
+  pricePreviewBreakdown: {
+    fontSize: 12,
+    color: '#6b7280',
+  },
+  finalPricePreview: {
+    backgroundColor: '#dcfce7',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    borderRadius: 8,
+    padding: 16,
+    marginTop: 16,
+  },
+  finalPriceTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#166534',
+    marginBottom: 4,
+  },
+  finalPriceAmount: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#0C2D48',
+    marginBottom: 4,
+  },
+  finalPriceNote: {
+    fontSize: 12,
+    color: '#6b7280',
+  },
+  // Select Input Styles
+  selectInput: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    backgroundColor: 'white',
+  },
+  selectInputText: {
+    fontSize: 16,
+    color: '#1f2937',
+    flex: 1,
+  },
+  selectInputPlaceholder: {
+    fontSize: 16,
+    color: '#9ca3af',
+    flex: 1,
+  },
+  // Cargo Type Info
+  cargoTypeInfo: {
+    backgroundColor: '#f0f9ff',
+    borderRadius: 6,
+    padding: 10,
+    marginTop: 8,
+  },
+  cargoTypeCategory: {
+    fontSize: 12,
+    color: '#1e40af',
+    fontWeight: '500',
+  },
+  cargoTypeRequirements: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 4,
+  },
+  // Insurance Selection Content
+  insuranceSelectContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  insuranceInfo: {
+    backgroundColor: '#dcfce7',
+    borderRadius: 6,
+    padding: 10,
+    marginTop: 8,
+  },
+  insuranceInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  insuranceInfoLabel: {
+    fontSize: 12,
+    color: '#6b7280',
+  },
+  insuranceInfoValue: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#166534',
+  },
+  // Selection Modal Styles
+  selectionModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    width: '100%',
+    maxHeight: '80%',
+    maxWidth: 450,
+  },
+  selectionModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  selectionList: {
+    maxHeight: 500,
+  },
+  categorySection: {
+    paddingVertical: 8,
+  },
+  categoryTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6b7280',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#f9fafb',
+    letterSpacing: 0.5,
+  },
+  selectionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  selectionItemSelected: {
+    backgroundColor: '#f0f9ff',
+  },
+  selectionItemContent: {
+    flex: 1,
+    marginRight: 12,
+  },
+  selectionItemText: {
+    fontSize: 16,
+    color: '#1f2937',
+    fontWeight: '500',
+  },
+  selectionItemTextSelected: {
+    color: '#0C2D48',
+    fontWeight: '600',
+  },
+  selectionItemDescription: {
+    fontSize: 13,
+    color: '#6b7280',
+    marginTop: 2,
+  },
+  requirementTags: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 6,
+  },
+  requirementTag: {
+    backgroundColor: '#fef3c7',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  requirementTagText: {
+    fontSize: 10,
+    color: '#92400e',
+    fontWeight: '500',
+  },
+  // Insurance Modal Styles
+  insuranceItemHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  insuranceRateBadge: {
+    backgroundColor: '#dbeafe',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  insuranceRateText: {
+    fontSize: 11,
+    color: '#1e40af',
+    fontWeight: '600',
+  },
+  insuranceEstimate: {
+    fontSize: 13,
+    color: '#16a34a',
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  insuranceCoverage: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 2,
+  },
+  // Loading Styles
+  loadingContainer: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    fontSize: 14,
+    color: '#6b7280',
+    marginTop: 12,
   },
 });
 

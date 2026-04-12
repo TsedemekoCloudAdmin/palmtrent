@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,61 +7,137 @@ import {
   StyleSheet,
   SafeAreaView,
   StatusBar,
-  FlatList
+  ActivityIndicator,
+  RefreshControl,
+  Alert
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import apiService from '../../services/apiService';
 
-const TrailerRentalScreen = ({ navigation }) => {
+const TrailerRentalScreen = ({ navigation, route }) => {
+  const { job } = route.params || {};
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [requesting, setRequesting] = useState(false);
   const [selectedTrailer, setSelectedTrailer] = useState(null);
+  const [trailers, setTrailers] = useState([]);
 
-  const availableTrailers = [
-    {
-      id: 1,
-      type: 'Flatbed',
-      capacity: '10 tonnes',
-      owner: "Mike's Trailers",
-      location: 'Msasa (15km away)',
-      rate: 80,
-      rating: 4.9,
-      condition: 'Excellent'
-    },
-    {
-      id: 2,
-      type: 'Flatbed',
-      capacity: '12 tonnes',
-      owner: 'Zim Trailers Ltd',
-      location: 'Southerton (8km away)',
-      rate: 100,
-      rating: 4.6,
-      condition: 'Good'
-    },
-    {
-      id: 3,
-      type: 'Enclosed',
-      capacity: '8 tonnes',
-      owner: 'Safe Haul Trailers',
-      location: 'Graniteside (12km away)',
-      rate: 120,
-      rating: 4.8,
-      condition: 'Excellent'
+  const fetchAvailableTrailers = useCallback(async () => {
+    try {
+      const response = await apiService.request('/rentals/available?itemType=trailer');
+      if (response.success) {
+        setTrailers(response.trailers || response.data || []);
+      } else {
+        setTrailers([]);
+      }
+    } catch (error) {
+      console.error('Fetch trailers error:', error);
+      setTrailers([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-  ];
+  }, []);
 
-  const navigateTo = (screen) => {
-    if (navigation) {
-      navigation.navigate(screen);
+  useEffect(() => {
+    fetchAvailableTrailers();
+  }, [fetchAvailableTrailers]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchAvailableTrailers();
+  }, [fetchAvailableTrailers]);
+
+  const handleRentTrailer = async () => {
+    if (!selectedTrailer) {
+      Alert.alert('Select Trailer', 'Please select a trailer to rent');
+      return;
     }
+
+    Alert.alert(
+      'Confirm Rental',
+      `Rent ${selectedTrailer.trailerType || 'this trailer'} for $${selectedTrailer.rentalSettings?.dailyRate || 0}/day?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Rent Now',
+          onPress: async () => {
+            setRequesting(true);
+            try {
+              // Calculate dates - if we have a job, use job dates
+              const startDate = job?.route?.pickup?.date || new Date().toISOString();
+              const endDate = job?.route?.delivery?.date || new Date(Date.now() + 86400000).toISOString();
+
+              const response = await apiService.request('/rentals/request', {
+                method: 'POST',
+                body: JSON.stringify({
+                  itemType: 'trailer',
+                  itemId: selectedTrailer._id,
+                  startDate,
+                  endDate,
+                  rateType: 'daily'
+                })
+              });
+
+              if (response.success) {
+                Alert.alert(
+                  'Rental Requested',
+                  'Your trailer rental request has been submitted. The owner will respond shortly.',
+                  [
+                    {
+                      text: 'OK',
+                      onPress: () => {
+                        if (job) {
+                          navigation.navigate('JobDetails', { job, rentalId: response.data?._id });
+                        } else {
+                          navigation.navigate('MyRentals');
+                        }
+                      }
+                    }
+                  ]
+                );
+              } else {
+                Alert.alert('Error', response.message || 'Failed to submit rental request');
+              }
+            } catch (error) {
+              Alert.alert('Error', error.message || 'Failed to submit rental request');
+            } finally {
+              setRequesting(false);
+            }
+          }
+        }
+      ]
+    );
   };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <MaterialIcons name="arrow-back" size={24} color="white" />
+            <Text style={styles.backButtonText}>Back</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Rent a Trailer</Text>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#0C2D48" />
+          <Text style={styles.loadingText}>Loading available trailers...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
-      
+
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.backButton}
-          onPress={() => navigateTo('JobDetails')}
+          onPress={() => navigation.goBack()}
         >
           <MaterialIcons name="arrow-back" size={24} color="white" />
           <Text style={styles.backButtonText}>Back</Text>
@@ -70,7 +146,13 @@ const TrailerRentalScreen = ({ navigation }) => {
         <Text style={styles.headerSubtitle}>I have truck, need trailer</Text>
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0C2D48']} />
+        }
+      >
         <View style={styles.content}>
           {/* Info Banner */}
           <View style={styles.infoBanner}>
@@ -78,23 +160,36 @@ const TrailerRentalScreen = ({ navigation }) => {
             <View style={styles.infoList}>
               <Text style={styles.infoItem}>1. Select a trailer near your location</Text>
               <Text style={styles.infoItem}>2. Rental fee is deducted from your earnings</Text>
-              <Text style={styles.infoItem}>3. Damage deposit held in escrow ($200)</Text>
+              <Text style={styles.infoItem}>3. Damage deposit held in escrow</Text>
               <Text style={styles.infoItem}>4. Return trailer after delivery</Text>
             </View>
           </View>
 
           {/* Available Trailers */}
-          <Text style={styles.sectionTitle}>Available Trailers</Text>
-          <View style={styles.trailersList}>
-            {availableTrailers.map((trailer) => (
-              <TrailerCard
-                key={trailer.id}
-                trailer={trailer}
-                selected={selectedTrailer?.id === trailer.id}
-                onSelect={() => setSelectedTrailer(trailer)}
-              />
-            ))}
-          </View>
+          <Text style={styles.sectionTitle}>
+            Available Trailers ({trailers.length})
+          </Text>
+
+          {trailers.length === 0 ? (
+            <View style={styles.emptyState}>
+              <MaterialIcons name="local-shipping" size={48} color="#d1d5db" />
+              <Text style={styles.emptyTitle}>No trailers available</Text>
+              <Text style={styles.emptySubtitle}>
+                Check back later or expand your search area
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.trailersList}>
+              {trailers.map((trailer) => (
+                <TrailerCard
+                  key={trailer._id}
+                  trailer={trailer}
+                  selected={selectedTrailer?._id === trailer._id}
+                  onSelect={() => setSelectedTrailer(trailer)}
+                />
+              ))}
+            </View>
+          )}
 
           {/* Rental Terms */}
           {selectedTrailer && (
@@ -103,19 +198,31 @@ const TrailerRentalScreen = ({ navigation }) => {
               <View style={styles.termsList}>
                 <View style={styles.termRow}>
                   <Text style={styles.termLabel}>Daily rate</Text>
-                  <Text style={styles.termValue}>${selectedTrailer.rate}/day</Text>
+                  <Text style={styles.termValue}>
+                    ${selectedTrailer.rentalSettings?.dailyRate || 0}/day
+                  </Text>
                 </View>
+                {selectedTrailer.rentalSettings?.weeklyRate > 0 && (
+                  <View style={styles.termRow}>
+                    <Text style={styles.termLabel}>Weekly rate</Text>
+                    <Text style={styles.termValue}>
+                      ${selectedTrailer.rentalSettings.weeklyRate}/week
+                    </Text>
+                  </View>
+                )}
                 <View style={styles.termRow}>
                   <Text style={styles.termLabel}>Damage deposit</Text>
-                  <Text style={styles.termValue}>$200 (refundable)</Text>
+                  <Text style={styles.termValue}>
+                    ${selectedTrailer.rentalSettings?.deposit || 200} (refundable)
+                  </Text>
                 </View>
                 <View style={styles.termRow}>
                   <Text style={styles.termLabel}>Rental period</Text>
                   <Text style={styles.termValue}>Pickup to return</Text>
                 </View>
                 <View style={styles.termRow}>
-                  <Text style={styles.termLabel}>Insurance</Text>
-                  <Text style={styles.termValue}>Both parties must have valid</Text>
+                  <Text style={styles.termLabel}>Platform fee</Text>
+                  <Text style={styles.termValue}>10%</Text>
                 </View>
               </View>
             </View>
@@ -130,12 +237,23 @@ const TrailerRentalScreen = ({ navigation }) => {
         <TouchableOpacity
           style={[
             styles.rentButton,
-            !selectedTrailer && styles.rentButtonDisabled
+            (!selectedTrailer || requesting) && styles.rentButtonDisabled
           ]}
-          onPress={() => navigateTo('TrailerRentalConfirm')}
-          disabled={!selectedTrailer}
+          onPress={handleRentTrailer}
+          disabled={!selectedTrailer || requesting}
         >
-          <Text style={styles.rentButtonText}>Rent This Trailer</Text>
+          {requesting ? (
+            <View style={styles.buttonContent}>
+              <ActivityIndicator size="small" color="white" />
+              <Text style={styles.rentButtonText}>Requesting...</Text>
+            </View>
+          ) : (
+            <Text style={styles.rentButtonText}>
+              {selectedTrailer
+                ? `Rent for $${selectedTrailer.rentalSettings?.dailyRate || 0}/day`
+                : 'Select a Trailer'}
+            </Text>
+          )}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -143,46 +261,75 @@ const TrailerRentalScreen = ({ navigation }) => {
 };
 
 const TrailerCard = ({ trailer, selected, onSelect }) => (
-  <TouchableOpacity 
-    style={[
-      styles.trailerCard,
-      selected && styles.trailerCardSelected
-    ]}
+  <TouchableOpacity
+    style={[styles.trailerCard, selected && styles.trailerCardSelected]}
     onPress={onSelect}
     activeOpacity={0.7}
   >
     <View style={styles.trailerHeader}>
       <View style={styles.trailerType}>
         <MaterialIcons name="local-shipping" size={20} color="#F37021" />
-        <Text style={styles.trailerTypeText}>{trailer.type}</Text>
+        <Text style={styles.trailerTypeText}>
+          {trailer.trailerType || 'Trailer'}
+        </Text>
       </View>
-      <View style={styles.rating}>
-        <MaterialIcons name="star" size={16} color="#F37021" />
-        <Text style={styles.ratingText}>{trailer.rating}</Text>
-      </View>
+      {trailer.rating?.average > 0 && (
+        <View style={styles.rating}>
+          <MaterialIcons name="star" size={16} color="#F37021" />
+          <Text style={styles.ratingText}>{trailer.rating.average.toFixed(1)}</Text>
+        </View>
+      )}
     </View>
-    
-    <Text style={styles.capacity}>{trailer.capacity}</Text>
-    
+
+    <Text style={styles.capacity}>
+      {trailer.capacity?.weight?.value
+        ? `${trailer.capacity.weight.value} ${trailer.capacity.weight.unit || 'kg'}`
+        : 'Capacity not specified'}
+    </Text>
+
     <View style={styles.trailerDetails}>
-      <View style={styles.detailRow}>
-        <MaterialIcons name="business" size={16} color="#F37021" />
-        <Text style={styles.detailText}>{trailer.owner}</Text>
-      </View>
-      <View style={styles.detailRow}>
-        <MaterialIcons name="location-on" size={16} color="#F37021" />
-        <Text style={styles.detailText}>{trailer.location}</Text>
-      </View>
-      <View style={styles.detailRow}>
-        <MaterialIcons name="check-circle" size={16} color="#F37021" />
-        <Text style={styles.detailText}>{trailer.condition} condition</Text>
-      </View>
+      {trailer.owner?.fullName && (
+        <View style={styles.detailRow}>
+          <MaterialIcons name="business" size={16} color="#F37021" />
+          <Text style={styles.detailText}>{trailer.owner.fullName}</Text>
+        </View>
+      )}
+      {trailer.operatingAreas?.[0]?.city && (
+        <View style={styles.detailRow}>
+          <MaterialIcons name="location-on" size={16} color="#F37021" />
+          <Text style={styles.detailText}>{trailer.operatingAreas[0].city}</Text>
+        </View>
+      )}
+      {trailer.features && (
+        <View style={styles.featuresRow}>
+          {trailer.features.refrigeration && (
+            <View style={styles.featureBadge}>
+              <MaterialIcons name="ac-unit" size={12} color="#0C2D48" />
+              <Text style={styles.featureText}>Refrigerated</Text>
+            </View>
+          )}
+          {trailer.features.liftGate && (
+            <View style={styles.featureBadge}>
+              <MaterialIcons name="upload" size={12} color="#0C2D48" />
+              <Text style={styles.featureText}>Lift Gate</Text>
+            </View>
+          )}
+          {trailer.features.gps && (
+            <View style={styles.featureBadge}>
+              <MaterialIcons name="gps-fixed" size={12} color="#0C2D48" />
+              <Text style={styles.featureText}>GPS</Text>
+            </View>
+          )}
+        </View>
+      )}
     </View>
-    
+
     <View style={styles.trailerFooter}>
-      <Text style={styles.rate}>${trailer.rate}/day</Text>
+      <Text style={styles.rate}>
+        ${trailer.rentalSettings?.dailyRate || 0}/day
+      </Text>
       {selected && (
-        <MaterialIcons name="check-circle" size={24} color="#F37021" />
+        <MaterialIcons name="check-circle" size={24} color="#16a34a" />
       )}
     </View>
   </TouchableOpacity>
@@ -221,6 +368,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     opacity: 0.9,
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#6b7280',
+  },
   scrollView: {
     flex: 1,
   },
@@ -254,6 +411,22 @@ const styles = StyleSheet.create({
     color: '#1f2937',
     marginBottom: 16,
   },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#374151',
+    marginTop: 16,
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    color: '#6b7280',
+    marginTop: 8,
+    textAlign: 'center',
+  },
   trailersList: {
     gap: 12,
     marginBottom: 24,
@@ -266,8 +439,8 @@ const styles = StyleSheet.create({
     borderColor: '#e5e7eb',
   },
   trailerCardSelected: {
-    borderColor: '#0C2D48',
-    backgroundColor: '#faf5ff',
+    borderColor: '#16a34a',
+    backgroundColor: '#f0fdf4',
   },
   trailerHeader: {
     flexDirection: 'row',
@@ -302,7 +475,7 @@ const styles = StyleSheet.create({
   },
   trailerDetails: {
     gap: 8,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   detailRow: {
     flexDirection: 'row',
@@ -313,10 +486,32 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#374151',
   },
+  featuresRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  featureBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#e0f2fe',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  featureText: {
+    fontSize: 12,
+    color: '#0C2D48',
+  },
   trailerFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
   },
   rate: {
     fontSize: 18,
@@ -376,6 +571,11 @@ const styles = StyleSheet.create({
   },
   rentButtonDisabled: {
     backgroundColor: '#d1d5db',
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   rentButtonText: {
     fontSize: 16,

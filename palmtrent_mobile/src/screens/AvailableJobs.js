@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,58 +7,102 @@ import {
   StyleSheet,
   SafeAreaView,
   StatusBar,
-  Dimensions
+  Dimensions,
+  ActivityIndicator,
+  RefreshControl,
+  Alert
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../hook/useAuth';
+import apiService from '../services/apiService';
 
 const { width } = Dimensions.get('window');
 
 const AvailableJobsScreen = ({ navigation, onNavigate }) => {
   const { user } = useAuth();
   const [selectedFilter, setSelectedFilter] = useState('all');
-  
-  const jobs = [
-    {
-      id: 'PT-2025-001234',
-      route: { from: 'Harare', to: 'Bulawayo' },
-      distance: 440,
-      cargo: '5 tonnes maize in bags',
-      earnings: 400,
-      shipper: { name: 'John Moyo', rating: 4.8, trips: 45 },
-      pickup: { date: 'Tomorrow', time: '6-12 PM' },
-      payment: 'digital',
-      expiresIn: 28,
-      recommended: true,
-      returnLoads: 2
-    },
-    {
-      id: 'PT-2025-001235',
-      route: { from: 'Harare', to: 'Mutare' },
-      distance: 265,
-      cargo: 'Furniture (3 tonnes)',
-      earnings: 280,
-      shipper: { name: 'Sarah Dube', rating: 4.6, trips: 23 },
-      pickup: { date: 'Today', time: '2-6 PM' },
-      payment: 'digital',
-      expiresIn: 45,
-      recommended: false,
-      returnLoads: 1
-    },
-    {
-      id: 'PT-2025-001236',
-      route: { from: 'Harare', to: 'Gweru' },
-      distance: 280,
-      cargo: 'Building materials (4 tonnes)',
-      earnings: 320,
-      shipper: { name: 'Mike Chikwanha', rating: 4.9, trips: 67 },
-      pickup: { date: 'Tomorrow', time: '8 AM' },
-      payment: 'cash_pickup',
-      expiresIn: 15,
-      recommended: false,
-      returnLoads: 0
+  const [jobs, setJobs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
+
+  const fetchJobs = useCallback(async () => {
+    try {
+      setError(null);
+      const response = await apiService.get('/transporter/available-jobs');
+
+      if (response.success && response.data) {
+        // Transform API data to match UI structure
+        const transformedJobs = response.data.map(job => ({
+          id: job._id,
+          bookingReference: job.bookingReference || job._id,
+          route: {
+            from: job.route?.pickup?.city || job.route?.pickup?.address || 'Unknown',
+            to: job.route?.delivery?.city || job.route?.delivery?.address || 'Unknown'
+          },
+          distance: job.route?.distance || 0,
+          cargo: job.cargoDetails?.description || `${job.cargoDetails?.weight || 0} kg cargo`,
+          earnings: job.pricing?.totals?.transporterTotal || job.pricing?.totals?.total || 0,
+          shipper: {
+            name: job.shipper?.fullName || job.shipper?.name || 'Shipper',
+            rating: job.shipper?.rating?.average || 4.5,
+            trips: job.shipper?.rating?.count || 0
+          },
+          pickup: {
+            date: formatPickupDate(job.route?.pickup?.date),
+            time: job.route?.pickup?.time || 'Flexible'
+          },
+          payment: job.payment?.method || 'digital',
+          expiresIn: calculateExpiresIn(job.createdAt),
+          recommended: job.pricing?.totals?.transporterTotal > 300,
+          returnLoads: 0,
+          cargoDetails: job.cargoDetails,
+          insurance: job.insurance,
+          rawData: job
+        }));
+        setJobs(transformedJobs);
+      } else {
+        setJobs([]);
+      }
+    } catch (err) {
+      console.error('Error fetching jobs:', err);
+      setError(err.message || 'Failed to load jobs');
+      setJobs([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-  ];
+  }, []);
+
+  useEffect(() => {
+    fetchJobs();
+  }, [fetchJobs]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchJobs();
+  }, [fetchJobs]);
+
+  const formatPickupDate = (dateStr) => {
+    if (!dateStr) return 'Flexible';
+    const date = new Date(dateStr);
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    if (date.toDateString() === today.toDateString()) return 'Today';
+    if (date.toDateString() === tomorrow.toDateString()) return 'Tomorrow';
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  const calculateExpiresIn = (createdAt) => {
+    if (!createdAt) return 60;
+    const created = new Date(createdAt);
+    const expiryTime = new Date(created.getTime() + 24 * 60 * 60 * 1000); // 24 hours
+    const now = new Date();
+    const minutesLeft = Math.max(0, Math.floor((expiryTime - now) / (1000 * 60)));
+    return minutesLeft > 60 ? Math.floor(minutesLeft / 60) + 'h' : minutesLeft;
+  };
 
   const navigateTo = (screen, params = {}) => {
     if (onNavigate) {
@@ -83,27 +127,79 @@ const AvailableJobsScreen = ({ navigation, onNavigate }) => {
     { id: 'high_pay', label: 'High Pay', count: jobs.filter(j => j.earnings >= 350).length, icon: 'attach-money' }
   ];
 
-  const handleAcceptJob = (job) => {
-    navigateTo('JobDetails', { job });
+  const handleAcceptJob = async (job) => {
+    try {
+      Alert.alert(
+        'Accept Job',
+        `Are you sure you want to accept this job?\n\nRoute: ${job.route.from} → ${job.route.to}\nEarnings: $${job.earnings}`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Accept',
+            onPress: async () => {
+              try {
+                const response = await apiService.post(`/transporter/jobs/${job.id}/accept`);
+                if (response.success) {
+                  Alert.alert('Success', 'Job accepted successfully!', [
+                    { text: 'OK', onPress: () => navigateTo('JobAccepted', { job: response.data }) }
+                  ]);
+                  fetchJobs(); // Refresh the list
+                } else {
+                  Alert.alert('Error', response.message || 'Failed to accept job');
+                }
+              } catch (err) {
+                Alert.alert('Error', err.message || 'Failed to accept job');
+              }
+            }
+          }
+        ]
+      );
+    } catch (err) {
+      Alert.alert('Error', err.message);
+    }
   };
 
   const handleViewDetails = (job) => {
-    navigateTo('JobDetails', { job });
+    navigateTo('JobDetails', { job: job.rawData || job, jobId: job.id });
   };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Available Jobs</Text>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#0C2D48" />
+          <Text style={styles.loadingText}>Loading available jobs...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
-      
+
       {/* Header */}
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>Available Jobs</Text>
           <Text style={styles.headerSubtitle}>{jobs.length} jobs in your area</Text>
         </View>
+        <TouchableOpacity onPress={onRefresh} style={styles.refreshButton}>
+          <MaterialIcons name="refresh" size={24} color="white" />
+        </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0C2D48']} />
+        }
+      >
         {/* Quick Stats */}
         <View style={styles.section}>
           <View style={styles.statsCard}>
@@ -380,6 +476,22 @@ const styles = StyleSheet.create({
     paddingTop: 40,
     borderBottomLeftRadius: 24,
     borderBottomRightRadius: 24,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  refreshButton: {
+    padding: 8,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#6b7280',
   },
   headerTitle: {
     color: 'white',

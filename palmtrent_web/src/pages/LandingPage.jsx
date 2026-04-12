@@ -1,12 +1,145 @@
 import React, { useState } from 'react';
-import { Truck, Package, Shield, MapPin, Star, Clock, DollarSign, Users, ArrowRight, Check, Menu, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import {
+  Truck, Package, Shield, MapPin, Star, Clock, DollarSign, Users,
+  ArrowRight, Check, Menu, X, Eye, EyeOff, Search, Loader, AlertCircle,
+  Mail, Lock, User, Phone, Building
+} from 'lucide-react';
+import { authAPI, trackingAPI } from '../services/api';
 import './styles/LandingPage.css';
 import logo from '../assets/logo3.png';
 
 const LandingPage = () => {
+  const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [userType, setUserType] = useState('shipper');
-  const [isYearly, setIsYearly] = useState(false); 
+  const [isYearly, setIsYearly] = useState(false);
+
+  // Modal states
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [showTrackingModal, setShowTrackingModal] = useState(false);
+
+  // Auth form states
+  const [loginForm, setLoginForm] = useState({ email: '', password: '' });
+  const [registerForm, setRegisterForm] = useState({
+    fullName: '',
+    email: '',
+    phone: '',
+    password: '',
+    confirmPassword: '',
+    userType: 'shipper'
+  });
+  const [showPassword, setShowPassword] = useState(false);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
+
+  // Tracking states
+  const [trackingId, setTrackingId] = useState('');
+  const [trackingResult, setTrackingResult] = useState(null);
+  const [trackingLoading, setTrackingLoading] = useState(false);
+  const [trackingError, setTrackingError] = useState('');
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    setAuthLoading(true);
+
+    try {
+      const response = await authAPI.login(loginForm.email, loginForm.password);
+      if (response.token) {
+        setShowLoginModal(false);
+        // Redirect based on user type
+        const user = authAPI.getCurrentUser();
+        if (user?.userType === 'admin') {
+          navigate('/admin');
+        } else if (user?.userType === 'corporate') {
+          navigate('/corporate');
+        } else {
+          navigate('/shipper');
+        }
+      }
+    } catch (error) {
+      setAuthError(error.message || 'Login failed. Please try again.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+
+    if (registerForm.password !== registerForm.confirmPassword) {
+      setAuthError('Passwords do not match');
+      return;
+    }
+
+    if (registerForm.password.length < 6) {
+      setAuthError('Password must be at least 6 characters');
+      return;
+    }
+
+    setAuthLoading(true);
+
+    try {
+      const response = await authAPI.register({
+        fullName: registerForm.fullName,
+        email: registerForm.email,
+        phone: registerForm.phone,
+        password: registerForm.password,
+        userType: registerForm.userType
+      });
+
+      if (response.token) {
+        setShowRegisterModal(false);
+        navigate('/shipper');
+      }
+    } catch (error) {
+      setAuthError(error.message || 'Registration failed. Please try again.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleTrackShipment = async (e) => {
+    e.preventDefault();
+    setTrackingError('');
+    setTrackingResult(null);
+
+    if (!trackingId.trim()) {
+      setTrackingError('Please enter a tracking ID');
+      return;
+    }
+
+    setTrackingLoading(true);
+
+    try {
+      const result = await trackingAPI.trackPublic(trackingId.trim());
+      setTrackingResult(result.data || result);
+    } catch (error) {
+      setTrackingError(error.message || 'Tracking ID not found. Please check and try again.');
+    } finally {
+      setTrackingLoading(false);
+    }
+  };
+
+  const openRegisterWithType = (type) => {
+    setRegisterForm(prev => ({ ...prev, userType: type }));
+    setShowRegisterModal(true);
+  };
+
+  const switchToRegister = () => {
+    setShowLoginModal(false);
+    setAuthError('');
+    setShowRegisterModal(true);
+  };
+
+  const switchToLogin = () => {
+    setShowRegisterModal(false);
+    setAuthError('');
+    setShowLoginModal(true);
+  };
 
   return (
     <div className="landing-page">
@@ -14,22 +147,37 @@ const LandingPage = () => {
       <nav className="navbar">
         <div className="nav-container">
           <div className="logo">
-  <img src={logo} alt="Palmtrent" className="logo-image" />
-</div>
+            <img src={logo} alt="Palmtrent" className="logo-image" />
+          </div>
 
           {/* Desktop Menu */}
           <div className="nav-links">
             <a href="#features" className="nav-link">Features</a>
             <a href="#how-it-works" className="nav-link">How It Works</a>
             <a href="#pricing" className="nav-link">Pricing</a>
-            <button className="nav-button secondary">Sign In</button>
-            <button className="nav-button primary">
+            <button
+              className="nav-button track-btn"
+              onClick={() => setShowTrackingModal(true)}
+            >
+              <Search className="icon" />
+              Track Shipment
+            </button>
+            <button
+              className="nav-button secondary"
+              onClick={() => setShowLoginModal(true)}
+            >
+              Sign In
+            </button>
+            <button
+              className="nav-button primary"
+              onClick={() => setShowRegisterModal(true)}
+            >
               Get Started
             </button>
           </div>
 
           {/* Mobile Menu Button */}
-          <button 
+          <button
             className="mobile-menu-btn"
             onClick={() => setMenuOpen(!menuOpen)}
           >
@@ -44,8 +192,23 @@ const LandingPage = () => {
               <a href="#features" className="mobile-nav-link">Features</a>
               <a href="#how-it-works" className="mobile-nav-link">How It Works</a>
               <a href="#pricing" className="mobile-nav-link">Pricing</a>
-              <button className="mobile-nav-button secondary">Sign In</button>
-              <button className="mobile-nav-button primary">
+              <button
+                className="mobile-nav-button track"
+                onClick={() => { setShowTrackingModal(true); setMenuOpen(false); }}
+              >
+                <Search className="icon" />
+                Track Shipment
+              </button>
+              <button
+                className="mobile-nav-button secondary"
+                onClick={() => { setShowLoginModal(true); setMenuOpen(false); }}
+              >
+                Sign In
+              </button>
+              <button
+                className="mobile-nav-button primary"
+                onClick={() => { setShowRegisterModal(true); setMenuOpen(false); }}
+              >
                 Get Started
               </button>
             </div>
@@ -63,6 +226,24 @@ const LandingPage = () => {
             <p className="hero-description">
               Connect with verified transporters or find loads for your truck. Safe, transparent, and efficient transport services across Zimbabwe and SADC.
             </p>
+
+            {/* Quick Track Widget */}
+            <div className="quick-track-widget">
+              <form onSubmit={handleTrackShipment} className="quick-track-form">
+                <div className="track-input-wrapper">
+                  <Search className="icon" />
+                  <input
+                    type="text"
+                    placeholder="Enter tracking ID (e.g., PT-2025-XXXXXX)"
+                    value={trackingId}
+                    onChange={(e) => setTrackingId(e.target.value)}
+                  />
+                </div>
+                <button type="submit" className="track-submit-btn" disabled={trackingLoading}>
+                  {trackingLoading ? <Loader className="icon spinning" /> : 'Track'}
+                </button>
+              </form>
+            </div>
 
             {/* User Type Toggle */}
             <div className="user-toggle">
@@ -210,8 +391,8 @@ const LandingPage = () => {
           <div className="pricing-toggle">
             <span className="toggle-label">Monthly</span>
             <label className="toggle-switch">
-              <input 
-                type="checkbox" 
+              <input
+                type="checkbox"
                 checked={isYearly}
                 onChange={(e) => setIsYearly(e.target.checked)}
               />
@@ -237,8 +418,9 @@ const LandingPage = () => {
               ]}
               buttonText="Get Started"
               featured={false}
+              onButtonClick={() => openRegisterWithType('shipper')}
             />
-            
+
             <PricingCard
               title="Professional"
               price={isYearly ? "ZWL 24,000" : "ZWL 2,500"}
@@ -254,8 +436,9 @@ const LandingPage = () => {
               ]}
               buttonText="Start Free Trial"
               featured={true}
+              onButtonClick={() => openRegisterWithType('shipper')}
             />
-            
+
             <PricingCard
               title="Enterprise"
               price="Custom"
@@ -272,6 +455,7 @@ const LandingPage = () => {
               ]}
               buttonText="Contact Sales"
               featured={false}
+              onButtonClick={() => openRegisterWithType('corporate')}
             />
           </div>
         </div>
@@ -284,10 +468,16 @@ const LandingPage = () => {
             <h2>Ready to Get Started?</h2>
             <p>Join thousands of shippers and transporters using Palmtrent</p>
             <div className="cta-buttons">
-              <button className="cta-button primary">
+              <button
+                className="cta-button primary"
+                onClick={() => openRegisterWithType('shipper')}
+              >
                 Book Transport Now
               </button>
-              <button className="cta-button secondary">
+              <button
+                className="cta-button secondary"
+                onClick={() => openRegisterWithType('transporter')}
+              >
                 Register as Transporter
               </button>
             </div>
@@ -301,11 +491,11 @@ const LandingPage = () => {
           <div className="footer-content">
             <div className="footer-brand">
               <div className="logo">
-                   <img src={logo} alt="Palmtrent" className="logo-image" />
+                <img src={logo} alt="Palmtrent" className="logo-image" />
               </div>
               <p>Zimbabwe's trusted logistics marketplace</p>
             </div>
-            
+
             <div className="footer-links-grid">
               <div className="footer-links">
                 <h3>Company</h3>
@@ -315,7 +505,7 @@ const LandingPage = () => {
                   <li><a href="#">Blog</a></li>
                 </ul>
               </div>
-              
+
               <div className="footer-links">
                 <h3>Support</h3>
                 <ul>
@@ -324,7 +514,7 @@ const LandingPage = () => {
                   <li><a href="#">Terms of Service</a></li>
                 </ul>
               </div>
-              
+
               <div className="footer-links">
                 <h3>Contact</h3>
                 <ul>
@@ -335,12 +525,323 @@ const LandingPage = () => {
               </div>
             </div>
           </div>
-          
+
           <div className="footer-bottom">
             <p>&copy; 2025 Palmtrent. All rights reserved.</p>
           </div>
         </div>
       </footer>
+
+      {/* ============ MODALS ============ */}
+
+      {/* Login Modal */}
+      {showLoginModal && (
+        <div className="modal-overlay" onClick={() => setShowLoginModal(false)}>
+          <div className="auth-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close-btn" onClick={() => setShowLoginModal(false)}>
+              <X className="icon" />
+            </button>
+
+            <div className="auth-modal-header">
+              <img src={logo} alt="Palmtrent" className="auth-logo" />
+              <h2>Welcome Back</h2>
+              <p>Sign in to your Palmtrent account</p>
+            </div>
+
+            {authError && (
+              <div className="auth-error">
+                <AlertCircle className="icon" />
+                <span>{authError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleLogin} className="auth-form">
+              <div className="form-group">
+                <label>Email Address</label>
+                <div className="input-with-icon">
+                  <Mail className="icon" />
+                  <input
+                    type="email"
+                    placeholder="Enter your email"
+                    value={loginForm.email}
+                    onChange={(e) => setLoginForm(prev => ({ ...prev, email: e.target.value }))}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Password</label>
+                <div className="input-with-icon">
+                  <Lock className="icon" />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Enter your password"
+                    value={loginForm.password}
+                    onChange={(e) => setLoginForm(prev => ({ ...prev, password: e.target.value }))}
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="toggle-password"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? <EyeOff className="icon" /> : <Eye className="icon" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="form-options">
+                <label className="checkbox-label">
+                  <input type="checkbox" />
+                  <span>Remember me</span>
+                </label>
+                <a href="#" className="forgot-password">Forgot password?</a>
+              </div>
+
+              <button type="submit" className="auth-submit-btn" disabled={authLoading}>
+                {authLoading ? <Loader className="icon spinning" /> : 'Sign In'}
+              </button>
+            </form>
+
+            <div className="auth-footer">
+              <p>Don't have an account? <button onClick={switchToRegister}>Sign Up</button></p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Register Modal */}
+      {showRegisterModal && (
+        <div className="modal-overlay" onClick={() => setShowRegisterModal(false)}>
+          <div className="auth-modal register-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close-btn" onClick={() => setShowRegisterModal(false)}>
+              <X className="icon" />
+            </button>
+
+            <div className="auth-modal-header">
+              <img src={logo} alt="Palmtrent" className="auth-logo" />
+              <h2>Create Account</h2>
+              <p>Join Palmtrent today</p>
+            </div>
+
+            {authError && (
+              <div className="auth-error">
+                <AlertCircle className="icon" />
+                <span>{authError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleRegister} className="auth-form">
+              {/* User Type Selection */}
+              <div className="user-type-selector">
+                <button
+                  type="button"
+                  className={`type-option ${registerForm.userType === 'shipper' ? 'active' : ''}`}
+                  onClick={() => setRegisterForm(prev => ({ ...prev, userType: 'shipper' }))}
+                >
+                  <Package className="icon" />
+                  <span>Shipper</span>
+                  <small>I need transport</small>
+                </button>
+                <button
+                  type="button"
+                  className={`type-option ${registerForm.userType === 'transporter' ? 'active' : ''}`}
+                  onClick={() => setRegisterForm(prev => ({ ...prev, userType: 'transporter' }))}
+                >
+                  <Truck className="icon" />
+                  <span>Transporter</span>
+                  <small>I have a truck</small>
+                </button>
+                <button
+                  type="button"
+                  className={`type-option ${registerForm.userType === 'corporate' ? 'active' : ''}`}
+                  onClick={() => setRegisterForm(prev => ({ ...prev, userType: 'corporate' }))}
+                >
+                  <Building className="icon" />
+                  <span>Corporate</span>
+                  <small>Business account</small>
+                </button>
+              </div>
+
+              <div className="form-group">
+                <label>Full Name</label>
+                <div className="input-with-icon">
+                  <User className="icon" />
+                  <input
+                    type="text"
+                    placeholder="Enter your full name"
+                    value={registerForm.fullName}
+                    onChange={(e) => setRegisterForm(prev => ({ ...prev, fullName: e.target.value }))}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Email Address</label>
+                  <div className="input-with-icon">
+                    <Mail className="icon" />
+                    <input
+                      type="email"
+                      placeholder="Enter your email"
+                      value={registerForm.email}
+                      onChange={(e) => setRegisterForm(prev => ({ ...prev, email: e.target.value }))}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label>Phone Number</label>
+                  <div className="input-with-icon">
+                    <Phone className="icon" />
+                    <input
+                      type="tel"
+                      placeholder="+263 77 XXX XXXX"
+                      value={registerForm.phone}
+                      onChange={(e) => setRegisterForm(prev => ({ ...prev, phone: e.target.value }))}
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Password</label>
+                  <div className="input-with-icon">
+                    <Lock className="icon" />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="Create password"
+                      value={registerForm.password}
+                      onChange={(e) => setRegisterForm(prev => ({ ...prev, password: e.target.value }))}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label>Confirm Password</label>
+                  <div className="input-with-icon">
+                    <Lock className="icon" />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="Confirm password"
+                      value={registerForm.confirmPassword}
+                      onChange={(e) => setRegisterForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="form-options">
+                <label className="checkbox-label">
+                  <input type="checkbox" required />
+                  <span>I agree to the <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a></span>
+                </label>
+              </div>
+
+              <button type="submit" className="auth-submit-btn" disabled={authLoading}>
+                {authLoading ? <Loader className="icon spinning" /> : 'Create Account'}
+              </button>
+            </form>
+
+            <div className="auth-footer">
+              <p>Already have an account? <button onClick={switchToLogin}>Sign In</button></p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tracking Modal */}
+      {showTrackingModal && (
+        <div className="modal-overlay" onClick={() => setShowTrackingModal(false)}>
+          <div className="tracking-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close-btn" onClick={() => setShowTrackingModal(false)}>
+              <X className="icon" />
+            </button>
+
+            <div className="tracking-modal-header">
+              <MapPin className="icon" />
+              <h2>Track Your Shipment</h2>
+              <p>Enter your booking reference to track your shipment</p>
+            </div>
+
+            <form onSubmit={handleTrackShipment} className="tracking-form">
+              <div className="tracking-input-wrapper">
+                <Search className="icon" />
+                <input
+                  type="text"
+                  placeholder="Enter tracking ID (e.g., PT-2025-001234)"
+                  value={trackingId}
+                  onChange={(e) => setTrackingId(e.target.value)}
+                />
+              </div>
+              <button type="submit" className="tracking-submit-btn" disabled={trackingLoading}>
+                {trackingLoading ? <Loader className="icon spinning" /> : 'Track Shipment'}
+              </button>
+            </form>
+
+            {trackingError && (
+              <div className="tracking-error">
+                <AlertCircle className="icon" />
+                <span>{trackingError}</span>
+              </div>
+            )}
+
+            {trackingResult && (
+              <div className="tracking-result">
+                <div className="tracking-status-header">
+                  <div className={`status-indicator ${trackingResult.status}`}></div>
+                  <div>
+                    <h3>{trackingResult.bookingReference || trackingId}</h3>
+                    <span className="status-text">{trackingResult.status?.replace('_', ' ') || 'Unknown'}</span>
+                  </div>
+                </div>
+
+                <div className="tracking-route">
+                  <div className="route-point pickup">
+                    <div className="point-dot"></div>
+                    <div className="point-info">
+                      <span className="point-label">Pickup</span>
+                      <span className="point-address">{trackingResult.pickupLocation?.address || 'N/A'}</span>
+                    </div>
+                  </div>
+                  <div className="route-line"></div>
+                  <div className="route-point delivery">
+                    <div className="point-dot"></div>
+                    <div className="point-info">
+                      <span className="point-label">Delivery</span>
+                      <span className="point-address">{trackingResult.deliveryLocation?.address || 'N/A'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {trackingResult.transporter && (
+                  <div className="tracking-transporter">
+                    <span className="transporter-label">Assigned Transporter:</span>
+                    <span className="transporter-name">{trackingResult.transporter.fullName || trackingResult.transporter.name}</span>
+                  </div>
+                )}
+
+                <button
+                  className="view-full-tracking"
+                  onClick={() => {
+                    setShowTrackingModal(false);
+                    navigate(`/tracking/${trackingId}`);
+                  }}
+                >
+                  View Full Tracking <ArrowRight className="icon" />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -369,7 +870,7 @@ const StepCard = ({ number, title, description }) => (
   </div>
 );
 
-const PricingCard = ({ title, price, period, features, buttonText, featured }) => (
+const PricingCard = ({ title, price, period, features, buttonText, featured, onButtonClick }) => (
   <div className={`pricing-card ${featured ? 'featured' : ''}`}>
     {featured && <div className="pricing-badge">Most Popular</div>}
     <div className="pricing-header">
@@ -377,7 +878,7 @@ const PricingCard = ({ title, price, period, features, buttonText, featured }) =
       <div className="pricing-price">{price}</div>
       <div className="pricing-period">{period}</div>
     </div>
-    
+
     <ul className="pricing-features">
       {features.map((feature, index) => (
         <li key={index} className="pricing-feature">
@@ -386,8 +887,11 @@ const PricingCard = ({ title, price, period, features, buttonText, featured }) =
         </li>
       ))}
     </ul>
-    
-    <button className={`cta-button ${featured ? 'primary' : 'secondary'} pricing-button`}>
+
+    <button
+      className={`cta-button ${featured ? 'primary' : 'secondary'} pricing-button`}
+      onClick={onButtonClick}
+    >
       {buttonText}
     </button>
   </div>

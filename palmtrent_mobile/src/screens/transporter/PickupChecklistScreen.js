@@ -8,26 +8,70 @@ import {
   SafeAreaView,
   StatusBar,
   Alert,
-   Dimensions 
+  Dimensions,
+  ActivityIndicator
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import apiService from '../../services/apiService';
 
 const PickupChecklistScreen = ({ navigation, route }) => {
-  const { job } = route.params || {};
+  const { job, shipmentId } = route.params || {};
   const [checklist, setChecklist] = useState({
     arrived: false,
     inspected: false,
     photos: [],
     signature: false
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const jobData = job || {
     id: 'PT-2025-001234'
   };
 
-  const handleCompletePickup = () => {
-    if (checklist.signature) {
-      navigation.navigate('InTransit', { job: jobData });
+  const handleCompletePickup = async () => {
+    if (!checklist.signature) return;
+
+    // Use shipmentId from params or jobData
+    const currentShipmentId = shipmentId || jobData.shipmentId || jobData._id;
+
+    if (!currentShipmentId) {
+      Alert.alert('Error', 'Shipment ID not found. Please try again.');
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      // Call the confirm-pickup API endpoint
+      const response = await apiService.post(`/transporter/shipments/${currentShipmentId}/confirm-pickup`, {
+        photos: checklist.photos,
+        notes: `Goods inspected and match description. ${checklist.photos.length} photos taken.`,
+        signature: checklist.signature
+      });
+
+      if (response.success) {
+        Alert.alert(
+          'Pickup Confirmed',
+          'Cargo has been picked up successfully. Starting journey.',
+          [
+            {
+              text: 'OK',
+              onPress: () => navigation.navigate('ActiveDeliveries', {
+                job: jobData,
+                bookingId: jobData.bookingReference || jobData.id,
+                shipmentId: currentShipmentId
+              })
+            }
+          ]
+        );
+      } else {
+        Alert.alert('Error', response.message || 'Failed to confirm pickup');
+      }
+    } catch (error) {
+      console.error('Confirm pickup error:', error);
+      Alert.alert('Error', error.message || 'Failed to confirm pickup. Please try again.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -161,11 +205,15 @@ const PickupChecklistScreen = ({ navigation, route }) => {
         {/* Complete Pickup Button */}
         <View style={styles.section}>
           <TouchableOpacity
-            style={[styles.completeButton, !checklist.signature && styles.completeButtonDisabled]}
+            style={[styles.completeButton, (!checklist.signature || isSubmitting) && styles.completeButtonDisabled]}
             onPress={handleCompletePickup}
-            disabled={!checklist.signature}
+            disabled={!checklist.signature || isSubmitting}
           >
-            <Text style={styles.completeButtonText}>Complete Pickup & Start Journey</Text>
+            {isSubmitting ? (
+              <ActivityIndicator color="white" size="small" />
+            ) : (
+              <Text style={styles.completeButtonText}>Complete Pickup & Start Journey</Text>
+            )}
           </TouchableOpacity>
         </View>
 

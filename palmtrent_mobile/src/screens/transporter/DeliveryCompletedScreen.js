@@ -95,7 +95,11 @@ export const DeliveryCompletedScreen = ({ navigation, route, onNavigate }) => {
           <View style={styles.actionsContainer}>
             <TouchableOpacity
               style={[styles.button, styles.primaryButton]}
-              onPress={() => navigateTo('Rating', { job })}
+              onPress={() => navigateTo('Rating', {
+                bookingId: job?._id || job?.bookingId || job?.id,
+                booking: job,
+                userType: user?.userType || 'transporter'
+              })}
               activeOpacity={0.7}
             >
               <Text style={styles.buttonText}>Rate This Shipper</Text>

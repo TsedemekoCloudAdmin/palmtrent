@@ -39,6 +39,20 @@ import VehicleDetailsScreen from '../screens/transporter/VehicleDetailsScreen';
 import DriverDetailsScreen from '../screens/transporter/DriverDetailsScreen';
 import EditVehicleScreen from '../screens/transporter/EditVehicleScreen';
 import EditDriverScreen from '../screens/transporter/EditDriverScreen';
+import VehicleRentalScreen from '../screens/transporter/VehicleRentalScreen';
+import MobileMoneyPaymentScreen from '../screens/MobileMoneyPaymentScreen';
+import CardPaymentScreen from '../screens/CardPaymentScreen';
+import AgentPaymentScreen from '../screens/AgentPaymentScreen';
+import NotificationScreen from '../screens/NotificationScreen';
+import CrossBorderBookingScreen from '../screens/CrossBorderBookingScreen';
+import BookingReviewScreen from '../screens/BookingReviewScreen';
+import BookingConfirmationScreen from '../screens/BookingConfirmationScreen';
+import PrivacyScreen from '../screens/PrivacyScreen';
+import TermsScreen from '../screens/TermsScreen';
+import SupportScreen from '../screens/SupportScreen';
+import ActivityHistoryScreen from '../screens/ActivityHistoryScreen';
+import ReportIssueScreen from '../screens/ReportIssueScreen';
+import ChatScreen from '../screens/ChatScreen';
 
 
 const Stack = createStackNavigator();
@@ -97,6 +111,31 @@ const AppNavigator = () => {
       <Stack.Screen name="DriverDetails" component={DriverDetailsScreen} />
       <Stack.Screen name="EditVehicle" component={EditVehicleScreen} />
       <Stack.Screen name="EditDriver" component={EditDriverScreen} />
+      <Stack.Screen name="VehicleRental" component={VehicleRentalScreen} />
+      <Stack.Screen name="MyRentals" component={HistoryScreen} />
+
+      {/* Payment screens */}
+      <Stack.Screen name="MobileMoneyPayment" component={MobileMoneyPaymentScreen} />
+      <Stack.Screen name="CardPayment" component={CardPaymentScreen} />
+      <Stack.Screen name="AgentPayment" component={AgentPaymentScreen} />
+
+      {/* Booking flow screens */}
+      <Stack.Screen name="CrossBorderBooking" component={CrossBorderBookingScreen} />
+      <Stack.Screen name="BookingReview" component={BookingReviewScreen} />
+      <Stack.Screen name="BookingConfirmation" component={BookingConfirmationScreen} />
+
+      {/* Notification screen */}
+      <Stack.Screen name="Notifications" component={NotificationScreen} />
+
+      {/* Settings and Info screens */}
+      <Stack.Screen name="Privacy" component={PrivacyScreen} />
+      <Stack.Screen name="Terms" component={TermsScreen} />
+      <Stack.Screen name="Support" component={SupportScreen} />
+      <Stack.Screen name="ActivityHistory" component={ActivityHistoryScreen} />
+
+      {/* Communication and Support screens */}
+      <Stack.Screen name="ReportIssue" component={ReportIssueScreen} />
+      <Stack.Screen name="Chat" component={ChatScreen} />
     </Stack.Navigator>
   );
 };

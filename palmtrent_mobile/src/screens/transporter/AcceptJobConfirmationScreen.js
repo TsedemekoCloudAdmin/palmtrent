@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,35 +6,160 @@ import {
   ScrollView,
   StyleSheet,
   SafeAreaView,
-  StatusBar
+  StatusBar,
+  ActivityIndicator,
+  Alert
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import apiService from '../../services/apiService';
 
 const AcceptJobConfirmationScreen = ({ navigation, route }) => {
-  const { job } = route.params || {};
+  const { job, jobId } = route.params || {};
   const [checklist, setChecklist] = useState({
     documents: false,
     vehicle: false,
     availability: false,
     route: false
   });
+  const [loading, setLoading] = useState(!job && jobId);
+  const [accepting, setAccepting] = useState(false);
+  const [jobData, setJobData] = useState(job || null);
+
+  useEffect(() => {
+    if (!job && jobId) {
+      fetchJobDetails();
+    }
+  }, [job, jobId]);
+
+  const fetchJobDetails = async () => {
+    try {
+      const response = await apiService.get(`/transporter/jobs/${jobId}`);
+      if (response.success) {
+        setJobData(response.data);
+      } else {
+        Alert.alert('Error', 'Failed to load job details');
+        navigation.goBack();
+      }
+    } catch (error) {
+      Alert.alert('Error', error.message || 'Failed to load job details');
+      navigation.goBack();
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const allChecked = Object.values(checklist).every(v => v);
 
-  const jobData = job || {
-    id: 'PT-2025-001234',
-    route: { from: 'Harare', to: 'Bulawayo' },
-    earnings: 400,
-    pickup: { date: 'Tomorrow', time: '6-12 PM' }
+  const handleAcceptJob = async () => {
+    if (!allChecked) {
+      Alert.alert('Complete Checklist', 'Please confirm all checklist items before accepting the job.');
+      return;
+    }
+
+    setAccepting(true);
+    try {
+      const id = jobData?._id || jobData?.id || jobId;
+      const response = await apiService.post(`/transporter/jobs/${id}/accept`);
+
+      if (response.success) {
+        navigation.navigate('JobAccepted', {
+          job: jobData,
+          shipmentId: response.data?.shipmentId,
+          bookingReference: response.data?.bookingReference
+        });
+      } else {
+        Alert.alert('Error', response.message || 'Failed to accept job');
+      }
+    } catch (error) {
+      Alert.alert('Error', error.message || 'Failed to accept job. Please try again.');
+    } finally {
+      setAccepting(false);
+    }
   };
+
+  // Format job data for display
+  const getDisplayData = () => {
+    if (!jobData) return null;
+
+    return {
+      id: jobData.bookingReference || jobData._id,
+      route: {
+        from: jobData.route?.pickup?.city || jobData.originCity || jobData.origin || 'N/A',
+        to: jobData.route?.delivery?.city || jobData.destinationCity || jobData.destination || 'N/A'
+      },
+      earnings: jobData.pricing?.totals?.transporterTotal || jobData.amount || 0,
+      pickup: {
+        date: formatDate(jobData.route?.pickup?.date || jobData.pickupDate),
+        time: jobData.route?.pickup?.timeWindow || 'Flexible'
+      },
+      distance: jobData.route?.distance || jobData.distance,
+      vehicleType: jobData.vehicleType || jobData.vehicles?.[0]?.vehicleType,
+      cargoDescription: jobData.cargoDetails?.description || 'General cargo'
+    };
+  };
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return 'TBD';
+    const date = new Date(dateStr);
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    if (date.toDateString() === today.toDateString()) return 'Today';
+    if (date.toDateString() === tomorrow.toDateString()) return 'Tomorrow';
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <MaterialIcons name="arrow-back" size={24} color="white" />
+            <Text style={styles.backButtonText}>Back</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Accept Job</Text>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#0C2D48" />
+          <Text style={styles.loadingText}>Loading job details...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const displayData = getDisplayData();
+
+  if (!displayData) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <MaterialIcons name="arrow-back" size={24} color="white" />
+            <Text style={styles.backButtonText}>Back</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Accept Job</Text>
+        </View>
+        <View style={styles.loadingContainer}>
+          <MaterialIcons name="error" size={48} color="#dc2626" />
+          <Text style={styles.errorText}>Job data not available</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => navigation.goBack()}>
+            <Text style={styles.retryButtonText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
-      
+
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
@@ -51,11 +176,47 @@ const AcceptJobConfirmationScreen = ({ navigation, route }) => {
         {/* Job Summary */}
         <View style={styles.section}>
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Job Summary</Text>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>Job Summary</Text>
+              <Text style={styles.jobId}>{displayData.id}</Text>
+            </View>
             <View style={styles.summaryList}>
-              <DetailRow label="Route" value={`${jobData.route.from} → ${jobData.route.to}`} />
-              <DetailRow label="Pickup" value={`${jobData.pickup.date}, ${jobData.pickup.time}`} />
-              <DetailRow label="Earnings" value={`$${jobData.earnings}`} highlight />
+              <DetailRow
+                icon="route"
+                label="Route"
+                value={`${displayData.route.from} → ${displayData.route.to}`}
+              />
+              {displayData.distance && (
+                <DetailRow
+                  icon="straighten"
+                  label="Distance"
+                  value={`${displayData.distance} km`}
+                />
+              )}
+              <DetailRow
+                icon="schedule"
+                label="Pickup"
+                value={`${displayData.pickup.date}, ${displayData.pickup.time}`}
+              />
+              {displayData.vehicleType && (
+                <DetailRow
+                  icon="local-shipping"
+                  label="Vehicle Type"
+                  value={displayData.vehicleType}
+                />
+              )}
+              <DetailRow
+                icon="inventory"
+                label="Cargo"
+                value={displayData.cargoDescription}
+              />
+              <View style={styles.earningsRow}>
+                <View style={styles.earningsLabel}>
+                  <MaterialIcons name="attach-money" size={20} color="#16a34a" />
+                  <Text style={styles.earningsLabelText}>Your Earnings</Text>
+                </View>
+                <Text style={styles.earningsValue}>${displayData.earnings}</Text>
+              </View>
             </View>
           </View>
         </View>
@@ -64,30 +225,33 @@ const AcceptJobConfirmationScreen = ({ navigation, route }) => {
         <View style={styles.section}>
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Pre-Acceptance Checklist</Text>
+            <Text style={styles.cardSubtitle}>
+              Confirm each item before accepting
+            </Text>
             <View style={styles.checklist}>
               <ChecklistItem
                 checked={checklist.documents}
-                onChange={(val) => setChecklist({...checklist, documents: val})}
+                onChange={(val) => setChecklist({ ...checklist, documents: val })}
                 label="All documents are valid and current"
                 sublabel="License, VID, ZINARA, Insurance"
               />
               <ChecklistItem
                 checked={checklist.vehicle}
-                onChange={(val) => setChecklist({...checklist, vehicle: val})}
+                onChange={(val) => setChecklist({ ...checklist, vehicle: val })}
                 label="Vehicle is roadworthy and fueled"
-                sublabel="Sufficient fuel for 440 km journey"
+                sublabel={`Sufficient fuel for ${displayData.distance || 'the'} km journey`}
               />
               <ChecklistItem
                 checked={checklist.availability}
-                onChange={(val) => setChecklist({...checklist, availability: val})}
-                label="I'm available for pickup tomorrow"
-                sublabel="6:00 AM - 12:00 PM window"
+                onChange={(val) => setChecklist({ ...checklist, availability: val })}
+                label={`I'm available for pickup ${displayData.pickup.date}`}
+                sublabel={`${displayData.pickup.time} window`}
               />
               <ChecklistItem
                 checked={checklist.route}
-                onChange={(val) => setChecklist({...checklist, route: val})}
+                onChange={(val) => setChecklist({ ...checklist, route: val })}
                 label="I understand the route and requirements"
-                sublabel="Covered load, handle with care"
+                sublabel="Cargo handling instructions reviewed"
               />
             </View>
           </View>
@@ -106,12 +270,31 @@ const AcceptJobConfirmationScreen = ({ navigation, route }) => {
         {/* Confirm Button */}
         <View style={styles.section}>
           <TouchableOpacity
-            style={[styles.confirmButton, !allChecked && styles.confirmButtonDisabled]}
-            onPress={() => navigation.navigate('JobAccepted', { job: jobData })}
-            disabled={!allChecked}
+            style={[
+              styles.confirmButton,
+              (!allChecked || accepting) && styles.confirmButtonDisabled
+            ]}
+            onPress={handleAcceptJob}
+            disabled={!allChecked || accepting}
           >
-            <Text style={styles.confirmButtonText}>Confirm & Accept Job</Text>
+            {accepting ? (
+              <View style={styles.buttonContent}>
+                <ActivityIndicator size="small" color="white" />
+                <Text style={styles.confirmButtonText}>Accepting...</Text>
+              </View>
+            ) : (
+              <View style={styles.buttonContent}>
+                <MaterialIcons name="check-circle" size={20} color="white" />
+                <Text style={styles.confirmButtonText}>Confirm & Accept Job</Text>
+              </View>
+            )}
           </TouchableOpacity>
+
+          {!allChecked && (
+            <Text style={styles.checklistHint}>
+              Complete all checklist items to accept
+            </Text>
+          )}
         </View>
 
         {/* Bottom Padding */}
@@ -123,7 +306,7 @@ const AcceptJobConfirmationScreen = ({ navigation, route }) => {
 
 // Checklist Item Component
 const ChecklistItem = ({ checked, onChange, label, sublabel }) => (
-  <TouchableOpacity 
+  <TouchableOpacity
     style={[styles.checklistItem, checked && styles.checklistItemChecked]}
     onPress={() => onChange(!checked)}
     activeOpacity={0.7}
@@ -139,12 +322,13 @@ const ChecklistItem = ({ checked, onChange, label, sublabel }) => (
 );
 
 // Detail Row Component
-const DetailRow = ({ label, value, highlight }) => (
+const DetailRow = ({ icon, label, value }) => (
   <View style={styles.detailRow}>
-    <Text style={styles.detailLabel}>{label}</Text>
-    <Text style={[styles.detailValue, highlight && styles.detailValueHighlight]}>
-      {value}
-    </Text>
+    <View style={styles.detailLeft}>
+      <MaterialIcons name={icon} size={18} color="#6b7280" />
+      <Text style={styles.detailLabel}>{label}</Text>
+    </View>
+    <Text style={styles.detailValue}>{value}</Text>
   </View>
 );
 
@@ -184,6 +368,32 @@ const styles = StyleSheet.create({
     opacity: 0.9,
     marginTop: 4,
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#6b7280',
+  },
+  errorText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#dc2626',
+  },
+  retryButton: {
+    marginTop: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    backgroundColor: '#0C2D48',
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: 'white',
+    fontWeight: '600',
+  },
   section: {
     paddingHorizontal: 16,
     marginBottom: 16,
@@ -200,11 +410,31 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#f3f4f6',
   },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
   cardTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: '#1f2937',
+  },
+  cardSubtitle: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: -12,
     marginBottom: 16,
+  },
+  jobId: {
+    fontSize: 12,
+    fontFamily: 'monospace',
+    color: '#6b7280',
+    backgroundColor: '#f3f4f6',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
   },
   summaryList: {
     gap: 12,
@@ -214,6 +444,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  detailLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   detailLabel: {
     fontSize: 14,
     color: '#6b7280',
@@ -222,10 +457,32 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: '#1f2937',
+    maxWidth: '60%',
+    textAlign: 'right',
   },
-  detailValueHighlight: {
+  earningsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#f0fdf4',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  earningsLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  earningsLabelText: {
+    fontSize: 14,
+    fontWeight: '500',
     color: '#16a34a',
-    fontWeight: '600',
+  },
+  earningsValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#16a34a',
   },
   checklist: {
     gap: 12,
@@ -240,10 +497,12 @@ const styles = StyleSheet.create({
   },
   checklistItemChecked: {
     backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#86efac',
   },
   checkbox: {
-    width: 20,
-    height: 20,
+    width: 22,
+    height: 22,
     borderRadius: 6,
     borderWidth: 2,
     borderColor: '#d1d5db',
@@ -252,8 +511,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   checkboxChecked: {
-    backgroundColor: '#0C2D48',
-    borderColor: '#0C2D48',
+    backgroundColor: '#16a34a',
+    borderColor: '#16a34a',
   },
   checklistContent: {
     flex: 1,
@@ -282,6 +541,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     color: '#92400e',
+    lineHeight: 20,
   },
   confirmButton: {
     backgroundColor: '#0C2D48',
@@ -293,10 +553,21 @@ const styles = StyleSheet.create({
   confirmButtonDisabled: {
     backgroundColor: '#9ca3af',
   },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   confirmButtonText: {
     fontSize: 16,
     fontWeight: '600',
     color: 'white',
+  },
+  checklistHint: {
+    textAlign: 'center',
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 8,
   },
   bottomPadding: {
     height: 20,

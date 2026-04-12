@@ -1,5 +1,5 @@
 // screens/BookingConfirmationScreen.js
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,16 +7,78 @@ import {
   ScrollView,
   SafeAreaView,
   StatusBar,
-  StyleSheet
+  StyleSheet,
+  ActivityIndicator,
+  Alert
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import apiService from '../services/apiService';
 
 const BookingConfirmationScreen = ({ onNavigate, bookingData, onExit }) => {
-    const handleBackToHome = () => {
-    if (onExit) {
-      onExit(); // This will trigger navigation back to Home
+  const [booking, setBooking] = useState(bookingData);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (bookingData) {
+      processBooking();
+    }
+  }, [bookingData]);
+
+  const processBooking = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Set initial booking data
+      setBooking(bookingData);
+
+      // Handle payment confirmation based on payment method
+      const method = bookingData.paymentMethod;
+
+      if (method === 'ecocash' || method === 'card' || method === 'eft') {
+        // Digital payment methods - confirmation already handled by payment gateway
+        // Just verify the booking was created successfully
+        if (bookingData._id) {
+          // Fetch updated booking status
+          const response = await apiService.get(`/bookings/${bookingData._id}`);
+          setBooking(response.data.booking);
+        }
+      } else if (method === 'cash_agent') {
+        // Cash via agent - payment will be confirmed manually by agent
+        // Booking should wait in pending_payment status
+        setBooking(bookingData);
+      } else if (method === 'cash_on_pickup' || method === 'cash_on_delivery') {
+        // Cash methods - booking is created but payment pending
+        // These will be confirmed when driver collects payment
+        setBooking(bookingData);
+      }
+
+    } catch (error) {
+      console.error('Booking processing error:', error);
+      setError('Failed to process booking. Please contact support.');
+      Alert.alert('Error', 'Failed to process booking. Please try again or contact support.');
+    } finally {
+      setLoading(false);
     }
   };
+
+  const handleBackToHome = () => {
+    if (onExit) {
+      onExit();
+    }
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#0C2D48" />
+          <Text style={styles.loadingText}>Creating your booking...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -38,33 +100,45 @@ const BookingConfirmationScreen = ({ onNavigate, bookingData, onExit }) => {
           </View>
 
           {/* Booking Details */}
-          <View style={styles.detailsCard}>
-            <Text style={styles.detailsTitle}>Booking Details</Text>
-            
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Booking ID</Text>
-              <Text style={styles.detailValue}>TRK-{Date.now().toString().slice(-6)}</Text>
-            </View>
-            
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Route</Text>
-              <Text style={styles.detailValue}>
-                {bookingData.pickupLocation} → {bookingData.deliveryLocation}
-              </Text>
-            </View>
-            
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Pickup Time</Text>
-              <Text style={styles.detailValue}>{bookingData.pickupDate}</Text>
-            </View>
-            
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Status</Text>
-              <View style={styles.statusBadge}>
-                <Text style={styles.statusText}>Matching Transporters</Text>
+          {booking && (
+            <View style={styles.detailsCard}>
+              <Text style={styles.detailsTitle}>Booking Details</Text>
+              
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Booking ID</Text>
+                <Text style={styles.detailValue}>{booking.bookingReference}</Text>
+              </View>
+              
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Route</Text>
+                <Text style={styles.detailValue}>
+                  {booking.route?.pickup?.address} → {booking.route?.delivery?.address}
+                </Text>
+              </View>
+              
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Pickup Time</Text>
+                <Text style={styles.detailValue}>
+                  {new Date(booking.route?.pickup?.date).toLocaleString()}
+                </Text>
+              </View>
+              
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Status</Text>
+                <View style={styles.statusBadge}>
+                  <Text style={styles.statusText}>
+                    {booking.status === 'payment_confirmed' ? 'Payment Confirmed - Finding Transporters' :
+                     booking.status === 'finding_transporter' ? 'Finding Transporters' :
+                     booking.status === 'matched' ? 'Transporter Assigned' :
+                     booking.status === 'pending_payment' && booking.paymentMethod === 'cash_agent' ? 'Waiting for Agent Payment' :
+                     booking.status === 'pending_payment' && (booking.paymentMethod === 'cash_on_pickup' || booking.paymentMethod === 'cash_on_delivery') ? 'Booking Created - Payment on Delivery' :
+                     booking.status === 'draft' ? 'Booking Created' :
+                     'Processing'}
+                  </Text>
+                </View>
               </View>
             </View>
-          </View>
+          )}
 
           {/* Next Steps */}
           <View style={styles.stepsCard}>
@@ -126,11 +200,10 @@ const BookingConfirmationScreen = ({ onNavigate, bookingData, onExit }) => {
           style={styles.trackButton}
           onPress={handleBackToHome}
         >
-          <MaterialIcons name="gps-fixed" size={20} color="white" />
+          <MaterialIcons name="home" size={20} color="white" />
           <Text style={styles.trackButtonText}>Go to Home</Text>
         </TouchableOpacity>
-        
-    </View>
+      </View>
     </SafeAreaView>
   );
 };
@@ -147,6 +220,16 @@ const styles = StyleSheet.create({
     padding: 24,
     alignItems: 'center',
     gap: 24,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#0C2D48',
   },
   successIcon: {
     marginTop: 40,
@@ -287,7 +370,7 @@ const styles = StyleSheet.create({
     borderTopColor: '#e5e7eb',
   },
   trackButton: {
-    flex: 2,
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -300,23 +383,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: 'white',
-  },
-  newBookingButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: 'white',
-    borderWidth: 2,
-    borderColor: '#059669',
-    borderRadius: 12,
-    paddingVertical: 16,
-  },
-  newBookingButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#059669',
   },
 });
 

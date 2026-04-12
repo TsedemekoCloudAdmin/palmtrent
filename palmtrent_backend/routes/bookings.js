@@ -7,12 +7,50 @@ const {
   updateBooking,
   confirmBooking,
   confirmPayment,
-  cancelBooking
+  cancelBooking,
+  calculatePricing,
+  getPricingConfig,
+  updatePricingConfig,
+  createBookingWithPayment
 } = require('../controllers/bookingsController');
+const {
+  findTransporters,
+  getMatches,
+  broadcastToTransporters,
+  getAvailableJobs,
+  acceptJob,
+  declineJob
+} = require('../controllers/matchingController');
 const { protect } = require('../middleware/auth');
 
 // All routes require authentication
 router.use(protect);
+
+// ============ STATIC ROUTES MUST COME BEFORE PARAMETERIZED ROUTES ============
+
+// GET /api/v1/bookings/my-bookings - Get current user's bookings (MUST be before /:id)
+router.get('/my-bookings', getAllBookings);
+
+// POST /api/v1/bookings/calculate-pricing - Calculate pricing (MUST be before /:id)
+router.post('/calculate-pricing', calculatePricing);
+
+// POST /api/v1/bookings/update-pricing-config - Update pricing config (MUST be before /:id)
+router.post('/update-pricing-config', updatePricingConfig);
+
+// POST /api/v1/bookings/create-with-payment - Create booking with payment (MUST be before /:id)
+router.post('/create-with-payment', createBookingWithPayment);
+
+// JOB ENDPOINTS - For transporters (MUST be before /:id)
+// GET /api/v1/bookings/jobs/available - Get available jobs for transporter
+router.get('/jobs/available', getAvailableJobs);
+
+// POST /api/v1/bookings/jobs/:id/accept - Accept a job
+router.post('/jobs/:id/accept', acceptJob);
+
+// POST /api/v1/bookings/jobs/:id/decline - Decline a job
+router.post('/jobs/:id/decline', declineJob);
+
+// ============ BASE ROUTES ============
 
 // GET /api/v1/bookings - Get all bookings
 router.get('/', getAllBookings);
@@ -20,19 +58,31 @@ router.get('/', getAllBookings);
 // POST /api/v1/bookings - Create new booking
 router.post('/', createBooking);
 
+// ============ PARAMETERIZED ROUTES (MUST BE LAST) ============
+
 // GET /api/v1/bookings/:id - Get booking by ID
 router.get('/:id', getBookingById);
 
 // PUT /api/v1/bookings/:id - Update booking
 router.put('/:id', updateBooking);
 
-// POST /api/v1/bookings/:id/confirm - Confirm booking
-router.post('/:id/confirm', confirmBooking);
+// POST /api/v1/bookings/:id/confirm-booking - Confirm booking
+router.post('/:id/confirm-booking', confirmBooking);
 
 // POST /api/v1/bookings/:id/confirm-payment - Confirm payment
 router.post('/:id/confirm-payment', confirmPayment);
 
 // POST /api/v1/bookings/:id/cancel - Cancel booking
 router.post('/:id/cancel', cancelBooking);
+
+// MATCHING ENDPOINTS - Transporter-Booking Matching
+// POST /api/v1/bookings/:id/find-transporters - Manually trigger matching for a booking
+router.post('/:id/find-transporters', findTransporters);
+
+// GET /api/v1/bookings/:id/matches - Get match results for a booking
+router.get('/:id/matches', getMatches);
+
+// POST /api/v1/bookings/:id/broadcast - Broadcast booking to top transporters
+router.post('/:id/broadcast', broadcastToTransporters);
 
 module.exports = router;

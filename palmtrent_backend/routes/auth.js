@@ -4,8 +4,10 @@ const {
   login,
   forgotPassword,
   resetPassword,
+  changePassword,
   getMe,
-  updateProfile
+  updateProfile,
+  getActivityHistory
 } = require('../controllers/authController');
 const {
   validateRegistration,
@@ -23,5 +25,7 @@ router.post('/forgot-password', validateForgotPassword, forgotPassword);
 router.post('/reset-password', validateResetPassword, resetPassword);
 router.get('/me', protect, getMe);
 router.put('/profile', protect, updateProfile);
+router.post('/change-password', protect, changePassword);
+router.get('/activity-history', protect, getActivityHistory);
 
 module.exports = router;

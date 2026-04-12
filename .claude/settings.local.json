@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --check:*)",
+      "Bash(find:*)",
+      "Bash(npm install)",
+      "Bash(npx eslint:*)",
+      "Bash(node -e:*)",
+      "Bash(npx expo-doctor:*)",
+      "Bash(for file in HomeScreen.js TransporterVerificationScreen.js shipper/CreateBookingScreen.js transporter/PendingJobsScreen.js transporter/AcceptJobConfirmationScreen.js transporter/JobAcceptedScreen.js transporter/PickupChecklistScreen.js transporter/DeliveryChecklistScreen.js transporter/DeliveryCompletedScreen.js transporter/EarningsScreen.js shipper/HistoryScreen.js shipper/DisputeScreen.js TrackingScreen.js JobDetailsScreen.js AvailableJobs.js ProfileScreen.js RatingScreen.js BookingFlowManager.js)",
+      "Bash(do:*)",
+      "Bash(echo:*)",
+      "Bash(done)",
+      "Bash(for file in trailerOwner/TrailerOwnerRegistrationScreen.js trailerOwner/TrailerRentalScreen.js trailerOwner/TrailerDetailScreen.js trailerOwner/TrailerListScreen.js trailerOwner/TrailerTrackingScreen.js trailerOwner/EditTrailerScreen.js shipper/CorporateAccountSetupScreen.js transporter/FleetDashboardScreen.js transporter/AddDriverScreen.js transporter/AddVehicleScreen.js transporter/VehicleDetailsScreen.js transporter/DriverDetailsScreen.js transporter/EditVehicleScreen.js transporter/EditDriverScreen.js MobileMoneyPaymentScreen.js NotificationScreen.js CardPaymentScreen.js)",
+      "Bash(timeout 5 node:*)",
+      "Bash(cat:*)",
+      "Bash(node scripts/seedReferenceData.js:*)",
+      "Bash(for file in controllers/*.js)",
+      "Bash(for file in routes/*.js)",
+      "Bash(for file in services/*.js)",
+      "Bash(timeout 10 node:*)",
+      "Bash(npm install:*)",
+      "Bash(timeout 30 npx expo start:*)",
+      "Bash(for file in src/theme/index.js src/components/common/Button.js src/components/common/Input.js src/components/common/Card.js src/components/common/StatusBadge.js src/components/common/ScreenHeader.js src/components/common/index.js)",
+      "Bash(npx expo install:*)",
+      "Bash(dir /b \"c:\\\\Users\\\\sethm\\\\ngrok\\\\logs\\\\palmtrent\\\\palmtrent_web\\\\src\")",
+      "Bash(xargs:*)",
+      "Bash(npm run build)",
+      "Bash(npx expo doctor)",
+      "Bash(npm ls:*)"
+    ]
+  }
+}

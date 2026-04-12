@@ -30,7 +30,7 @@ const userSchema = new mongoose.Schema({
   userType: {
     type: String,
     required: true,
-    enum: ['shipper', 'transporter', 'trailer_owner', 'corporate']  // ADDED: corporate
+    enum: ['shipper', 'transporter', 'trailer_owner', 'corporate', 'admin']
   },
   isVerified: {
     type: Boolean,
@@ -91,7 +91,43 @@ const userSchema = new mongoose.Schema({
   corporateAccount: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'CorporateAccount'
-  }
+  },
+
+  // Push notification tokens
+  fcmToken: {
+    type: String,
+    default: null
+  },
+  expoPushToken: {
+    type: String,
+    default: null
+  },
+  deviceInfo: {
+    platform: String,
+    brand: String,
+    model: String,
+    osVersion: String,
+    lastUpdated: Date
+  },
+
+  // Payout preferences for transporters/trailer owners
+  payoutPreferences: {
+    method: {
+      type: String,
+      enum: ['ecocash', 'onemoney', 'bank_transfer']
+    },
+    accountNumber: String,
+    accountName: String,
+    bankName: String,
+    updatedAt: Date
+  },
+
+  // Emergency contacts
+  emergencyContacts: [{
+    name: String,
+    phone: String,
+    relationship: String
+  }]
 }, {
   timestamps: true
 });

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,21 +14,27 @@ import {
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import * as ImagePicker from 'expo-image-picker';
+import useAuth from '../../hook/useAuth';
 
 const TrailerOwnerRegistrationScreen = ({ navigation }) => {
-  const [step, setStep] = useState(1);
+  const { user } = useAuth();
+
+  // Check if user info already exists to skip step 1
+  const hasUserInfo = user?.fullName && user?.email && user?.phone;
+
+  const [step, setStep] = useState(hasUserInfo ? 2 : 1);
   const [ownerType, setOwnerType] = useState('individual'); // 'individual' or 'company'
   const [images, setImages] = useState([]);
   const [formData, setFormData] = useState({
-    // Owner Information
-    ownerName: '',
-    email: '',
-    phone: '',
-    idNumber: '',
-    address: '',
-    
+    // Owner Information - pre-populate from user data if available
+    ownerName: user?.fullName || '',
+    email: user?.email || '',
+    phone: user?.phone || '',
+    idNumber: user?.idNumber || '',
+    address: user?.address || '',
+
     // Company Information (if applicable)
-    companyName: '',
+    companyName: user?.companyName || '',
     registrationNumber: '',
     taxNumber: '',
     

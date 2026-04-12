@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,16 +7,86 @@ import {
   StyleSheet,
   SafeAreaView,
   StatusBar,
-  Dimensions
+  Dimensions,
+  ActivityIndicator,
+  Linking,
+  Alert
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../hook/useAuth';
+import apiService from '../services/apiService';
 
 const { width } = Dimensions.get('window');
 
 const JobDetailsScreen = ({ navigation, route }) => {
   const { user } = useAuth();
-  const { job } = route.params || {};
+  const { job, bookingId } = route.params || {};
+  const [loading, setLoading] = useState(false);
+  const [bookingData, setBookingData] = useState(null);
+
+  const isTransporter = user?.userType === 'transporter';
+  const isShipper = user?.userType === 'shipper' || !user?.userType;
+
+  useEffect(() => {
+    if (bookingId && !job) {
+      fetchBookingDetails();
+    } else if (job) {
+      setBookingData(job);
+    }
+  }, [bookingId, job]);
+
+  const fetchBookingDetails = async () => {
+    try {
+      setLoading(true);
+      const response = await apiService.request(`/bookings/${bookingId}`);
+      if (response.success) {
+        setBookingData(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching booking details:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleContactUser = () => {
+    const phone = isShipper
+      ? bookingData?.transporter?.phone
+      : bookingData?.shipper?.phone || bookingData?.user?.phone;
+
+    if (phone) {
+      Linking.openURL(`tel:${phone}`);
+    } else {
+      Alert.alert('Contact Unavailable', 'Phone number not available');
+    }
+  };
+
+  const handleCancelBooking = () => {
+    Alert.alert(
+      'Cancel Booking',
+      'Are you sure you want to cancel this booking?',
+      [
+        { text: 'No', style: 'cancel' },
+        {
+          text: 'Yes, Cancel',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const response = await apiService.request(`/bookings/${bookingId || bookingData?._id}/cancel`, 'POST', {
+                reason: 'User requested cancellation'
+              });
+              if (response.success) {
+                Alert.alert('Success', 'Booking cancelled successfully');
+                navigation.goBack();
+              }
+            } catch (error) {
+              Alert.alert('Error', 'Failed to cancel booking');
+            }
+          }
+        }
+      ]
+    );
+  };
   
   const navigateTo = (screen, params = {}) => {
     if (navigation) {
@@ -24,19 +94,63 @@ const JobDetailsScreen = ({ navigation, route }) => {
     }
   };
 
-  const jobData = job || {
+  // Use actual data or mock data for display
+  const jobData = bookingData || job || {
     id: 'PT-2025-001234',
-    route: { from: 'Harare', to: 'Bulawayo' },
+    bookingReference: 'PT-2025-001234',
+    route: {
+      from: 'Harare',
+      to: 'Bulawayo',
+      pickup: { address: 'Harare' },
+      delivery: { address: 'Bulawayo' },
+      distance: 440
+    },
     distance: 440,
     cargo: '5 tonnes maize in bags',
     earnings: 400,
     shipper: { name: 'John Moyo', rating: 4.8, trips: 45 },
+    transporter: null,
     pickup: { date: 'Tomorrow', time: '6-12 PM' },
     payment: 'digital',
     expiresIn: 28,
     recommended: true,
-    returnLoads: 2
+    returnLoads: 2,
+    status: 'pending',
+    totalPrice: 450,
+    pricing: { totals: { transporterTotal: 400 } },
+    cargoDetails: { type: 'General', weight: 5000 }
   };
+
+  // Extract data from actual booking structure
+  const displayData = {
+    id: jobData.bookingReference || jobData.id || jobData._id?.slice(-8).toUpperCase(),
+    route: {
+      from: jobData.route?.pickup?.address || jobData.pickupLocation?.address || jobData.route?.from || 'Pickup',
+      to: jobData.route?.delivery?.address || jobData.deliveryLocation?.address || jobData.route?.to || 'Delivery'
+    },
+    distance: jobData.route?.distance || jobData.distance || 0,
+    earnings: jobData.pricing?.totals?.transporterTotal || jobData.earnings || 0,
+    totalPrice: jobData.pricing?.totals?.total || jobData.totalPrice || jobData.totalAmount || 0,
+    status: jobData.status || 'pending',
+    shipper: jobData.shipper || jobData.user || { name: 'Customer', rating: 0 },
+    transporter: jobData.transporter,
+    cargoDetails: jobData.cargoDetails || { type: 'General', weight: 0 },
+    pickup: jobData.pickup || {
+      date: jobData.route?.pickup?.date || 'TBD',
+      time: 'TBD'
+    }
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#0C2D48" />
+          <Text style={styles.loadingText}>Loading details...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -45,29 +159,39 @@ const JobDetailsScreen = ({ navigation, route }) => {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.backButton}
             onPress={() => navigation.goBack()}
           >
             <MaterialIcons name="arrow-back" size={24} color="white" />
-            <Text style={styles.backButtonText}>Back to Jobs</Text>
+            <Text style={styles.backButtonText}>
+              {isTransporter ? 'Back to Jobs' : 'Back'}
+            </Text>
           </TouchableOpacity>
           <View>
-            <Text style={styles.headerTitle}>Job Details</Text>
-            <Text style={styles.jobId}>{jobData.id}</Text>
+            <Text style={styles.headerTitle}>
+              {isTransporter ? 'Job Details' : 'Booking Details'}
+            </Text>
+            <Text style={styles.jobId}>{displayData.id}</Text>
           </View>
         </View>
       </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* Earnings Highlight */}
+        {/* Price/Earnings Highlight */}
         <View style={styles.section}>
-          <View style={styles.earningsCard}>
-            <Text style={styles.earningsLabel}>Your Earnings</Text>
-            <Text style={styles.earningsAmount}>${jobData.earnings}</Text>
+          <View style={[styles.earningsCard, isShipper && { backgroundColor: '#0C2D48' }]}>
+            <Text style={styles.earningsLabel}>
+              {isTransporter ? 'Your Earnings' : 'Total Cost'}
+            </Text>
+            <Text style={styles.earningsAmount}>
+              ${isTransporter ? displayData.earnings : displayData.totalPrice}
+            </Text>
             <View style={styles.earningsBadge}>
               <MaterialIcons name="check-circle" size={16} color="white" />
-              <Text style={styles.earningsBadgeText}>Payment guaranteed via escrow</Text>
+              <Text style={styles.earningsBadgeText}>
+                {isTransporter ? 'Payment guaranteed via escrow' : 'Secure payment'}
+              </Text>
             </View>
           </View>
         </View>
@@ -76,12 +200,12 @@ const JobDetailsScreen = ({ navigation, route }) => {
         <View style={styles.section}>
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Route</Text>
-            
+
             <View style={styles.routeItem}>
               <View style={[styles.routeDot, styles.routeDotStart]} />
               <View style={styles.routeContent}>
                 <Text style={styles.routeLabel}>PICKUP</Text>
-                <Text style={styles.routeText}>{jobData.route.from}</Text>
+                <Text style={styles.routeText}>{displayData.route.from}</Text>
               </View>
             </View>
 
@@ -91,18 +215,18 @@ const JobDetailsScreen = ({ navigation, route }) => {
               <View style={[styles.routeDot, styles.routeDotEnd]} />
               <View style={styles.routeContent}>
                 <Text style={styles.routeLabel}>DELIVERY</Text>
-                <Text style={styles.routeText}>{jobData.route.to}</Text>
+                <Text style={styles.routeText}>{displayData.route.to}</Text>
               </View>
             </View>
 
             <View style={styles.routeStats}>
               <View style={styles.routeStat}>
                 <Text style={styles.routeStatLabel}>Distance</Text>
-                <Text style={styles.routeStatValue}>{jobData.distance} km</Text>
+                <Text style={styles.routeStatValue}>{displayData.distance} km</Text>
               </View>
               <View style={styles.routeStat}>
                 <Text style={styles.routeStatLabel}>Est. Duration</Text>
-                <Text style={styles.routeStatValue}>7-8 hours</Text>
+                <Text style={styles.routeStatValue}>{Math.ceil(displayData.distance / 60)} hours</Text>
               </View>
             </View>
           </View>
@@ -130,15 +254,15 @@ const JobDetailsScreen = ({ navigation, route }) => {
             <View style={styles.shipperProfile}>
               <View style={styles.shipperAvatar}>
                 <Text style={styles.shipperInitial}>
-                  {jobData.shipper.name.charAt(0)}
+                  {(jobData.shipper?.name || jobData.user?.name || 'U').charAt(0).toUpperCase()}
                 </Text>
               </View>
               <View style={styles.shipperInfo}>
-                <Text style={styles.shipperName}>{jobData.shipper.name}</Text>
+                <Text style={styles.shipperName}>{jobData.shipper?.name || jobData.user?.name || 'Customer'}</Text>
                 <View style={styles.shipperRating}>
                   <MaterialIcons name="star" size={14} color="#fbbf24" />
-                  <Text style={styles.ratingText}>{jobData.shipper.rating}</Text>
-                  <Text style={styles.tripsText}>• {jobData.shipper.trips} trips</Text>
+                  <Text style={styles.ratingText}>{jobData.shipper?.rating || jobData.user?.rating || 0}</Text>
+                  <Text style={styles.tripsText}>• {jobData.shipper?.trips || jobData.user?.completedTrips || 0} trips</Text>
                 </View>
               </View>
               <View style={styles.onTimeBadge}>
@@ -158,8 +282,8 @@ const JobDetailsScreen = ({ navigation, route }) => {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Pickup Schedule</Text>
             <View style={styles.detailsList}>
-              <DetailRow label="Date" value={jobData.pickup.date} />
-              <DetailRow label="Time Window" value={jobData.pickup.time} />
+              <DetailRow label="Date" value={displayData.pickup?.date || 'TBD'} />
+              <DetailRow label="Time Window" value={displayData.pickup?.time || 'TBD'} />
               <DetailRow label="Loading" value="Shipper will load" />
               <DetailRow label="Offloading" value="Recipient will offload" />
             </View>
@@ -197,23 +321,77 @@ const JobDetailsScreen = ({ navigation, route }) => {
           </View>
         )}
 
-        {/* Actions */}
+        {/* Actions - User Type Aware */}
         <View style={styles.section}>
-          <View style={styles.actionButtons}>
-            {/*   <TouchableOpacity 
-              style={styles.counterOfferButton}
-              onPress={() => navigateTo('CounterOffer', { job: jobData })}
-            >
-              <Text style={styles.counterOfferButtonText}>Make Counter Offer</Text>
-            </TouchableOpacity>*/}
-         
-            <TouchableOpacity 
-              style={styles.acceptButton}
-              onPress={() => navigateTo('AcceptJobConfirmation', { job: jobData })}
-            >
-              <Text style={styles.acceptButtonText}>Accept Job</Text>
-            </TouchableOpacity>
-          </View>
+          {isTransporter ? (
+            // Transporter Actions
+            <View style={styles.actionButtons}>
+              <TouchableOpacity
+                style={styles.acceptButton}
+                onPress={() => navigateTo('AcceptJobConfirmation', { job: jobData })}
+              >
+                <Text style={styles.acceptButtonText}>Accept Job</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            // Shipper Actions
+            <View style={styles.actionButtonsColumn}>
+              {/* Track Shipment - show if transporter assigned */}
+              {displayData.transporter && ['transporter_assigned', 'en_route_pickup', 'picked_up', 'in_transit', 'arrived_delivery'].includes(displayData.status) && (
+                <TouchableOpacity
+                  style={styles.primaryButton}
+                  onPress={() => navigateTo('TrackShipment', { bookingId: bookingId || jobData._id })}
+                >
+                  <MaterialIcons name="location-on" size={20} color="white" />
+                  <Text style={styles.primaryButtonText}>Track Shipment</Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Contact Transporter */}
+              {displayData.transporter && (
+                <TouchableOpacity
+                  style={styles.secondaryButton}
+                  onPress={handleContactUser}
+                >
+                  <MaterialIcons name="phone" size={20} color="#0C2D48" />
+                  <Text style={styles.secondaryButtonText}>Contact Transporter</Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Rate - show if delivered or completed */}
+              {['delivered', 'completed'].includes(displayData.status) && (
+                <TouchableOpacity
+                  style={styles.rateButton}
+                  onPress={() => navigateTo('Rating', { bookingId: bookingId || jobData._id, type: 'transporter' })}
+                >
+                  <MaterialIcons name="star" size={20} color="#F37021" />
+                  <Text style={styles.rateButtonText}>Rate Transporter</Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Cancel - show if cancellable */}
+              {['pending', 'pending_payment', 'payment_confirmed', 'finding_transporter'].includes(displayData.status) && (
+                <TouchableOpacity
+                  style={styles.cancelButton}
+                  onPress={handleCancelBooking}
+                >
+                  <MaterialIcons name="cancel" size={20} color="#ef4444" />
+                  <Text style={styles.cancelButtonText}>Cancel Booking</Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Report Issue */}
+              {['delivered', 'completed'].includes(displayData.status) && (
+                <TouchableOpacity
+                  style={styles.reportButton}
+                  onPress={() => navigateTo('Dispute', { bookingId: bookingId || jobData._id })}
+                >
+                  <MaterialIcons name="report-problem" size={20} color="#6b7280" />
+                  <Text style={styles.reportButtonText}>Report an Issue</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
         </View>
 
         {/* Bottom Padding */}
@@ -531,6 +709,95 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: 20,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  actionButtonsColumn: {
+    gap: 12,
+  },
+  primaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0C2D48',
+    paddingVertical: 16,
+    borderRadius: 12,
+    gap: 8,
+  },
+  primaryButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'white',
+  },
+  secondaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'white',
+    paddingVertical: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#0C2D48',
+    gap: 8,
+  },
+  secondaryButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#0C2D48',
+  },
+  rateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff7ed',
+    paddingVertical: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#fed7aa',
+    gap: 8,
+  },
+  rateButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#F37021',
+  },
+  cancelButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fef2f2',
+    paddingVertical: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    gap: 8,
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#ef4444',
+  },
+  reportButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f9fafb',
+    paddingVertical: 14,
+    borderRadius: 12,
+    gap: 8,
+  },
+  reportButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#6b7280',
   },
 });
 

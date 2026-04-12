@@ -7,13 +7,17 @@ import {
   StyleSheet,
   SafeAreaView,
   StatusBar,
+  Alert,
+  ActivityIndicator
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../../hook/useAuth';
+import apiService from '../../services/apiService';
 
 export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
   const { user } = useAuth();
   const job = route.params?.job;
+  const shipmentId = route.params?.shipmentId;
   const [checklist, setChecklist] = useState({
     arrived: false,
     inspected: false,
@@ -22,6 +26,7 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
     signature: false,
     cashCollected: false
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const navigateTo = (screen, params = {}) => {
     if (onNavigate && typeof onNavigate === 'function') {
@@ -33,7 +38,55 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
     }
   };
 
-  const isCashOnDelivery = job?.payment === 'cash_delivery';
+  const isCashOnDelivery = job?.payment === 'cash_delivery' || job?.payment?.method === 'cash_on_delivery';
+
+  const handleCompleteDelivery = async () => {
+    if (!checklist.signature || (isCashOnDelivery && !checklist.cashCollected)) return;
+
+    // Use shipmentId from params or job data
+    const currentShipmentId = shipmentId || job?.shipmentId || job?._id;
+
+    if (!currentShipmentId) {
+      Alert.alert('Error', 'Shipment ID not found. Please try again.');
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      // Call the confirm-delivery API endpoint
+      const response = await apiService.post(`/transporter/shipments/${currentShipmentId}/confirm-delivery`, {
+        photos: checklist.photos,
+        notes: `Cargo delivered and inspected. ${checklist.photos.length} photos taken. Recipient verified.`,
+        signature: checklist.signature,
+        receiverName: 'Mr. Dube', // In a real app, this would come from user input
+        receiverPhone: job?.receiver?.phone || ''
+      });
+
+      if (response.success) {
+        Alert.alert(
+          'Delivery Confirmed',
+          'Delivery has been completed successfully!',
+          [
+            {
+              text: 'OK',
+              onPress: () => navigateTo('DeliveryCompleted', {
+                job,
+                shipmentId: currentShipmentId
+              })
+            }
+          ]
+        );
+      } else {
+        Alert.alert('Error', response.message || 'Failed to confirm delivery');
+      }
+    } catch (error) {
+      console.error('Confirm delivery error:', error);
+      Alert.alert('Error', error.message || 'Failed to confirm delivery. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -232,14 +285,20 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
           {/* Complete Delivery */}
           <TouchableOpacity
             style={[styles.button, styles.successButton,
-              (!checklist.signature || (isCashOnDelivery && !checklist.cashCollected)) && styles.buttonDisabled
+              (!checklist.signature || (isCashOnDelivery && !checklist.cashCollected) || isSubmitting) && styles.buttonDisabled
             ]}
-            onPress={() => navigateTo('DeliveryCompleted', { job })}
-            disabled={!checklist.signature || (isCashOnDelivery && !checklist.cashCollected)}
+            onPress={handleCompleteDelivery}
+            disabled={!checklist.signature || (isCashOnDelivery && !checklist.cashCollected) || isSubmitting}
             activeOpacity={0.7}
           >
-            <MaterialIcons name="check-circle" size={20} color="white" />
-            <Text style={styles.buttonText}>Complete Delivery</Text>
+            {isSubmitting ? (
+              <ActivityIndicator color="white" size="small" />
+            ) : (
+              <>
+                <MaterialIcons name="check-circle" size={20} color="white" />
+                <Text style={styles.buttonText}>Complete Delivery</Text>
+              </>
+            )}
           </TouchableOpacity>
         </View>
       </ScrollView>

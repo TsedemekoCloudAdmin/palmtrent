@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../hook/useAuth';
+import SOSButton from './components/SOSButton';
 import { 
   useTransporterDashboardStats,
   useTransporterRecentActivity,
@@ -319,7 +320,7 @@ const HomeScreen = ({ navigation }) => {
                 title="View Earnings"
                 subtitle="Track your rental income and payouts"
                 color="purple"
-                onPress={() => console.log('View Earnings')}
+                onPress={() => navigation.navigate('MyEarnings')}
               />
               <ActionButton
                 icon="build"
@@ -344,14 +345,14 @@ const HomeScreen = ({ navigation }) => {
                 title="Track Shipment"
                 subtitle="View live location of your goods"
                 color="green"
-                onPress={() => console.log('Track Shipment')}
+                onPress={() => navigation.navigate('MyBookings')}
               />
               <ActionButton
                 icon="trending-up"
                 title="My Bookings"
                 subtitle="View all your transport bookings"
                 color="purple"
-                onPress={() => console.log('My Bookings')}
+                onPress={() => navigation.navigate('MyBookings')}
               />
             </View>
           ) : isTransporter ? (
@@ -362,7 +363,7 @@ const HomeScreen = ({ navigation }) => {
                 subtitle="Browse and accept new jobs"
                 color="blue"
                 badge={availableJobs?.length ? `${availableJobs.length} new` : undefined}
-               onPress={() => navigation.navigate('AvailableJobs')}
+                onPress={() => navigation.navigate('AvailableJobs')}
               />
               <ActionButton
                 icon="location-on"
@@ -378,37 +379,35 @@ const HomeScreen = ({ navigation }) => {
                 color="purple"
                 onPress={() => navigation.navigate('MyEarnings')}
               />
-               <ActionButton
+              <ActionButton
                 icon="local-shipping"
                 title="Fleet Management"
                 subtitle="Manage vehicles and drivers"
                 color="orange"
                 onPress={() => navigation.navigate('FleetDashboard')}
               />
-            </View>
-          ) : (
-            <View style={styles.actionsContainer}>
               <ActionButton
-                icon="inventory"
-                title="Book Transport"
-                subtitle="Find a transporter for your cargo"
+                icon="directions-car"
+                title="Rent Vehicle"
+                subtitle="Rent a vehicle for your jobs"
                 color="blue"
-                onPress={navigateToBooking}
+                onPress={() => navigation.navigate('VehicleRental')}
               />
               <ActionButton
-                icon="location-on"
-                title="Track Shipments"
-                subtitle="View live location of your shipments"
+                icon="rv-hookup"
+                title="Rent Trailer"
+                subtitle="Find trailers for your cargo"
                 color="green"
-                onPress={() => console.log('Track Shipments')}
+                onPress={() => navigation.navigate('TrailerRental')}
               />
-              <ActionButton
-                icon="trending-up"
-                title="Analytics"
-                subtitle="View company shipping analytics"
-                color="purple"
-                onPress={() => console.log('Analytics')}
-              />
+            </View>
+          ) : null}
+
+          {/* SOS Button for Transporters */}
+          {isTransporter && (
+            <View style={styles.sosSection}>
+              <Text style={styles.sosLabel}>Emergency</Text>
+              <SOSButton size="normal" showLabel={true} />
             </View>
           )}
         </View>
@@ -761,6 +760,21 @@ const styles = StyleSheet.create({
   },
   statusBlueText: {
     color: '#1e40af',
+  },
+  sosSection: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    marginTop: 8,
+    backgroundColor: '#fef2f2',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+  },
+  sosLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#991b1b',
+    marginBottom: 8,
   },
   bottomPadding: {
     height: 20,

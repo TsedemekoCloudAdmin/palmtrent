@@ -9,6 +9,10 @@ import CreateBookingScreen from './shipper/CreateBookingScreen';
 import BookingReviewScreen from './BookingReviewScreen';
 import BookingConfirmationScreen from './BookingConfirmationScreen';
 import CrossBorderBookingScreen from './CrossBorderBookingScreen';
+// Payment screens
+import MobileMoneyPaymentScreen from './MobileMoneyPaymentScreen';
+import CardPaymentScreen from './CardPaymentScreen';
+import AgentPaymentScreen from './AgentPaymentScreen';
 
 const BookingFlowManager = ({ navigation, route }) => {
   const [currentScreen, setCurrentScreen] = useState(route.params?.initialScreen || 'booking-start');
@@ -81,14 +85,48 @@ const BookingFlowManager = ({ navigation, route }) => {
           />
         );
       case 'cross-border-booking':
-         return (
-           <CrossBorderBookingScreen 
-             onNavigate={navigateTo}
-             bookingData={bookingData}
-             updateBookingData={updateBookingData}
-             onExit={exitToHome}
+        return (
+          <CrossBorderBookingScreen 
+            onNavigate={navigateTo}
+            bookingData={bookingData}
+            updateBookingData={updateBookingData}
+            onExit={exitToHome}
           />
         );
+      
+      // Payment screens - MobileMoneyPaymentScreen handles both EcoCash and OneMoney
+      case 'ecocash-payment':
+      case 'mobile-money-payment':
+        return (
+          <MobileMoneyPaymentScreen
+            onNavigate={navigateTo}
+            bookingData={bookingData}
+            updateBookingData={updateBookingData}
+            onExit={exitToHome}
+          />
+        );
+
+      case 'card-payment':
+        return (
+          <CardPaymentScreen
+            onNavigate={navigateTo}
+            bookingData={bookingData}
+            updateBookingData={updateBookingData}
+            onExit={exitToHome}
+          />
+        );
+
+      case 'agent-payment':
+      case 'cash-agent-payment':
+        return (
+          <AgentPaymentScreen
+            onNavigate={navigateTo}
+            bookingData={bookingData}
+            updateBookingData={updateBookingData}
+            onExit={exitToHome}
+          />
+        );
+
       default:
         return <BookingStartScreen onNavigate={navigateTo} onExit={exitToHome} />;
     }

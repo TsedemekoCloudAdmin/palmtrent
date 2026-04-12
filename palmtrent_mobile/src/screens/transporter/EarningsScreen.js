@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,28 +7,86 @@ import {
   StyleSheet,
   SafeAreaView,
   StatusBar,
-  Dimensions
+  Dimensions,
+  RefreshControl,
+  ActivityIndicator
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import apiService from '../../services/apiService';
 
 const { width } = Dimensions.get('window');
 
 const EarningsScreen = ({ navigation, onNavigate }) => {
   const [period, setPeriod] = useState('month');
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [earningsData, setEarningsData] = useState({
+    totalEarnings: 0,
+    pendingEarnings: 0,
+    completedTrips: 0,
+    recentEarnings: []
+  });
+  const [stats, setStats] = useState({
+    avgPerJob: 0,
+    jobsThisMonth: 0,
+    onTimeRate: 0
+  });
 
-  const earnings = {
-    thisMonth: 12500,
-    pending: 2400,
-    completed: 45,
-    onTime: 97
-  };
+  const fetchEarnings = useCallback(async () => {
+    try {
+      const response = await apiService.request(`/transporter/earnings?period=${period}`);
+      if (response.success) {
+        setEarningsData(response.data);
 
-  const transactions = [
-    { id: 'PT-2025-001234', date: '02 Nov', route: 'Harare → Bulawayo', amount: 400, status: 'paid' },
-    { id: 'PT-2025-001235', date: '02 Nov', route: 'Mutare → Harare', amount: 350, status: 'pending' },
-    { id: 'PT-2025-001236', date: '01 Nov', route: 'Harare → Gweru', amount: 280, status: 'paid' },
-    { id: 'PT-2025-001237', date: '01 Nov', route: 'Harare → Masvingo', amount: 320, status: 'paid' }
-  ];
+        // Calculate stats
+        const avgPerJob = response.data.completedTrips > 0
+          ? Math.round(response.data.totalEarnings / response.data.completedTrips)
+          : 0;
+
+        setStats({
+          avgPerJob,
+          jobsThisMonth: response.data.completedTrips,
+          onTimeRate: 97 // This would come from a separate endpoint
+        });
+      }
+    } catch (error) {
+      console.error('Failed to fetch earnings:', error);
+    }
+  }, [period]);
+
+  const fetchDashboardStats = useCallback(async () => {
+    try {
+      const response = await apiService.request('/transporter/dashboard-stats');
+      if (response.success) {
+        setStats(prev => ({
+          ...prev,
+          onTimeRate: response.data.onTimeDelivery || 97
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to fetch dashboard stats:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true);
+      await Promise.all([fetchEarnings(), fetchDashboardStats()]);
+      setLoading(false);
+    };
+    loadData();
+  }, [fetchEarnings, fetchDashboardStats]);
+
+  useEffect(() => {
+    // Refetch when period changes
+    fetchEarnings();
+  }, [period, fetchEarnings]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([fetchEarnings(), fetchDashboardStats()]);
+    setRefreshing(false);
+  }, [fetchEarnings, fetchDashboardStats]);
 
   const navigateTo = (screen, params = {}) => {
     if (onNavigate) {
@@ -38,10 +96,41 @@ const EarningsScreen = ({ navigation, onNavigate }) => {
     }
   };
 
+  const formatDate = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+  };
+
+  const getPeriodLabel = () => {
+    switch (period) {
+      case 'week': return 'This Week';
+      case 'month': return 'This Month';
+      case 'year': return 'This Year';
+      default: return 'All Time';
+    }
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>My Earnings</Text>
+          <Text style={styles.headerSubtitle}>Track your income</Text>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#0C2D48" />
+          <Text style={styles.loadingText}>Loading earnings...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
-      
+
       {/* Header */}
       <View style={styles.header}>
         <View>
@@ -50,29 +139,35 @@ const EarningsScreen = ({ navigation, onNavigate }) => {
         </View>
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
         {/* Period Selector */}
         <View style={styles.section}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.periodContainer}>
-            <PeriodButton 
-              label="This Week" 
-              active={period === 'week'} 
-              onPress={() => setPeriod('week')} 
+            <PeriodButton
+              label="This Week"
+              active={period === 'week'}
+              onPress={() => setPeriod('week')}
             />
-            <PeriodButton 
-              label="This Month" 
-              active={period === 'month'} 
-              onPress={() => setPeriod('month')} 
+            <PeriodButton
+              label="This Month"
+              active={period === 'month'}
+              onPress={() => setPeriod('month')}
             />
-            <PeriodButton 
-              label="This Year" 
-              active={period === 'year'} 
-              onPress={() => setPeriod('year')} 
+            <PeriodButton
+              label="This Year"
+              active={period === 'year'}
+              onPress={() => setPeriod('year')}
             />
-            <PeriodButton 
-              label="All Time" 
-              active={period === 'all'} 
-              onPress={() => setPeriod('all')} 
+            <PeriodButton
+              label="All Time"
+              active={period === 'all'}
+              onPress={() => setPeriod('all')}
             />
           </ScrollView>
         </View>
@@ -80,21 +175,25 @@ const EarningsScreen = ({ navigation, onNavigate }) => {
         {/* Total Earnings */}
         <View style={styles.section}>
           <View style={styles.earningsCard}>
-            <Text style={styles.earningsLabel}>Total Earnings (This Month)</Text>
-            <Text style={styles.earningsAmount}>${earnings.thisMonth.toLocaleString()}</Text>
-            
+            <Text style={styles.earningsLabel}>Total Earnings ({getPeriodLabel()})</Text>
+            <Text style={styles.earningsAmount}>
+              ${earningsData.totalEarnings?.toLocaleString() || '0'}
+            </Text>
+
             <View style={styles.earningsStats}>
               <View style={styles.earningsStat}>
                 <Text style={styles.earningsStatLabel}>Completed</Text>
-                <Text style={styles.earningsStatValue}>{earnings.completed}</Text>
+                <Text style={styles.earningsStatValue}>{earningsData.completedTrips || 0}</Text>
               </View>
               <View style={[styles.earningsStat, styles.earningsStatDivider]}>
                 <Text style={styles.earningsStatLabel}>Pending</Text>
-                <Text style={styles.earningsStatValue}>${earnings.pending}</Text>
+                <Text style={styles.earningsStatValue}>
+                  ${earningsData.pendingEarnings?.toLocaleString() || '0'}
+                </Text>
               </View>
               <View style={styles.earningsStat}>
                 <Text style={styles.earningsStatLabel}>On-Time</Text>
-                <Text style={styles.earningsStatValue}>{earnings.onTime}%</Text>
+                <Text style={styles.earningsStatValue}>{stats.onTimeRate}%</Text>
               </View>
             </View>
           </View>
@@ -106,15 +205,15 @@ const EarningsScreen = ({ navigation, onNavigate }) => {
             <StatCard
               icon="trending-up"
               label="Avg per Job"
-              value="$278"
-              change="+12%"
+              value={`$${stats.avgPerJob}`}
+              change={stats.avgPerJob > 250 ? '+Good' : ''}
               color="#2563eb"
             />
             <StatCard
               icon="event"
-              label="Jobs This Month"
-              value="45"
-              change="+8"
+              label="Jobs Completed"
+              value={earningsData.completedTrips?.toString() || '0'}
+              change=""
               color="#7c3aed"
             />
           </View>
@@ -132,25 +231,61 @@ const EarningsScreen = ({ navigation, onNavigate }) => {
             </View>
 
             <View style={styles.transactionsList}>
-              {transactions.map((txn) => (
-                <TransactionItem key={txn.id} transaction={txn} />
-              ))}
+              {earningsData.recentEarnings && earningsData.recentEarnings.length > 0 ? (
+                earningsData.recentEarnings.map((txn) => (
+                  <TransactionItem
+                    key={txn.id}
+                    transaction={{
+                      id: txn.reference || txn.id,
+                      date: formatDate(txn.date),
+                      route: txn.route || 'Completed Trip',
+                      amount: txn.amount,
+                      status: 'paid'
+                    }}
+                  />
+                ))
+              ) : (
+                <View style={styles.emptyTransactions}>
+                  <MaterialIcons name="receipt-long" size={48} color="#d1d5db" />
+                  <Text style={styles.emptyText}>No transactions yet</Text>
+                  <Text style={styles.emptySubtext}>
+                    Complete jobs to see your earnings here
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
         </View>
+
+        {/* Pending Earnings Info */}
+        {earningsData.pendingEarnings > 0 && (
+          <View style={styles.section}>
+            <View style={styles.pendingCard}>
+              <MaterialIcons name="hourglass-empty" size={24} color="#92400e" />
+              <View style={styles.pendingContent}>
+                <Text style={styles.pendingTitle}>Pending Payout</Text>
+                <Text style={styles.pendingAmount}>
+                  ${earningsData.pendingEarnings?.toLocaleString()}
+                </Text>
+                <Text style={styles.pendingNote}>
+                  Funds will be released after delivery confirmation
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
 
         {/* Payout Settings */}
         <View style={styles.section}>
           <View style={styles.payoutCard}>
             <Text style={styles.payoutTitle}>Payout Method</Text>
-            <Text style={styles.payoutText}>EcoCash: 0771 234 5678</Text>
+            <Text style={styles.payoutText}>EcoCash: ****5678</Text>
             <TouchableOpacity style={styles.payoutButton}>
               <Text style={styles.payoutButtonText}>Change Payout Method</Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Reduced bottom padding */}
         <View style={styles.bottomPadding} />
       </ScrollView>
     </SafeAreaView>
@@ -183,9 +318,9 @@ const StatCard = ({ icon, label, value, change, color }) => (
     <Text style={styles.statLabel}>{label}</Text>
     <View style={styles.statValueContainer}>
       <Text style={styles.statValue}>{value}</Text>
-      {change && (
+      {change ? (
         <Text style={styles.statChange}>{change}</Text>
-      )}
+      ) : null}
     </View>
   </View>
 );
@@ -242,6 +377,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     opacity: 0.9,
     marginTop: 4,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#6b7280',
   },
   section: {
     paddingHorizontal: 16,
@@ -462,6 +607,51 @@ const styles = StyleSheet.create({
   },
   statusTextPending: {
     color: '#92400e',
+  },
+  emptyTransactions: {
+    alignItems: 'center',
+    paddingVertical: 32,
+  },
+  emptyText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#6b7280',
+    marginTop: 12,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#9ca3af',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  pendingCard: {
+    backgroundColor: '#fef3c7',
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  pendingContent: {
+    flex: 1,
+  },
+  pendingTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#92400e',
+    marginBottom: 4,
+  },
+  pendingAmount: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#92400e',
+    marginBottom: 4,
+  },
+  pendingNote: {
+    fontSize: 12,
+    color: '#b45309',
   },
   payoutCard: {
     backgroundColor: '#dbeafe',

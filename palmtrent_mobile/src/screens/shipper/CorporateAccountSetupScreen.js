@@ -7,13 +7,20 @@ import {
   TextInput,
   StyleSheet,
   SafeAreaView,
-  StatusBar
+  StatusBar,
+  ActivityIndicator,
+  Alert
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import CustomSelect from '../components/CustomSelect';
+import apiService from '../../services/apiService';
+import { useAuth } from '../../context/AuthContext';
 
 const CorporateAccountSetupScreen = ({ navigation }) => {
+  const { token, updateUser } = useAuth();
   const [step, setStep] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState('standard');
   const [formData, setFormData] = useState({
     companyName: '',
     registrationNumber: '',
@@ -66,9 +73,82 @@ const CorporateAccountSetupScreen = ({ navigation }) => {
   };
 
   const isStep2Valid = () => {
-    return formData.contactPerson && 
-           formData.contactEmail && 
+    return formData.contactPerson &&
+           formData.contactEmail &&
            formData.contactPhone;
+  };
+
+  // Map volume to company size for backend
+  const getCompanySize = (volume) => {
+    const volumeMap = {
+      '10-50': '1-10',
+      '50-100': '11-50',
+      '100-200': '51-200',
+      '200-500': '201-500',
+      '500+': '500+'
+    };
+    return volumeMap[volume] || '11-50';
+  };
+
+  // Get payment terms based on selected plan
+  const getPaymentTerms = (plan) => {
+    const termsMap = {
+      'standard': 'net_30',
+      'premium': 'net_30',
+      'enterprise': 'net_30'
+    };
+    return termsMap[plan] || 'prepaid';
+  };
+
+  // Submit corporate account application
+  const handleSubmit = async () => {
+    setLoading(true);
+    try {
+      const payload = {
+        companyName: formData.companyName,
+        registrationNumber: formData.registrationNumber,
+        taxNumber: formData.taxNumber,
+        industry: formData.industry,
+        companySize: getCompanySize(formData.monthlyVolume),
+        contactPerson: {
+          name: formData.contactPerson,
+          email: formData.contactEmail,
+          phone: formData.contactPhone
+        },
+        billing: {
+          paymentTerms: getPaymentTerms(selectedPlan),
+          plan: selectedPlan
+        }
+      };
+
+      const response = await apiService.post('/corporate/register', payload, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (response.data.success) {
+        // Update local user data if updateUser is available
+        if (updateUser) {
+          updateUser({ accountType: 'corporate' });
+        }
+
+        Alert.alert(
+          'Application Submitted',
+          'Your corporate account application has been submitted for review. You will be notified once approved.',
+          [
+            {
+              text: 'OK',
+              onPress: () => navigation.navigate('CorporatePendingApproval')
+            }
+          ]
+        );
+      }
+    } catch (error) {
+      console.error('Corporate registration error:', error);
+      const errorMessage = error.response?.data?.message || 'Failed to submit application. Please try again.';
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -235,9 +315,10 @@ const CorporateAccountSetupScreen = ({ navigation }) => {
           {step === 3 && (
             <>
               <Text style={styles.stepTitle}>Choose Your Plan</Text>
-              
+
               <CorporatePlanCard
                 title="Standard"
+                planKey="standard"
                 volume="50-100 shipments/month"
                 price="10%"
                 features={[
@@ -247,10 +328,13 @@ const CorporateAccountSetupScreen = ({ navigation }) => {
                   'Monthly reporting',
                   'Email support'
                 ]}
+                selected={selectedPlan === 'standard'}
+                onSelect={() => setSelectedPlan('standard')}
               />
 
               <CorporatePlanCard
                 title="Premium"
+                planKey="premium"
                 volume="100-200 shipments/month"
                 price="8%"
                 features={[
@@ -263,10 +347,13 @@ const CorporateAccountSetupScreen = ({ navigation }) => {
                   'API access'
                 ]}
                 recommended
+                selected={selectedPlan === 'premium'}
+                onSelect={() => setSelectedPlan('premium')}
               />
 
               <CorporatePlanCard
                 title="Enterprise"
+                planKey="enterprise"
                 volume="200+ shipments/month"
                 price="Custom"
                 features={[
@@ -278,6 +365,8 @@ const CorporateAccountSetupScreen = ({ navigation }) => {
                   '24/7 support',
                   'Quarterly business reviews'
                 ]}
+                selected={selectedPlan === 'enterprise'}
+                onSelect={() => setSelectedPlan('enterprise')}
               />
 
               <View style={styles.planInfo}>
@@ -306,25 +395,31 @@ const CorporateAccountSetupScreen = ({ navigation }) => {
           <TouchableOpacity
             style={[
               styles.continueButton,
-              (step === 1 && !isStep1Valid()) || 
-              (step === 2 && !isStep2Valid()) 
+              ((step === 1 && !isStep1Valid()) ||
+              (step === 2 && !isStep2Valid()) ||
+              loading)
                 ? styles.continueButtonDisabled : null
             ]}
             onPress={() => {
               if (step < 3) {
                 setStep(step + 1);
               } else {
-                navigateTo('CorporatePendingApproval');
+                handleSubmit();
               }
             }}
             disabled={
-              (step === 1 && !isStep1Valid()) || 
-              (step === 2 && !isStep2Valid())
+              (step === 1 && !isStep1Valid()) ||
+              (step === 2 && !isStep2Valid()) ||
+              loading
             }
           >
-            <Text style={styles.continueButtonText}>
-              {step < 3 ? 'Continue' : 'Submit Application'}
-            </Text>
+            {loading ? (
+              <ActivityIndicator color="white" size="small" />
+            ) : (
+              <Text style={styles.continueButtonText}>
+                {step < 3 ? 'Continue' : 'Submit Application'}
+              </Text>
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -341,28 +436,39 @@ const DocumentItem = ({ text }) => (
 );
 
 // Corporate Plan Card Component
-const CorporatePlanCard = ({ title, volume, price, features, recommended }) => (
-  <View style={[
-    styles.planCard,
-    recommended && styles.planCardRecommended
-  ]}>
+const CorporatePlanCard = ({ title, volume, price, features, recommended, selected, onSelect }) => (
+  <TouchableOpacity
+    style={[
+      styles.planCard,
+      recommended && styles.planCardRecommended,
+      selected && styles.planCardSelected
+    ]}
+    onPress={onSelect}
+    activeOpacity={0.8}
+  >
     {recommended && (
       <View style={styles.recommendedBadge}>
         <MaterialIcons name="star" size={16} color="white" />
         <Text style={styles.recommendedText}>Recommended</Text>
       </View>
     )}
-    
+
+    {selected && (
+      <View style={styles.selectedIndicator}>
+        <MaterialIcons name="check-circle" size={24} color="#16a34a" />
+      </View>
+    )}
+
     <View style={styles.planHeader}>
       <Text style={styles.planTitle}>{title}</Text>
       <Text style={styles.planVolume}>{volume}</Text>
     </View>
-    
+
     <View style={styles.planPrice}>
       <Text style={styles.priceText}>{price}</Text>
       {price !== 'Custom' && <Text style={styles.priceUnit}>commission</Text>}
     </View>
-    
+
     <View style={styles.featuresList}>
       {features.map((feature, index) => (
         <View key={index} style={styles.featureItem}>
@@ -371,7 +477,7 @@ const CorporatePlanCard = ({ title, volume, price, features, recommended }) => (
         </View>
       ))}
     </View>
-  </View>
+  </TouchableOpacity>
 );
 
 const styles = StyleSheet.create({
@@ -522,6 +628,15 @@ const styles = StyleSheet.create({
   planCardRecommended: {
     borderColor: '#F37021',
     backgroundColor: '#fff7ed',
+  },
+  planCardSelected: {
+    borderColor: '#16a34a',
+    backgroundColor: '#f0fdf4',
+  },
+  selectedIndicator: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
   },
   recommendedBadge: {
     position: 'absolute',

@@ -1,7 +1,10 @@
+const pricingService = require('../services/pricingService');
+const PricingConfig = require('../models/PricingConfig');
 const Booking = require('../models/Booking');
 const Shipment = require('../models/Shipment');
 const User = require('../models/User');
 const { validationResult } = require('express-validator');
+const whatsappController = require('./whatsappController');
 
 // Get all bookings for current user - Merged
 exports.getAllBookings = async (req, res) => {
@@ -93,18 +96,16 @@ exports.createBooking = async (req, res) => {
       });
     }
 
-    const bookingData = {
-      ...req.body,
-      user: req.user.id,
-      shipper: req.user.id,
-      status: 'draft'
-    };
+    console.log("Creating booking with data:");
+    console.log(JSON.stringify(req.body, null, 2));
 
-    // Calculate pricing
-    const pricing = calculatePricing(bookingData);
-    bookingData.pricing = pricing;
+    // Transform frontend data to match backend schema
+    const transformedData = transformFrontendToBackend(req.body, req.user.id);
+    
+    console.log("Transformed booking data:");
+    console.log(JSON.stringify(transformedData, null, 2));
 
-    const booking = await Booking.create(bookingData);
+    const booking = await Booking.create(transformedData);
 
     res.status(201).json({
       success: true,
@@ -120,6 +121,137 @@ exports.createBooking = async (req, res) => {
     });
   }
 };
+
+// NEW: Transform frontend data to backend schema structure
+function transformFrontendToBackend(frontendData, userId) {
+  const {
+    cargoType, weight, cargoValue, specialInstructions, images,
+    pickupLocation, deliveryLocation, pickupDate, 
+    routeInfo, vehicleRecommendation, isCrossBorder, 
+    paymentMethod, pricing, insurance, bookingType
+  } = frontendData;
+
+  // Generate booking reference
+  const generateBookingReference = () => {
+    const timestamp = Date.now().toString(36);
+    const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+    return `PT-${timestamp}-${random}`;
+  };
+
+  return {
+    // Core required fields
+    bookingReference: generateBookingReference(),
+    user: userId,
+    shipper: userId,
+    status: 'pending_payment', // CRITICAL: Payment required before broadcasting to transporters
+    bookingType: bookingType || 'single',
+    
+    // Route structure that backend expects
+    route: {
+      pickup: {
+        address: pickupLocation || '',
+        date: pickupDate ? new Date(pickupDate) : new Date(),
+        coordinates: [0, 0]
+      },
+      delivery: {
+        address: deliveryLocation || '',
+        coordinates: [0, 0]
+      },
+      distance: routeInfo?.distance || 0,
+      estimatedDuration: routeInfo?.duration || ''
+    },
+    
+    // Cargo details structure
+    cargoDetails: {
+      type: cargoType || '',
+      weight: parseFloat(weight) || 0,
+      value: parseFloat(cargoValue) || 0,
+      description: cargoType || '',
+      specialInstructions: specialInstructions || '',
+      photos: images || []
+    },
+    
+    // Insurance structure
+    insurance: {
+      required: !!insurance,
+      premium: pricing?.breakdown?.insurance || 0,
+      coverage: parseFloat(cargoValue) || 0
+    },
+    
+    // Cross-border structure
+    crossBorder: {
+      enabled: !!isCrossBorder
+    },
+    
+    // Payment structure
+    payment: {
+      method: paymentMethod || 'digital',
+      status: 'pending'
+    },
+    
+    // UPDATED: Enhanced pricing structure with commission support
+    pricing: pricing || {
+      breakdown: {
+        baseTransportFee: 0,
+        specialCargoFee: 0,
+        crossBorderFees: {
+          baseSurcharge: 0,
+          documentationFee: 0,
+          insurancePremium: 0,
+          total: 0
+        },
+        platformFee: 0,
+        platformFeeRate: 0.12,
+        transporterCommission: 0,
+        transporterCommissionRate: 0.15,
+        transporterEarnings: 0,
+        transporterGrossEarnings: 0,
+        insurance: 0,
+        insuranceRate: 0,
+        paymentMethod: paymentMethod || 'digital'
+      },
+      totals: {
+        subtotal: 0,
+        total: 0,
+        platformTotal: 0,
+        transporterTotal: 0,
+        insuranceTotal: 0
+      },
+      feeAllocation: {
+        platform: {
+          amount: 0,
+          description: '',
+          breakdown: {
+            platformFee: 0,
+            transporterCommission: 0
+          }
+        },
+        transporter: {
+          amount: 0,
+          description: '',
+          grossAmount: 0,
+          commission: 0
+        },
+        insurance: {
+          amount: 0,
+          description: ''
+        }
+      },
+      discountsApplied: [],
+      surchargesApplied: [],
+      currency: 'USD'
+    },
+    
+    // Vehicle data
+    vehicleType: vehicleRecommendation?.vehicleType,
+    
+    // Additional fields for easier querying
+    origin: pickupLocation?.split(',')[0]?.trim() || '',
+    destination: deliveryLocation?.split(',')[0]?.trim() || '',
+    totalAmount: pricing?.totals?.total || 0,
+    pickupDate: pickupDate ? new Date(pickupDate) : new Date()
+  };
+}
 
 // Update booking (for multi-step flow) - From my code
 exports.updateBooking = async (req, res) => {
@@ -175,7 +307,9 @@ exports.confirmPayment = async (req, res) => {
     const { paymentReference, paymentMethod } = req.body;
 
     const booking = await Booking.findById(req.params.id);
-
+    console.log("=============== Confirm Paayment ==============")
+console.log(booking)
+    console.log("=============== Confirm Paayment ==============")
     if (!booking) {
       return res.status(404).json({
         success: false,
@@ -197,34 +331,63 @@ exports.confirmPayment = async (req, res) => {
       });
     }
 
-    // Update payment status
-    booking.payment = {
-      method: paymentMethod,
-      reference: paymentReference,
-      status: 'confirmed',
-      paidAt: new Date()
-    };
+    // Use payment service to confirm payment
+    const paymentService = require('../services/paymentService');
+    await paymentService.confirmPayment(paymentReference, {
+      gateway: paymentMethod === 'cash_agent' || paymentMethod === 'cash_on_pickup' || paymentMethod === 'cash_on_delivery' ? 'cash' : 'paynow'
+    });
+
+    // CRITICAL: Update booking status to payment_confirmed and set timestamp
+    booking.paymentStatus = 'confirmed';
+    booking.payment.status = 'confirmed';
+    booking.paymentConfirmedAt = new Date();
     booking.status = 'payment_confirmed';
-
     await booking.save();
 
-    // Create shipment from booking
-    const shipmentData = createShipmentFromBooking(booking);
-    const shipment = await Shipment.create(shipmentData);
+    // CRITICAL: Trigger matching service to find and notify transporters
+    const matchingService = require('../services/matchingService');
+    let matchingResult = null;
+    try {
+      matchingResult = await matchingService.findAndNotifyTransporters(booking._id, 10);
+      console.log(`Matching triggered for booking ${booking.bookingReference}:`, matchingResult);
+    } catch (matchingError) {
+      console.error('Error triggering matching:', matchingError);
+      // Payment is confirmed but matching failed - booking stays in payment_confirmed status
+      // Admin can manually trigger matching later
+    }
 
-    // Update booking with shipment reference
-    booking.shipments.push(shipment._id);
-    await booking.save();
+    // Get updated booking with populated fields
+    const updatedBooking = await Booking.findById(req.params.id)
+      .populate('user', 'fullName phone email')
+      .populate('transporter', 'fullName phone rating');
 
-    // TODO: Trigger matching algorithm to find transporters
+    // Send WhatsApp notification to shipper confirming payment
+    try {
+      await whatsappController.sendBookingStatusUpdate(updatedBooking, 'payment_confirmed');
+    } catch (whatsappError) {
+      console.error('WhatsApp notification error:', whatsappError);
+    }
+
+    // Build response with matching results
+    const responseData = {
+      booking: updatedBooking
+    };
+
+    if (matchingResult && matchingResult.success) {
+      responseData.matching = {
+        success: true,
+        notifiedCount: matchingResult.notifiedCount,
+        eligibleCount: matchingResult.eligibleCount,
+        message: `Notified ${matchingResult.notifiedCount} top transporters`
+      };
+    }
 
     res.status(200).json({
       success: true,
-      message: 'Payment confirmed. Finding transporter...',
-      data: {
-        booking,
-        shipment
-      }
+      message: matchingResult && matchingResult.success
+        ? `Payment confirmed! Notified ${matchingResult.notifiedCount} transporters for your booking.`
+        : 'Payment confirmed. Finding transporters for your booking...',
+      data: responseData
     });
   } catch (error) {
     console.error('Error confirming payment:', error);
@@ -236,6 +399,60 @@ exports.confirmPayment = async (req, res) => {
   }
 };
 
+// NEW: Create booking with payment
+exports.createBookingWithPayment = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array()
+      });
+    }
+
+    console.log("Creating booking with payment:", req.body);
+
+    // Transform frontend data
+    const transformedData = transformFrontendToBackend(req.body, req.user.id);
+    
+    // Create booking
+    const booking = await Booking.create(transformedData);
+
+    // Create payment if payment method is provided
+    let payment = null;
+    if (req.body.paymentMethod && req.body.amount) {
+      const paymentService = require('../services/paymentService');
+      payment = await paymentService.createPayment(
+        booking._id,
+        req.body.amount,
+        req.body.paymentMethod,
+        req.body.customer || {}
+      );
+    }
+
+    const response = {
+      success: true,
+      message: 'Booking created successfully',
+      data: {
+        booking,
+        payment: payment ? {
+          paymentId: payment._id,
+          paymentReference: payment.paymentReference,
+          status: payment.status
+        } : null
+      }
+    };
+
+    res.status(201).json(response);
+  } catch (error) {
+    console.error('Error creating booking with payment:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error creating booking',
+      error: error.message
+    });
+  }
+};
 // Cancel booking - From your code
 exports.cancelBooking = async (req, res) => {
   try {
@@ -341,43 +558,109 @@ exports.confirmBooking = async (req, res) => {
 };
 
 // Helper functions
-function calculatePricing(bookingData) {
-  let baseTransportFee = bookingData.pricing?.baseTransportFee || 400;
-
-  // Multiple vehicles pricing
-  if (bookingData.bookingType === 'multiple' && bookingData.vehicles) {
-    baseTransportFee = bookingData.vehicles.length * 400;
+exports.calculatePricing = async (req, res) => {
+  try {
+    const bookingData = req.body;
     
-    // Apply volume discount
-    const discount = bookingData.vehicles.length >= 5 ? 0.15 : 
-                    bookingData.vehicles.length >= 3 ? 0.10 : 0;
-    baseTransportFee = baseTransportFee * (1 - discount);
+    // Validate required fields
+    if (!bookingData.route?.distance) {
+      return res.status(400).json({
+        success: false,
+        message: 'Distance is required for pricing calculation'
+      });
+    }
+    // Calculate pricing using the service
+    const pricing = await pricingService.calculatePricing(bookingData);
+    
+    res.status(200).json({
+      success: true,
+      data: pricing
+    });
+    
+  } catch (error) {
+    console.error('Error calculating pricing:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error calculating pricing',
+      error: error.message
+    });
   }
+};
 
-  // Cross-border pricing
-  if (bookingData.crossBorder?.enabled) {
-    baseTransportFee += 130; // $50 surcharge + $50 insurance + $30 documentation
+// Admin endpoint to update pricing configuration
+exports.updatePricingConfig = async (req, res) => {
+  try {
+    const PricingConfig = require('../models/PricingConfig');
+    
+    // Only admins should access this
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to update pricing configuration'
+      });
+    }
+    
+    const updates = req.body;
+    updates.lastUpdated = new Date();
+    updates.updatedBy = req.user.id;
+    
+    let config = await PricingConfig.findOne({ active: true });
+    
+    if (!config) {
+      config = await PricingConfig.create({
+        ...updates,
+        configName: 'default',
+        active: true
+      });
+    } else {
+      Object.assign(config, updates);
+      await config.save();
+    }
+    
+    res.status(200).json({
+      success: true,
+      message: 'Pricing configuration updated successfully',
+      data: config
+    });
+    
+  } catch (error) {
+    console.error('Error updating pricing config:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating pricing configuration',
+      error: error.message
+    });
   }
+};
 
-  const platformFeeRate = 0.12;
-  const platformFee = baseTransportFee * platformFeeRate;
-  
-  let insurance = 0;
-  if (bookingData.insurance?.required && bookingData.cargoDetails?.value) {
-    insurance = bookingData.cargoDetails.value * 0.0045; // 0.45%
+// Get current pricing configuration (for admin dashboard)
+exports.getPricingConfig = async (req, res) => {
+  try {
+    const PricingConfig = require('../models/PricingConfig');
+    
+    const config = await PricingConfig.findOne({ active: true });
+    
+    if (!config) {
+      return res.status(404).json({
+        success: false,
+        message: 'No active pricing configuration found'
+      });
+    }
+    
+    res.status(200).json({
+      success: true,
+      data: config
+    });
+    
+  } catch (error) {
+    console.error('Error fetching pricing config:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching pricing configuration',
+      error: error.message
+    });
   }
-
-  const subtotal = baseTransportFee + platformFee + insurance;
-  
-  return {
-    baseTransportFee: Math.round(baseTransportFee),
-    platformFee: Math.round(platformFee),
-    platformFeeRate,
-    insurance: Math.round(insurance),
-    subtotal: Math.round(subtotal),
-    total: Math.round(subtotal)
-  };
-}
+};
 
 function shouldRecalculatePricing(updatedFields) {
   const pricingRelatedFields = [
