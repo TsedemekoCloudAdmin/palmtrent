@@ -1,6 +1,9 @@
 const Vehicle = require('../models/Vehicle');
 const Driver = require('../models/Driver');
 const Rental = require('../models/Rental');
+const Shipment = require('../models/Shipment');
+const { recordAudit } = require('../services/auditService');
+const { assertDriverAssignable, getVehicleComplianceIssues } = require('../services/flowControlService');
 
 // Get all vehicles for a transporter
 exports.getVehicles = async (req, res) => {
@@ -131,11 +134,38 @@ exports.updateVehicle = async (req, res) => {
       });
     }
 
+    if (req.body.status && ['available', 'inactive', 'maintenance'].includes(req.body.status)) {
+      const activeShipment = await Shipment.findOne({
+        vehicle: vehicle._id,
+        status: { $in: ['assigned', 'en_route_pickup', 'picked_up', 'in_transit', 'arrived_delivery'] }
+      }).select('_id bookingReference status');
+
+      if (activeShipment) {
+        return res.status(400).json({
+          success: false,
+          message: `Vehicle is assigned to active shipment ${activeShipment.bookingReference}`
+        });
+      }
+    }
+
+    const before = { status: vehicle.status, assignedDriver: vehicle.assignedDriver };
+
     vehicle = await Vehicle.findByIdAndUpdate(
       req.params.id,
       req.body,
       { new: true, runValidators: true }
     );
+
+    await recordAudit({
+      actor: req.user,
+      action: req.path.endsWith('/status') ? 'vehicle.status_updated' : 'vehicle.updated',
+      entityType: 'Vehicle',
+      entityId: vehicle._id,
+      entityRef: vehicle.registrationNumber,
+      before,
+      after: { status: vehicle.status, assignedDriver: vehicle.assignedDriver },
+      req
+    });
 
     res.status(200).json({
       success: true,
@@ -205,9 +235,9 @@ exports.assignDriver = async (req, res) => {
     const { driverId } = req.body;
 
     const vehicle = await Vehicle.findById(req.params.id);
-    const driver = await Driver.findById(driverId);
+    const driver = driverId ? await Driver.findById(driverId) : null;
 
-    if (!vehicle || !driver) {
+    if (!vehicle || (driverId && !driver)) {
       return res.status(404).json({
         success: false,
         message: 'Vehicle or driver not found'
@@ -215,21 +245,56 @@ exports.assignDriver = async (req, res) => {
     }
 
     // Check ownership
-    if (vehicle.owner.toString() !== req.user._id.toString() || 
-        driver.owner.toString() !== req.user._id.toString()) {
+    if (vehicle.owner.toString() !== req.user._id.toString() ||
+        (driver && driver.owner.toString() !== req.user._id.toString())) {
       return res.status(403).json({
         success: false,
         message: 'Access denied'
       });
     }
 
-    // Update vehicle
-    vehicle.assignedDriver = driverId;
+    const vehicleIssues = getVehicleComplianceIssues(vehicle).filter(issue => issue !== 'Vehicle is not available');
+    if (vehicleIssues.length) {
+      return res.status(400).json({
+        success: false,
+        message: `Vehicle is not compliant: ${vehicleIssues.join('; ')}`
+      });
+    }
+
+    if (driverId) {
+      await assertDriverAssignable(driverId, req.user._id);
+    }
+
+    const existingDriverId = vehicle.assignedDriver;
+    if (existingDriverId && existingDriverId.toString() !== driverId?.toString()) {
+      await Driver.findByIdAndUpdate(existingDriverId, {
+        $unset: { assignedVehicle: 1 },
+        'availability.isAvailable': true
+      });
+    }
+
+    vehicle.assignedDriver = driverId || undefined;
     await vehicle.save();
 
-    // Update driver
-    driver.assignedVehicle = req.params.id;
-    await driver.save();
+    if (driver) {
+      driver.assignedVehicle = req.params.id;
+      driver.availability = {
+        ...driver.availability,
+        isAvailable: false
+      };
+      await driver.save();
+    }
+
+    await recordAudit({
+      actor: req.user,
+      action: driverId ? 'vehicle.driver_assigned' : 'vehicle.driver_unassigned',
+      entityType: 'Vehicle',
+      entityId: vehicle._id,
+      entityRef: vehicle.registrationNumber,
+      before: { assignedDriver: existingDriverId },
+      after: { assignedDriver: driverId || null },
+      req
+    });
 
     res.status(200).json({
       success: true,
@@ -239,7 +304,7 @@ exports.assignDriver = async (req, res) => {
     console.error('Assign driver error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to assign driver'
+      message: error.message || 'Failed to assign driver'
     });
   }
 };

@@ -58,6 +58,9 @@ router.route('/')
 router.route('/available-for-rental')
   .get(getAvailableForRental);
 
+router.route('/availability')
+  .get(getAvailableForRental);
+
 router.route('/types')
   .get(protect, types);
 
@@ -69,7 +72,11 @@ router.route('/:id')
   .put(protect, updateVehicle)
   .delete(protect, deleteVehicle);
 
+router.route('/:id/status')
+  .put(protect, updateVehicle);
+
 router.route('/:id/assign-driver')
+  .post(protect, assignDriver)
   .put(protect, assignDriver);
 
 router.route('/:id/rental-settings')

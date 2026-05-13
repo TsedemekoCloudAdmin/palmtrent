@@ -5,6 +5,8 @@
 const User = require('../models/User');
 const Vehicle = require('../models/Vehicle');
 const Booking = require('../models/Booking');
+const { assertBookingReadyForMatching, getVehicleComplianceIssues } = require('./flowControlService');
+const { recordAudit } = require('./auditService');
 
 /**
  * Find eligible transporters for a booking
@@ -20,15 +22,19 @@ async function findEligibleTransporters(booking) {
 
     // Build base query for transporters
     const transporterQuery = {
-      role: 'transporter',
-      'verification.isVerified': true,
-      'verification.status': 'approved',
-      isActive: true
+      userType: 'transporter',
+      status: 'active',
+      isActive: { $ne: false },
+      $or: [
+        { isVerified: true },
+        { 'verification.isVerified': true },
+        { 'verification.status': { $in: ['approved', 'verified'] } }
+      ]
     };
 
     // Find all verified transporters
     const transporters = await User.find(transporterQuery)
-      .select('fullName phone email rating stats lastActive profile location')
+      .select('fullName phone email rating stats lastActive profile location userType')
       .lean();
 
     // Filter transporters with eligible vehicles
@@ -36,27 +42,44 @@ async function findEligibleTransporters(booking) {
 
     for (const transporter of transporters) {
       // Check if transporter has been active recently (within 7 days)
-      const lastActive = new Date(transporter.lastActive);
+      const lastActive = transporter.lastActive ? new Date(transporter.lastActive) : new Date();
       const daysSinceActive = (Date.now() - lastActive) / (1000 * 60 * 60 * 24);
       if (daysSinceActive > 7) {
         continue; // Skip inactive transporters
       }
 
       // Check rating threshold (minimum 4.0 stars, or 0 if no ratings yet)
-      const rating = transporter.rating || 0;
+      const rating = transporter.rating?.average || transporter.rating || 0;
       if (rating > 0 && rating < 4.0) {
         continue; // Skip low-rated transporters
       }
 
       // Find transporter's vehicles matching the required type
-      const vehicles = await Vehicle.find({
+      const vehicleQuery = {
         owner: transporter._id,
-        type: requiredVehicleType,
         status: 'available',
         'insurance.expiryDate': { $gte: new Date() } // Valid insurance
-      }).lean();
+      };
 
-      if (vehicles.length === 0) {
+      const vehicles = await Vehicle.find(vehicleQuery)
+        .populate('vehicleType', 'name code')
+        .lean();
+
+      const matchingVehicles = vehicles.filter(vehicle => {
+        if (getVehicleComplianceIssues(vehicle).length > 0) return false;
+        if (!requiredVehicleType) return true;
+        const vehicleType = vehicle.vehicleType;
+        const candidates = [
+          vehicleType?._id?.toString(),
+          vehicleType?.name,
+          vehicleType?.code,
+          vehicle.type
+        ].filter(Boolean).map(value => value.toString().toLowerCase().replace(/[_\-\s]/g, ''));
+        const required = requiredVehicleType.toString().toLowerCase().replace(/[_\-\s]/g, '');
+        return candidates.includes(required);
+      });
+
+      if (matchingVehicles.length === 0) {
         continue; // No eligible vehicles
       }
 
@@ -79,7 +102,7 @@ async function findEligibleTransporters(booking) {
       // Transporter is eligible
       eligibleTransporters.push({
         transporter,
-        vehicles,
+        vehicles: matchingVehicles,
         distance,
         acceptanceRate: transporter.stats?.acceptanceRate || 0,
         avgResponseTime: transporter.stats?.avgResponseTime || 0,
@@ -115,7 +138,7 @@ function calculateMatchScore(transporterData, booking) {
 
   // 2. Rating Score (25%) - Higher rating is better
   // Score: 0-100 based on 0-5 star rating
-  const rating = transporter.rating || 0;
+  const rating = transporter.rating?.average || transporter.rating || 0;
   const ratingScore = (rating / 5) * 100;
   const ratingWeighted = (ratingScore * 0.25);
 
@@ -187,9 +210,7 @@ async function findAndNotifyTransporters(bookingId, count = 10) {
     }
 
     // CRITICAL: Verify payment is confirmed before matching
-    if (booking.paymentStatus !== 'confirmed' && !booking.paymentConfirmedAt) {
-      throw new Error('Payment not confirmed. Cannot broadcast booking to transporters.');
-    }
+    await assertBookingReadyForMatching(booking);
 
     // Find eligible transporters
     const eligibleTransporters = await findEligibleTransporters(booking);
@@ -262,6 +283,18 @@ async function findAndNotifyTransporters(bookingId, count = 10) {
     booking.status = 'finding_transporter';
     await booking.save();
 
+    await recordAudit({
+      action: 'booking.broadcasted',
+      entityType: 'Booking',
+      entityId: booking._id,
+      entityRef: booking.bookingReference,
+      after: {
+        status: booking.status,
+        eligibleCount: eligibleTransporters.length,
+        notifiedCount: topTransporters.length
+      }
+    });
+
     return {
       success: true,
       message: `Notified top ${topTransporters.length} transporters`,
@@ -318,14 +351,14 @@ async function getAvailableJobsForTransporter(transporterId) {
   try {
     // Find transporter
     const transporter = await User.findById(transporterId);
-    if (!transporter || transporter.role !== 'transporter') {
+    if (!transporter || transporter.userType !== 'transporter') {
       throw new Error('Transporter not found');
     }
 
     // Find bookings in 'finding_transporter' status
     const availableBookings = await Booking.find({
       status: 'finding_transporter',
-      paymentStatus: 'confirmed'
+      paymentStatus: { $in: ['confirmed', 'escrowed'] }
     })
     .populate('shipper', 'fullName phone rating companyName')
     .sort({ createdAt: -1 })
@@ -339,11 +372,23 @@ async function getAvailableJobsForTransporter(transporterId) {
       const requiredVehicleType = booking.vehicleType || booking.vehicles?.[0]?.vehicleType;
       const vehicles = await Vehicle.find({
         owner: transporterId,
-        type: requiredVehicleType,
         status: 'available'
-      }).lean();
+      }).populate('vehicleType', 'name code').lean();
 
-      if (vehicles.length === 0) {
+      const matchingVehicles = vehicles.filter(vehicle => {
+        if (!requiredVehicleType) return true;
+        const vehicleType = vehicle.vehicleType;
+        const candidates = [
+          vehicleType?._id?.toString(),
+          vehicleType?.name,
+          vehicleType?.code,
+          vehicle.type
+        ].filter(Boolean).map(value => value.toString().toLowerCase().replace(/[_\-\s]/g, ''));
+        const required = requiredVehicleType.toString().toLowerCase().replace(/[_\-\s]/g, '');
+        return candidates.includes(required);
+      });
+
+      if (matchingVehicles.length === 0) {
         continue; // Skip if no matching vehicles
       }
 
@@ -357,7 +402,7 @@ async function getAvailableJobsForTransporter(transporterId) {
 
       const transporterData = {
         transporter: transporter.toObject(),
-        vehicles,
+        vehicles: matchingVehicles,
         distance,
         acceptanceRate: transporter.stats?.acceptanceRate || 0,
         avgResponseTime: transporter.stats?.avgResponseTime || 0

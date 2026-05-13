@@ -24,12 +24,23 @@ const AcceptJobConfirmationScreen = ({ navigation, route }) => {
   const [loading, setLoading] = useState(!job && jobId);
   const [accepting, setAccepting] = useState(false);
   const [jobData, setJobData] = useState(job || null);
+  const [vehicles, setVehicles] = useState([]);
+  const [selectedVehicleId, setSelectedVehicleId] = useState('');
+  const [pairing, setPairing] = useState(null);
+  const [linkedRental, setLinkedRental] = useState(null);
+  const [pairingLoading, setPairingLoading] = useState(false);
 
   useEffect(() => {
     if (!job && jobId) {
       fetchJobDetails();
     }
   }, [job, jobId]);
+
+  useEffect(() => {
+    if (jobData) {
+      loadAcceptanceSupport();
+    }
+  }, [jobData?._id, jobData?.id]);
 
   const fetchJobDetails = async () => {
     try {
@@ -49,17 +60,120 @@ const AcceptJobConfirmationScreen = ({ navigation, route }) => {
   };
 
   const allChecked = Object.values(checklist).every(v => v);
+  const currentJobId = jobData?._id || jobData?.id || jobId;
+  const getItemId = (item) => item?._id || item?.id;
+  const rentalBlocksAcceptance = linkedRental && !['confirmed', 'active'].includes(linkedRental.status);
+
+  const isTractorCandidate = (vehicle) => {
+    const text = [
+      vehicle?.vehicleType?.name,
+      vehicle?.vehicleType,
+      vehicle?.category,
+      vehicle?.description,
+      vehicle?.hasTrailer === false ? 'tractor' : '',
+      vehicle?.trailerOwned === false ? 'tractor' : ''
+    ].filter(Boolean).join(' ').toLowerCase();
+    return /tractor|horse|prime mover|truck tractor/.test(text);
+  };
+
+  const loadAcceptanceSupport = async () => {
+    try {
+      const [vehicleResponse, rentalResponse] = await Promise.all([
+        apiService.getMyVehicles(),
+        apiService.getMyRentals()
+      ]);
+      const vehicleList = vehicleResponse.data || vehicleResponse.vehicles || [];
+      setVehicles(vehicleList);
+
+      const linked = (rentalResponse.data || []).find(rental => {
+        const bookingId = rental.linkedShipment?.booking?._id || rental.linkedShipment?.booking;
+        return bookingId && String(bookingId) === String(currentJobId) && !['cancelled', 'completed'].includes(rental.status);
+      });
+      setLinkedRental(linked || null);
+
+      const initialVehicle = vehicleList.find(isTractorCandidate) || vehicleList[0];
+      if (initialVehicle) {
+        const id = getItemId(initialVehicle);
+        setSelectedVehicleId(id);
+        await loadTrailerOptions(id);
+      }
+    } catch (error) {
+      console.warn('Acceptance support load failed:', error.message);
+    }
+  };
+
+  const loadTrailerOptions = async (vehicleId) => {
+    if (!vehicleId || !currentJobId) return;
+    try {
+      setPairingLoading(true);
+      const response = await apiService.getTrailerPairingOptions(currentJobId, vehicleId);
+      setPairing(response.data || null);
+    } catch (error) {
+      setPairing(null);
+    } finally {
+      setPairingLoading(false);
+    }
+  };
+
+  const selectVehicle = async (vehicleId) => {
+    setSelectedVehicleId(vehicleId);
+    await loadTrailerOptions(vehicleId);
+  };
+
+  const requestTrailer = async (trailerId) => {
+    try {
+      setPairingLoading(true);
+      const response = await apiService.requestTrailerPairing(currentJobId, selectedVehicleId, trailerId);
+      setLinkedRental(response.data);
+      Alert.alert('Rental Requested', 'The trailer owner can approve this request. Once approved, pay the rental before accepting the job.');
+    } catch (error) {
+      Alert.alert('Trailer Rental', error.message || 'Could not request this trailer');
+    } finally {
+      setPairingLoading(false);
+    }
+  };
+
+  const payLinkedRental = async () => {
+    try {
+      const response = await apiService.initiateRentalPayment(linkedRental._id);
+      setLinkedRental(response.data?.rental || linkedRental);
+      Alert.alert(
+        'Payment Started',
+        response.data?.redirectUrl
+          ? `OpenAPI Africa payment link created:\n${response.data.redirectUrl}`
+          : 'Payment has been initiated. Check status after completing payment.'
+      );
+    } catch (error) {
+      Alert.alert('Payment Error', error.message || 'Could not start rental payment');
+    }
+  };
+
+  const checkLinkedRentalPayment = async () => {
+    try {
+      const response = await apiService.checkRentalPaymentStatus(linkedRental._id);
+      await loadAcceptanceSupport();
+    } catch (error) {
+      Alert.alert('Payment Status', error.message || 'Could not check payment status');
+    }
+  };
 
   const handleAcceptJob = async () => {
     if (!allChecked) {
       Alert.alert('Complete Checklist', 'Please confirm all checklist items before accepting the job.');
       return;
     }
+    if (rentalBlocksAcceptance) {
+      Alert.alert('Trailer Rental Required', 'Complete approval and payment for the linked trailer rental before accepting this job.');
+      return;
+    }
 
     setAccepting(true);
     try {
       const id = jobData?._id || jobData?.id || jobId;
-      const response = await apiService.post(`/transporter/jobs/${id}/accept`);
+      const response = await apiService.post(`/transporter/jobs/${id}/accept`, {
+        vehicleAssignments: selectedVehicleId ? [{ vehicleId: selectedVehicleId }] : [],
+        linkedRentalIds: linkedRental ? [linkedRental._id] : []
+      });
 
       if (response.success) {
         navigation.navigate('JobAccepted', {
@@ -224,6 +338,74 @@ const AcceptJobConfirmationScreen = ({ navigation, route }) => {
         {/* Pre-Acceptance Checklist */}
         <View style={styles.section}>
           <View style={styles.card}>
+            <Text style={styles.cardTitle}>Vehicle And Trailer Pairing</Text>
+            <Text style={styles.cardSubtitle}>
+              Select the tractor or truck you will use for this load
+            </Text>
+
+            <View style={styles.vehicleList}>
+              {vehicles.map(vehicle => {
+                const id = getItemId(vehicle);
+                const selected = id === selectedVehicleId;
+                return (
+                  <TouchableOpacity
+                    key={id}
+                    style={[styles.vehicleOption, selected && styles.vehicleOptionSelected]}
+                    onPress={() => selectVehicle(id)}
+                  >
+                    <MaterialIcons name={isTractorCandidate(vehicle) ? 'rv-hookup' : 'local-shipping'} size={20} color={selected ? '#0C2D48' : '#6b7280'} />
+                    <View style={styles.vehicleOptionText}>
+                      <Text style={styles.vehicleTitle}>{vehicle.registrationNumber || vehicle.plateNumber || 'Vehicle'}</Text>
+                      <Text style={styles.vehicleMeta}>{vehicle.vehicleType?.name || vehicle.category || 'Transport asset'}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+              {!vehicles.length && (
+                <Text style={styles.noVehicleText}>Add a verified tractor or truck in Fleet before accepting jobs.</Text>
+              )}
+            </View>
+
+            {pairingLoading && <ActivityIndicator size="small" color="#0C2D48" style={styles.inlineLoader} />}
+
+            {pairing?.trailerRequired && pairing?.tractorOnly && !linkedRental && (
+              <View style={styles.trailerOptions}>
+                <Text style={styles.trailerNotice}>This tractor-only setup needs a matching rental trailer.</Text>
+                {(pairing.options || []).map(option => (
+                  <View key={getItemId(option.trailer)} style={styles.trailerOption}>
+                    <View>
+                      <Text style={styles.trailerTitle}>{option.trailer.assetName || option.trailer.registrationNumber}</Text>
+                      <Text style={styles.vehicleMeta}>
+                        ${option.estimatedRentalCost || 0}/day • Capacity {option.compatibility?.capacity || 0}kg
+                      </Text>
+                    </View>
+                    <TouchableOpacity style={styles.smallPrimaryButton} onPress={() => requestTrailer(getItemId(option.trailer))}>
+                      <Text style={styles.smallPrimaryText}>Request</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+                {!pairing.options?.length && <Text style={styles.noVehicleText}>No compatible rental trailers are available for this route yet.</Text>}
+              </View>
+            )}
+
+            {linkedRental && (
+              <View style={styles.linkedRentalBox}>
+                <View>
+                  <Text style={styles.trailerTitle}>Linked Trailer Rental</Text>
+                  <Text style={styles.vehicleMeta}>{linkedRental.rentalReference} • {linkedRental.status}</Text>
+                </View>
+                <View style={styles.linkedRentalActions}>
+                  {linkedRental.status === 'approved' && <ActionPill label="Pay" onPress={payLinkedRental} />}
+                  {linkedRental.status === 'payment_pending' && <ActionPill label="Check" onPress={checkLinkedRentalPayment} />}
+                  {['confirmed', 'active'].includes(linkedRental.status) && <MaterialIcons name="check-circle" size={24} color="#16a34a" />}
+                </View>
+              </View>
+            )}
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <View style={styles.card}>
             <Text style={styles.cardTitle}>Pre-Acceptance Checklist</Text>
             <Text style={styles.cardSubtitle}>
               Confirm each item before accepting
@@ -272,10 +454,10 @@ const AcceptJobConfirmationScreen = ({ navigation, route }) => {
           <TouchableOpacity
             style={[
               styles.confirmButton,
-              (!allChecked || accepting) && styles.confirmButtonDisabled
+              (!allChecked || accepting || rentalBlocksAcceptance) && styles.confirmButtonDisabled
             ]}
             onPress={handleAcceptJob}
-            disabled={!allChecked || accepting}
+            disabled={!allChecked || accepting || rentalBlocksAcceptance}
           >
             {accepting ? (
               <View style={styles.buttonContent}>
@@ -293,6 +475,11 @@ const AcceptJobConfirmationScreen = ({ navigation, route }) => {
           {!allChecked && (
             <Text style={styles.checklistHint}>
               Complete all checklist items to accept
+            </Text>
+          )}
+          {rentalBlocksAcceptance && (
+            <Text style={styles.checklistHint}>
+              Complete the linked trailer rental before accepting this job
             </Text>
           )}
         </View>
@@ -330,6 +517,12 @@ const DetailRow = ({ icon, label, value }) => (
     </View>
     <Text style={styles.detailValue}>{value}</Text>
   </View>
+);
+
+const ActionPill = ({ label, onPress }) => (
+  <TouchableOpacity style={styles.smallPrimaryButton} onPress={onPress}>
+    <Text style={styles.smallPrimaryText}>{label}</Text>
+  </TouchableOpacity>
 );
 
 const styles = StyleSheet.create({
@@ -486,6 +679,99 @@ const styles = StyleSheet.create({
   },
   checklist: {
     gap: 12,
+  },
+  vehicleList: {
+    gap: 10,
+    marginTop: 14,
+  },
+  vehicleOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    backgroundColor: '#f8fafc',
+  },
+  vehicleOptionSelected: {
+    borderColor: '#0C2D48',
+    backgroundColor: '#eef6fb',
+  },
+  vehicleOptionText: {
+    flex: 1,
+  },
+  vehicleTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1f2937',
+  },
+  vehicleMeta: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 2,
+  },
+  noVehicleText: {
+    fontSize: 13,
+    color: '#6b7280',
+    lineHeight: 19,
+  },
+  inlineLoader: {
+    marginTop: 12,
+  },
+  trailerOptions: {
+    gap: 10,
+    marginTop: 14,
+  },
+  trailerNotice: {
+    fontSize: 13,
+    color: '#92400e',
+    backgroundColor: '#fef3c7',
+    borderRadius: 8,
+    padding: 10,
+  },
+  trailerOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  trailerTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1f2937',
+  },
+  linkedRentalBox: {
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    backgroundColor: '#f0fdf4',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    alignItems: 'center',
+  },
+  linkedRentalActions: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  smallPrimaryButton: {
+    backgroundColor: '#0C2D48',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  smallPrimaryText: {
+    color: 'white',
+    fontWeight: '700',
+    fontSize: 12,
   },
   checklistItem: {
     flexDirection: 'row',

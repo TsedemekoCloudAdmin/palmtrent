@@ -29,6 +29,8 @@ const AdminDashboard = () => {
         return <JobsView />;
       case 'payments':
         return <PaymentsView />;
+      case 'rentals':
+        return <RentalsView />;
       case 'disputes':
         return <DisputesView />;
       case 'reviews':
@@ -89,6 +91,13 @@ const AdminDashboard = () => {
             active={activeTab === 'payments'}
             sidebarOpen={sidebarOpen}
             onClick={() => handleNavClick('payments')}
+          />
+          <NavItem
+            icon={<CreditCard />}
+            label="Rentals"
+            active={activeTab === 'rentals'}
+            sidebarOpen={sidebarOpen}
+            onClick={() => handleNavClick('rentals')}
           />
           <NavItem
             icon={<AlertCircle />}
@@ -158,14 +167,16 @@ const DashboardView = ({ timeRange, setTimeRange }) => {
             growth: {
               revenue: data.revenue?.growth || 0,
               bookings: data.bookings?.growth || 0,
-              users: 8,
-              onTime: 2
+              users: data.users?.growth || 0,
+              onTime: data.operations?.onTimeGrowth || 0
             }
           });
         }
 
-        // Fetch active bookings
-        const bookingsRes = await adminAPI.getBookings({ status: 'in_transit,picked_up,accepted', limit: 5 });
+        const [bookingsRes, activityRes] = await Promise.all([
+          adminAPI.getBookings({ status: 'in_transit,picked_up,accepted', limit: 5 }),
+          adminAPI.getAuditLogs({ limit: 5 })
+        ]);
         if (bookingsRes.data) {
           setActiveJobs(bookingsRes.data.map(b => ({
             id: b.bookingId || b._id,
@@ -177,18 +188,17 @@ const DashboardView = ({ timeRange, setTimeRange }) => {
             eta: b.estimatedDelivery ? new Date(b.estimatedDelivery).toLocaleTimeString() : 'TBD'
           })));
         }
+        setRecentActivity((activityRes.data || []).map(log => ({
+          time: log.createdAt ? new Date(log.createdAt).toLocaleString() : '',
+          event: log.action,
+          user: log.actor?.fullName || log.actor?.email || 'System',
+          type: log.entityType || 'audit'
+        })));
 
       } catch (error) {
         console.error('Error fetching admin dashboard:', error);
-        // Set mock data on error
-        setStats({
-          today: { revenue: 15240, bookings: 38, activeJobs: 12, newUsers: 23, disputes: 2 },
-          growth: { revenue: 12, bookings: 15, users: 8, onTime: 2 }
-        });
-        setActiveJobs([
-          { id: 'PT-2025-001234', shipper: 'John Moyo', driver: 'Trust Ncube', route: 'Harare → Bulawayo', status: 'in_transit', progress: 48, eta: '5:30 PM' },
-          { id: 'PT-2025-001235', shipper: 'ABC Manufacturing', driver: 'Mike Chikwanha', route: 'Mutare → Harare', status: 'loading', progress: 5, eta: '8:00 PM' }
-        ]);
+        setActiveJobs([]);
+        setRecentActivity([]);
       } finally {
         setLoading(false);
       }
@@ -197,13 +207,7 @@ const DashboardView = ({ timeRange, setTimeRange }) => {
     fetchDashboardData();
   }, [timeRange]);
 
-  const recentActivityData = recentActivity.length > 0 ? recentActivity : [
-    { time: '2 mins ago', event: 'New booking created', user: 'John Moyo', type: 'booking' },
-    { time: '5 mins ago', event: 'Payment confirmed', user: 'PT-2025-001237', type: 'payment' },
-    { time: '8 mins ago', event: 'Delivery completed', user: 'PT-2025-001230', type: 'delivery' },
-    { time: '12 mins ago', event: 'New driver registered', user: 'Peter Ndlovu', type: 'user' },
-    { time: '15 mins ago', event: 'Dispute raised', user: 'PT-2025-001228', type: 'dispute' }
-  ];
+  const recentActivityData = recentActivity;
 
   return (
     <>
@@ -237,24 +241,6 @@ const DashboardView = ({ timeRange, setTimeRange }) => {
           <StatCard title="New Users" value={stats.today.newUsers} change={stats.growth.users} icon={<Users className="icon" />} color="success" />
           <StatCard title="Disputes" value={stats.today.disputes} icon={<AlertCircle className="icon" />} color="error" alert />
         </div>
-
-        <div className="charts-grid">
-          <div className="chart-card">
-            <h3 className="chart-title">Revenue Overview</h3>
-            <div className="chart-placeholder">
-              <TrendingUp className="icon" />
-              <p>Chart visualization would appear here</p>
-            </div>
-          </div>
-          <div className="chart-card">
-            <h3 className="chart-title">Bookings Trend</h3>
-            <div className="chart-placeholder">
-              <Package className="icon" />
-              <p>Chart visualization would appear here</p>
-            </div>
-          </div>
-        </div>
-
         <div className="content-grid">
           <div className="jobs-section">
             <div className="section-header">
@@ -276,12 +262,6 @@ const DashboardView = ({ timeRange, setTimeRange }) => {
               ))}
             </div>
           </div>
-        </div>
-
-        <div className="metrics-grid">
-          <MetricCard title="On-Time Delivery Rate" value="97%" target="95%" status="good" />
-          <MetricCard title="Average Rating" value="4.8" target="4.5" status="good" />
-          <MetricCard title="Dispute Rate" value="1.8%" target="<3%" status="good" />
         </div>
       </div>
     </>
@@ -331,13 +311,7 @@ const UsersView = () => {
       }
     } catch (error) {
       console.error('Failed to load users:', error);
-      // Fallback to mock data
-      const mockUsers = [
-        { id: 1, fullName: 'John Moyo', email: 'john@example.com', phone: '+263771234567', userType: 'shipper', status: 'active', verified: true, rating: 4.8, totalBookings: 45, joinDate: '2024-06-15', lastActive: '2025-01-10' },
-        { id: 2, fullName: 'Trust Ncube', email: 'trust@example.com', phone: '+263772345678', userType: 'transporter', status: 'active', verified: true, rating: 4.9, totalBookings: 120, joinDate: '2024-03-20', lastActive: '2025-01-10' },
-        { id: 3, fullName: 'Sarah Dube', email: 'sarah@example.com', phone: '+263773456789', userType: 'shipper', status: 'active', verified: true, rating: 4.5, totalBookings: 23, joinDate: '2024-08-10', lastActive: '2025-01-09' },
-      ];
-      setUsers(mockUsers);
+      setUsers([]);
     } finally {
       setLoading(false);
     }
@@ -621,13 +595,29 @@ const UsersView = () => {
 
 // ============ Jobs View ============
 const JobsView = () => {
-  const [jobs, setJobs] = useState([
-    { id: 'PT-2025-001234', shipper: 'John Moyo', transporter: 'Trust Ncube', route: 'Harare → Bulawayo', status: 'in_transit', amount: 450, createdAt: '2025-01-10' },
-    { id: 'PT-2025-001235', shipper: 'ABC Manufacturing', transporter: 'Mike Chikwanha', route: 'Mutare → Harare', status: 'loading', amount: 320, createdAt: '2025-01-10' },
-    { id: 'PT-2025-001236', shipper: 'Sarah Dube', transporter: 'James Moyo', route: 'Harare → Gweru', status: 'awaiting_pickup', amount: 280, createdAt: '2025-01-09' },
-    { id: 'PT-2025-001230', shipper: 'Grace Mutasa', transporter: 'Peter Ndlovu', route: 'Bulawayo → Victoria Falls', status: 'completed', amount: 680, createdAt: '2025-01-08' },
-  ]);
+  const [jobs, setJobs] = useState([]);
   const [filterStatus, setFilterStatus] = useState('all');
+
+  useEffect(() => {
+    const loadJobs = async () => {
+      try {
+        const response = await adminAPI.getBookings(filterStatus === 'all' ? { limit: 50 } : { status: filterStatus, limit: 50 });
+        setJobs((response.data || []).map(booking => ({
+          id: booking.bookingId || booking.bookingReference || booking._id,
+          shipper: booking.shipper?.fullName || booking.shipper?.name || 'N/A',
+          transporter: booking.transporter?.fullName || booking.transporter?.name || 'Pending',
+          route: `${booking.pickup?.city || booking.route?.pickup?.city || 'N/A'} - ${booking.delivery?.city || booking.route?.delivery?.city || 'N/A'}`,
+          status: booking.status,
+          amount: booking.pricing?.total || booking.pricing?.totals?.total || booking.totalAmount || 0,
+          createdAt: booking.createdAt
+        })));
+      } catch (error) {
+        console.error('Failed to load jobs:', error);
+        setJobs([]);
+      }
+    };
+    loadJobs();
+  }, [filterStatus]);
 
   const filteredJobs = filterStatus === 'all' ? jobs : jobs.filter(j => j.status === filterStatus);
 
@@ -705,18 +695,146 @@ const JobsView = () => {
   );
 };
 
+// ============ Rentals View ============
+const RentalsView = () => {
+  const [rentals, setRentals] = useState([]);
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchRentals = async () => {
+      try {
+        setLoading(true);
+        const response = await adminAPI.getRentals(filterStatus === 'all' ? {} : { status: filterStatus });
+        setRentals(response.data || []);
+      } catch (error) {
+        console.error('Error fetching rentals:', error);
+        setRentals([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRentals();
+  }, [filterStatus]);
+
+  const totalValue = rentals.reduce((sum, rental) => sum + Number(rental.pricing?.total || 0), 0);
+  const pendingCount = rentals.filter(rental => ['pending', 'approved', 'payment_pending'].includes(rental.status)).length;
+  const activeCount = rentals.filter(rental => ['confirmed', 'active'].includes(rental.status)).length;
+  const settledCount = rentals.filter(rental => rental.settlement?.status === 'settled').length;
+  const getStatusBadge = (status) => {
+    const normalized = status || 'pending';
+    return <span className={`status-badge status-${normalized.replace(/_/g, '-')}`}>{normalized.replace(/_/g, ' ')}</span>;
+  };
+
+  return (
+    <>
+      <div className="admin-topbar">
+        <div className="topbar-content">
+          <div className="topbar-left">
+            <h1 className="page-title">Fleet Rentals</h1>
+            <p className="page-subtitle">Monitor rental approvals, payments, linked jobs, and settlement</p>
+          </div>
+          <div className="topbar-right">
+            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="filter-select">
+              <option value="all">All Status</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="payment_pending">Payment Pending</option>
+              <option value="confirmed">Confirmed</option>
+              <option value="active">Active</option>
+              <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="admin-content">
+        <div className="stats-grid stats-grid-4">
+          <StatCard title="Rental Value" value={`$${totalValue.toLocaleString()}`} icon={<DollarSign className="icon" />} color="success" />
+          <StatCard title="Pending Ops" value={pendingCount} icon={<Clock className="icon" />} color="accent" />
+          <StatCard title="Active/Ready" value={activeCount} icon={<Truck className="icon" />} color="primary" />
+          <StatCard title="Settled" value={settledCount} icon={<CheckCircle className="icon" />} color="secondary" />
+        </div>
+
+        <div className="data-table-container">
+          {loading ? (
+            <div className="loading-state">Loading rentals...</div>
+          ) : (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Rental</th>
+                  <th>Asset</th>
+                  <th>Owner</th>
+                  <th>Renter</th>
+                  <th>Linked Job</th>
+                  <th>Payment</th>
+                  <th>Settlement</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rentals.map((rental) => (
+                  <tr key={rental._id}>
+                    <td>
+                      <span className="job-id">{rental.rentalReference}</span>
+                      <div>{getStatusBadge(rental.status)}</div>
+                    </td>
+                    <td>{rental.trailer?.assetName || rental.trailer?.registrationNumber || rental.vehicle?.registrationNumber || rental.itemType}</td>
+                    <td>{rental.owner?.fullName || 'Owner'}</td>
+                    <td>{rental.renter?.fullName || 'Renter'}</td>
+                    <td>{rental.linkedShipment?.booking?.bookingReference || '-'}</td>
+                    <td>{rental.payment?.rentalPayment?.status || 'pending'}</td>
+                    <td>{rental.settlement?.status || 'pending'}</td>
+                    <td className="amount-cell">${rental.pricing?.total || 0}</td>
+                  </tr>
+                ))}
+                {!rentals.length && (
+                  <tr>
+                    <td colSpan="8">No rentals found.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </>
+  );
+};
+
 // ============ Payments View ============
 const PaymentsView = () => {
-  const [payments, setPayments] = useState([
-    { id: 'PAY-001', bookingRef: 'PT-2025-001234', payer: 'John Moyo', amount: 450, method: 'ecocash', status: 'completed', date: '2025-01-10T10:30:00' },
-    { id: 'PAY-002', bookingRef: 'PT-2025-001235', payer: 'ABC Manufacturing', amount: 320, method: 'bank_transfer', status: 'pending', date: '2025-01-10T09:15:00' },
-    { id: 'PAY-003', bookingRef: 'PT-2025-001230', payer: 'Grace Mutasa', amount: 680, method: 'innbucks', status: 'completed', date: '2025-01-08T14:20:00' },
-    { id: 'PAY-004', bookingRef: 'PT-2025-001228', payer: 'Trust Ncube', amount: 280, method: 'ecocash', status: 'failed', date: '2025-01-07T16:45:00' },
-    { id: 'PAY-005', bookingRef: 'PT-2025-001225', payer: 'Mike Chikwanha', amount: 520, method: 'card', status: 'refunded', date: '2025-01-06T11:00:00' },
-  ]);
+  const [payments, setPayments] = useState([]);
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterMethod, setFilterMethod] = useState('all');
   const [dateRange, setDateRange] = useState('all');
+
+  useEffect(() => {
+    const loadPayments = async () => {
+      try {
+        const params = { limit: 50 };
+        if (filterStatus !== 'all') params.status = filterStatus;
+        if (filterMethod !== 'all') params.method = filterMethod;
+        const response = await adminAPI.getPayments(params);
+        setPayments((response.data || []).map(payment => ({
+          id: payment.paymentReference || payment._id,
+          bookingRef: payment.booking?.bookingReference || payment.booking?.bookingId || payment.rental?.rentalReference || 'N/A',
+          payer: payment.customer?.email || payment.user?.fullName || 'N/A',
+          amount: Number(payment.amount || 0),
+          method: payment.paymentMethod || payment.method || payment.gateway || 'N/A',
+          status: payment.status || 'pending',
+          date: payment.createdAt
+        })));
+      } catch (error) {
+        console.error('Failed to load payments:', error);
+        setPayments([]);
+      }
+    };
+    loadPayments();
+  }, [filterStatus, filterMethod]);
 
   const filteredPayments = payments.filter(p => {
     const matchesStatus = filterStatus === 'all' || p.status === filterStatus;
@@ -730,7 +848,7 @@ const PaymentsView = () => {
   const getPaymentMethodIcon = (method) => {
     switch (method) {
       case 'ecocash': return '📱';
-      case 'innbucks': return '💵';
+      case 'openapi_africa': return '💵';
       case 'bank_transfer': return '🏦';
       case 'card': return '💳';
       default: return '💰';
@@ -785,7 +903,7 @@ const PaymentsView = () => {
           <select value={filterMethod} onChange={(e) => setFilterMethod(e.target.value)} className="filter-select">
             <option value="all">All Methods</option>
             <option value="ecocash">EcoCash</option>
-            <option value="innbucks">InnBucks</option>
+            <option value="openapi_africa">OpenAPI Africa</option>
             <option value="bank_transfer">Bank Transfer</option>
             <option value="card">Card</option>
           </select>
@@ -842,14 +960,37 @@ const PaymentsView = () => {
 
 // ============ Disputes View ============
 const DisputesView = () => {
-  const [disputes, setDisputes] = useState([
-    { id: 'DSP-001', bookingRef: 'PT-2025-001228', complainant: 'Sarah Dube', complainantType: 'shipper', respondent: 'Mike Chikwanha', type: 'damaged_goods', status: 'open', priority: 'high', amount: 450, description: 'Cargo arrived with significant water damage', createdAt: '2025-01-09T14:30:00' },
-    { id: 'DSP-002', bookingRef: 'PT-2025-001220', complainant: 'Trust Ncube', complainantType: 'transporter', respondent: 'Grace Mutasa', type: 'non_payment', status: 'investigating', priority: 'medium', amount: 320, description: 'Payment not received after delivery confirmation', createdAt: '2025-01-08T09:15:00' },
-    { id: 'DSP-003', bookingRef: 'PT-2025-001215', complainant: 'ABC Manufacturing', complainantType: 'shipper', respondent: 'Peter Ndlovu', type: 'late_delivery', status: 'resolved', priority: 'low', amount: 0, description: 'Delivery was 6 hours late', resolution: 'Partial refund of $50 issued', createdAt: '2025-01-06T11:00:00', resolvedAt: '2025-01-07T16:30:00' },
-  ]);
+  const [disputes, setDisputes] = useState([]);
   const [filterStatus, setFilterStatus] = useState('all');
   const [selectedDispute, setSelectedDispute] = useState(null);
   const [showDisputeModal, setShowDisputeModal] = useState(false);
+
+  useEffect(() => {
+    const loadDisputes = async () => {
+      try {
+        const response = await adminAPI.getDisputes(filterStatus === 'all' ? {} : { status: filterStatus });
+        setDisputes((response.data || []).map(booking => ({
+          id: booking.dispute?._id || booking._id,
+          bookingId: booking._id,
+          bookingRef: booking.bookingReference || booking.bookingId || booking._id,
+          complainant: booking.dispute?.raisedBy?.fullName || booking.shipper?.fullName || booking.shipper?.name || 'N/A',
+          complainantType: booking.dispute?.raisedByRole || 'shipper',
+          respondent: booking.transporter?.fullName || booking.transporter?.name || 'N/A',
+          type: booking.dispute?.type || booking.dispute?.reason || 'dispute',
+          status: booking.dispute?.status || 'open',
+          priority: booking.dispute?.priority || 'medium',
+          amount: Number(booking.dispute?.claimAmount || booking.dispute?.refundAmount || 0),
+          description: booking.dispute?.description || booking.dispute?.notes || '',
+          resolution: booking.dispute?.resolution,
+          createdAt: booking.dispute?.createdAt || booking.updatedAt
+        })));
+      } catch (error) {
+        console.error('Failed to load disputes:', error);
+        setDisputes([]);
+      }
+    };
+    loadDisputes();
+  }, [filterStatus]);
 
   const filteredDisputes = filterStatus === 'all' ? disputes : disputes.filter(d => d.status === filterStatus);
 
@@ -1051,11 +1192,28 @@ const DisputesView = () => {
 
 // ============ Reviews View ============
 const ReviewsView = () => {
-  const [reviews] = useState([
-    { id: 1, reviewer: 'John Moyo', reviewee: 'Trust Ncube', rating: 5, comment: 'Excellent service, very professional!', bookingRef: 'PT-2025-001230', date: '2025-01-09' },
-    { id: 2, reviewer: 'ABC Manufacturing', reviewee: 'Mike Chikwanha', rating: 4, comment: 'Good delivery, slight delay but communicated well.', bookingRef: 'PT-2025-001225', date: '2025-01-08' },
-    { id: 3, reviewer: 'Trust Ncube', reviewee: 'Sarah Dube', rating: 5, comment: 'Great shipper, cargo was well packaged.', bookingRef: 'PT-2025-001222', date: '2025-01-07' },
-  ]);
+  const [reviews, setReviews] = useState([]);
+
+  useEffect(() => {
+    const loadReviews = async () => {
+      try {
+        const response = await adminAPI.getRatings({ limit: 50 });
+        setReviews((response.data || []).map(rating => ({
+          id: rating._id,
+          reviewer: rating.rater?.user?.fullName || rating.rater?.user?.email || 'N/A',
+          reviewee: rating.ratee?.user?.fullName || rating.ratee?.user?.email || 'N/A',
+          rating: rating.overallRating || 0,
+          comment: rating.review?.text || '',
+          bookingRef: rating.booking?.bookingReference || rating.booking?.bookingId || 'N/A',
+          date: rating.createdAt
+        })));
+      } catch (error) {
+        console.error('Failed to load reviews:', error);
+        setReviews([]);
+      }
+    };
+    loadReviews();
+  }, []);
 
   return (
     <>
@@ -1097,8 +1255,148 @@ const ReviewsView = () => {
   );
 };
 
+const INTEGRATION_FIELDS = {
+  paynow: [
+    { key: 'integrationId', label: 'Integration ID' },
+    { key: 'integrationKey', label: 'Integration Key', secret: true },
+    { key: 'resultUrl', label: 'Result URL' },
+    { key: 'returnUrl', label: 'Return URL' }
+  ],
+  openapiAfrica: [
+    { key: 'baseUrl', label: 'Base URL' },
+    { key: 'publicUniqueId', label: 'Public Unique ID' },
+    { key: 'returnUrl', label: 'Return URL' },
+    { key: 'currency', label: 'Currency' }
+  ],
+  mapbox: [
+    { key: 'accessToken', label: 'Access Token', secret: true }
+  ],
+  whatsapp: [
+    { key: 'phoneNumberId', label: 'Phone Number ID' },
+    { key: 'businessAccountId', label: 'Business Account ID' },
+    { key: 'accessToken', label: 'Access Token', secret: true },
+    { key: 'verifyToken', label: 'Verify Token', secret: true }
+  ],
+  firebase: [
+    { key: 'serviceAccountJson', label: 'Service Account JSON', secret: true, multiline: true }
+  ],
+  storage: [
+    { key: 'driver', label: 'Driver' },
+    { key: 'bucket', label: 'Bucket' },
+    { key: 'region', label: 'Region' },
+    { key: 'baseUrl', label: 'Base URL' },
+    { key: 'accessKeyId', label: 'Access Key ID', secret: true },
+    { key: 'secretAccessKey', label: 'Secret Access Key', secret: true }
+  ],
+  email: [
+    { key: 'host', label: 'SMTP Host' },
+    { key: 'port', label: 'SMTP Port' },
+    { key: 'user', label: 'SMTP User' },
+    { key: 'pass', label: 'SMTP Password', secret: true },
+    { key: 'from', label: 'From Address' }
+  ],
+  uploadScanner: [
+    { key: 'scanCommand', label: 'Scan Command' }
+  ]
+};
+
 // ============ Settings View ============
 const SettingsView = () => {
+  const [integrations, setIntegrations] = useState([]);
+  const [integrationForms, setIntegrationForms] = useState({});
+  const [loadingIntegrations, setLoadingIntegrations] = useState(true);
+  const [savingProvider, setSavingProvider] = useState(null);
+  const [testingProvider, setTestingProvider] = useState(null);
+  const [integrationMessage, setIntegrationMessage] = useState('');
+
+  useEffect(() => {
+    loadIntegrations();
+  }, []);
+
+  const loadIntegrations = async () => {
+    try {
+      setLoadingIntegrations(true);
+      const response = await adminAPI.getIntegrations();
+      const records = response.data || [];
+      setIntegrations(records);
+      setIntegrationForms(records.reduce((forms, integration) => {
+        forms[integration.provider] = {
+          enabled: integration.enabled,
+          settings: { ...(integration.settings || {}) }
+        };
+        return forms;
+      }, {}));
+    } catch (error) {
+      setIntegrationMessage(error.message || 'Unable to load integration settings');
+    } finally {
+      setLoadingIntegrations(false);
+    }
+  };
+
+  const updateIntegrationForm = (provider, field, value) => {
+    setIntegrationForms((current) => ({
+      ...current,
+      [provider]: {
+        ...current[provider],
+        settings: {
+          ...(current[provider]?.settings || {}),
+          [field]: value
+        }
+      }
+    }));
+  };
+
+  const toggleIntegration = (provider, enabled) => {
+    setIntegrationForms((current) => ({
+      ...current,
+      [provider]: {
+        ...current[provider],
+        enabled
+      }
+    }));
+  };
+
+  const saveIntegration = async (integration) => {
+    try {
+      setSavingProvider(integration.provider);
+      setIntegrationMessage('');
+      const form = integrationForms[integration.provider] || { settings: {}, enabled: false };
+      const payload = {
+        enabled: form.enabled,
+        settings: {}
+      };
+
+      (INTEGRATION_FIELDS[integration.provider] || []).forEach((field) => {
+        const value = form.settings?.[field.key];
+        if (field.secret && (!value || value === '********')) return;
+        payload.settings[field.key] = value;
+      });
+
+      await adminAPI.updateIntegration(integration.provider, payload);
+      setIntegrationMessage(`${integration.label} settings saved`);
+      await loadIntegrations();
+    } catch (error) {
+      setIntegrationMessage(error.message || 'Unable to save integration settings');
+    } finally {
+      setSavingProvider(null);
+    }
+  };
+
+  const testIntegration = async (integration) => {
+    try {
+      setTestingProvider(integration.provider);
+      setIntegrationMessage('');
+      const response = await adminAPI.testIntegration(integration.provider);
+      setIntegrationMessage(response.message || `${integration.label} configuration looks ready`);
+      await loadIntegrations();
+    } catch (error) {
+      setIntegrationMessage(error.message || `${integration.label} configuration needs attention`);
+      await loadIntegrations();
+    } finally {
+      setTestingProvider(null);
+    }
+  };
+
   return (
     <>
       <div className="admin-topbar">
@@ -1149,6 +1447,120 @@ const SettingsView = () => {
           </div>
 
           <button className="btn-primary">Save Changes</button>
+
+          <div className="settings-section">
+            <div className="settings-section-header">
+              <div>
+                <h3>Integration Keys</h3>
+                <p>Manage provider credentials used by the backend services.</p>
+              </div>
+              <button className="btn-secondary" onClick={loadIntegrations} disabled={loadingIntegrations}>
+                <RefreshCw className="icon" />
+                Refresh
+              </button>
+            </div>
+
+            {integrationMessage && (
+              <div className="integration-message">
+                <AlertCircle className="icon" />
+                <span>{integrationMessage}</span>
+              </div>
+            )}
+
+            {loadingIntegrations ? (
+              <div className="settings-empty">Loading integration settings...</div>
+            ) : (
+              <div className="integration-list">
+                {integrations.map((integration) => {
+                  const fields = INTEGRATION_FIELDS[integration.provider] || [];
+                  const form = integrationForms[integration.provider] || { settings: {}, enabled: false };
+                  const statusClass = `integration-status status-${integration.status}`;
+
+                  return (
+                    <div key={integration.provider} className="integration-card">
+                      <div className="integration-card-header">
+                        <div>
+                          <h4>{integration.label}</h4>
+                          <span className="integration-category">{integration.category}</span>
+                        </div>
+                        <div className="integration-header-actions">
+                          <span className={statusClass}>
+                            {integration.status?.replace('_', ' ') || 'not configured'}
+                          </span>
+                          <label className="switch-control">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(form.enabled)}
+                              onChange={(event) => toggleIntegration(integration.provider, event.target.checked)}
+                            />
+                            <span>Enabled</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="integration-fields">
+                        {fields.map((field) => {
+                          const value = form.settings?.[field.key] || '';
+                          const isConfiguredSecret = field.secret && value === '********';
+                          return (
+                            <div key={field.key} className="setting-item">
+                              <label>
+                                {field.label}
+                                {integration.requiredFields?.includes(field.key) && <span className="required-dot">Required</span>}
+                              </label>
+                              {field.multiline ? (
+                                <textarea
+                                  rows="4"
+                                  value={isConfiguredSecret ? '' : value}
+                                  placeholder={isConfiguredSecret ? 'Configured. Enter a new value to replace it.' : ''}
+                                  onChange={(event) => updateIntegrationForm(integration.provider, field.key, event.target.value)}
+                                />
+                              ) : (
+                                <input
+                                  type={field.secret ? 'password' : 'text'}
+                                  value={isConfiguredSecret ? '' : value}
+                                  placeholder={isConfiguredSecret ? 'Configured. Enter a new value to replace it.' : ''}
+                                  onChange={(event) => updateIntegrationForm(integration.provider, field.key, event.target.value)}
+                                />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="integration-footer">
+                        <div className="integration-test">
+                          {integration.lastTestStatus === 'passed' ? (
+                            <CheckCircle className="icon success" />
+                          ) : (
+                            <AlertCircle className="icon warning" />
+                          )}
+                          <span>{integration.lastTestMessage || 'No configuration check has been run yet.'}</span>
+                        </div>
+                        <div className="integration-actions">
+                          <button
+                            className="btn-secondary"
+                            onClick={() => testIntegration(integration)}
+                            disabled={testingProvider === integration.provider}
+                          >
+                            <Check className="icon" />
+                            {testingProvider === integration.provider ? 'Checking...' : 'Check'}
+                          </button>
+                          <button
+                            className="btn-primary"
+                            onClick={() => saveIntegration(integration)}
+                            disabled={savingProvider === integration.provider}
+                          >
+                            {savingProvider === integration.provider ? 'Saving...' : 'Save'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </>

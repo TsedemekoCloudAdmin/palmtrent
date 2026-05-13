@@ -2,7 +2,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://10.0.2.2:5000/api/v1';
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://10.0.2.2:5000/api/v1';
 
 class ApiService {
   constructor() {
@@ -10,7 +10,18 @@ class ApiService {
     this.timeout = 30000; // 30 seconds
   }
 
-  async request(endpoint, options = {}) {
+  async request(endpoint, options = {}, data) {
+    if (typeof options === 'string') {
+      options = { method: options };
+    }
+
+    if (data !== undefined && options.body === undefined) {
+      options = {
+        ...options,
+        body: JSON.stringify(data),
+      };
+    }
+
     // Check network connectivity
     const netInfo = await NetInfo.fetch();
     if (!netInfo.isConnected) {
@@ -179,22 +190,25 @@ class ApiService {
     return this.request(url);
   }
 
-  async post(endpoint, data) {
+  async post(endpoint, data, options = {}) {
     return this.request(endpoint, {
+      ...options,
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
-  async put(endpoint, data) {
+  async put(endpoint, data, options = {}) {
     return this.request(endpoint, {
+      ...options,
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }
 
-  async delete(endpoint) {
+  async delete(endpoint, options = {}) {
     return this.request(endpoint, {
+      ...options,
       method: 'DELETE',
     });
   }
@@ -482,7 +496,7 @@ class ApiService {
   }
 
   async confirmBooking(bookingId) {
-    return this.request(`/bookings/${bookingId}/confirm`, {
+    return this.request(`/bookings/${bookingId}/confirm-booking`, {
       method: 'POST',
     });
   }
@@ -574,7 +588,7 @@ class ApiService {
 
   // Available jobs for transporters
   async getAvailableJobs(page = 1, limit = 10, filters = {}) {
-    let url = `/jobs/available?page=${page}&limit=${limit}`;
+    let url = `/bookings/jobs/available?page=${page}&limit=${limit}`;
     
     const params = new URLSearchParams();
     if (filters.vehicleType) params.append('vehicleType', filters.vehicleType);
@@ -588,14 +602,15 @@ class ApiService {
     return this.request(url);
   }
 
-  async acceptJob(shipmentId) {
-    return this.request(`/jobs/${shipmentId}/accept`, {
+  async acceptJob(shipmentId, payload = {}) {
+    return this.request(`/bookings/jobs/${shipmentId}/accept`, {
       method: 'POST',
+      body: JSON.stringify(payload),
     });
   }
 
   async rejectJob(shipmentId, reason = '') {
-    return this.request(`/jobs/${shipmentId}/reject`, {
+    return this.request(`/bookings/jobs/${shipmentId}/decline`, {
       method: 'POST',
       body: JSON.stringify({ reason }),
     });
@@ -608,13 +623,13 @@ class ApiService {
 
   async markNotificationAsRead(notificationId) {
     return this.request(`/notifications/${notificationId}/read`, {
-      method: 'PUT',
+      method: 'POST',
     });
   }
 
   async markAllNotificationsAsRead() {
-    return this.request('/notifications/read-all', {
-      method: 'PUT',
+    return this.request('/notifications/mark-all-read', {
+      method: 'POST',
     });
   }
 
@@ -631,7 +646,7 @@ class ApiService {
       name: fileName,
     });
 
-    return this.uploadRequest('/upload', formData);
+    return this.uploadRequest('/uploads/documents', formData);
   }
 
   // Helper method for handling API errors in components
@@ -864,12 +879,14 @@ async recordCashCollection(bookingId, collectionData) {
 
 // ============ TRAILER ENDPOINTS ============
 
-async getMyTrailers() {
-  return this.request('/trailers/my-trailers');
+async getMyTrailers(params = '') {
+  const query = typeof params === 'string' ? params : new URLSearchParams(params).toString();
+  return this.request(`/trailers/my-fleet${query ? `?${query}` : ''}`);
 }
 
-async getAvailableTrailers() {
-  return this.request('/trailers/available');
+async getAvailableTrailers(params = '') {
+  const query = typeof params === 'string' ? params : new URLSearchParams(params).toString();
+  return this.request(`/trailers/available${query ? `?${query}` : ''}`);
 }
 
 async getTrailerById(trailerId) {
@@ -916,8 +933,9 @@ async getTrailerRentals(trailerId) {
 
 // ============ RENTAL ENDPOINTS ============
 
-async getAvailableRentals() {
-  return this.request('/rentals/available');
+async getAvailableRentals(params = '') {
+  const query = typeof params === 'string' ? params : new URLSearchParams(params).toString();
+  return this.request(`/rentals/available${query ? `?${query}` : ''}`);
 }
 
 async getRentalDetails(rentalId) {
@@ -946,6 +964,34 @@ async getRentalById(rentalId) {
 async approveRental(rentalId) {
   return this.request(`/rentals/${rentalId}/approve`, {
     method: 'POST',
+  });
+}
+
+async initiateRentalPayment(rentalId) {
+  return this.request(`/rentals/${rentalId}/pay`, {
+    method: 'POST',
+  });
+}
+
+async checkRentalPaymentStatus(rentalId) {
+  return this.request(`/rentals/${rentalId}/payment-status`);
+}
+
+async confirmRentalPayment(paymentReference) {
+  return this.request('/rentals/payment/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ paymentReference }),
+  });
+}
+
+async getTrailerPairingOptions(jobId, vehicleId) {
+  return this.request(`/transporter/jobs/${jobId}/trailer-options?vehicleId=${vehicleId}`);
+}
+
+async requestTrailerPairing(jobId, vehicleId, trailerId) {
+  return this.request(`/transporter/jobs/${jobId}/trailer-rental`, {
+    method: 'POST',
+    body: JSON.stringify({ vehicleId, trailerId }),
   });
 }
 

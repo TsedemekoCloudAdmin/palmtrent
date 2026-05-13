@@ -13,12 +13,7 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 const JobAcceptedScreen = ({ navigation, route }) => {
   const { job } = route.params || {};
 
-  const jobData = job || {
-    id: 'PT-2025-001234',
-    route: { from: 'Harare', to: 'Bulawayo' },
-    earnings: 400,
-    pickup: { date: 'Tomorrow', time: '6-12 PM' }
-  };
+  const jobData = job;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -51,17 +46,17 @@ const JobAcceptedScreen = ({ navigation, route }) => {
             />
             <NextStepItem 
               icon="⏰"
-              text="Pickup tomorrow 6-12 PM"
+              text={`Pickup ${jobData?.pickup?.date || jobData?.route?.pickup?.date || 'scheduled date'}`}
               action="Be on time for good rating"
             />
             <NextStepItem 
               icon="📍"
               text="Route navigation ready"
-              action="440 km to Bulawayo"
+              action={jobData?.route?.distance ? `${jobData.route.distance} km` : 'Open the job details for route information'}
             />
             <NextStepItem 
               icon="💰"
-              text="$400 guaranteed payment"
+              text={`$${jobData?.earnings || jobData?.pricing?.totals?.transporterTotal || 0} expected earnings`}
               action="Released 24 hrs after delivery"
             />
           </View>

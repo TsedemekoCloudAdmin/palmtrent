@@ -1,5 +1,13 @@
 const CrossBorderDestination = require('../models/CrossBorderDestination');
 const Booking = require('../models/Booking');
+const { recordAudit } = require('../services/auditService');
+const { assertCorporateCanBook, reserveCorporateCredit } = require('../services/flowControlService');
+
+function generateBookingReference() {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+  return `PT-XB-${timestamp}-${random}`;
+}
 
 // @desc    Get all available cross-border destinations
 // @route   GET /api/v1/cross-border/destinations
@@ -316,50 +324,124 @@ exports.createCrossBorderBooking = async (req, res) => {
     const platformFee = Math.round(subtotal * 0.12);
     const total = subtotal + platformFee;
 
-    // Create booking
-    const booking = await Booking.create({
+    const bookingData = {
+      bookingReference: generateBookingReference(),
+      user: req.user.id,
       shipper: req.user.id,
-      pickup: {
-        address: pickupLocation.address,
-        city: pickupLocation.city,
-        coordinates: pickupLocation.coordinates
+      corporateAccount: req.user.corporateAccount,
+      status: 'pending_payment',
+      paymentStatus: 'pending',
+      bookingType: 'single',
+      route: {
+        pickup: {
+          address: pickupLocation?.address || pickupLocation || '',
+          city: pickupLocation?.city,
+          date: scheduledDate ? new Date(scheduledDate) : new Date(),
+          coordinates: {
+            type: 'Point',
+            coordinates: pickupLocation?.coordinates?.coordinates || pickupLocation?.coordinates || [0, 0]
+          }
+        },
+        delivery: {
+          address: deliveryLocation?.address || deliveryLocation || '',
+          city: deliveryLocation?.city,
+          coordinates: {
+            type: 'Point',
+            coordinates: deliveryLocation?.coordinates?.coordinates || deliveryLocation?.coordinates || [0, 0]
+          }
+        },
+        distance: destination.distanceFromOrigin?.value || 0,
+        estimatedDuration: `${destination.transitInfo?.averageTransitDays || 2} days`
       },
-      delivery: {
-        address: deliveryLocation.address,
-        city: deliveryLocation.city,
-        country: destination.countryName,
-        countryCode: destination.countryCode,
-        coordinates: deliveryLocation.coordinates
+      cargoDetails: {
+        type: cargoDetails?.type || cargoDetails?.description || 'cross_border_cargo',
+        weight: Number(cargoDetails?.weight || 0),
+        value: Number(cargoDetails?.value || cargoDetails?.declaredValue || 0),
+        description: cargoDetails?.description || cargoDetails?.type || 'Cross-border cargo',
+        specialInstructions: notes || cargoDetails?.specialInstructions || ''
       },
-      cargo: cargoDetails,
       vehicleType,
-      scheduledPickupDate: scheduledDate,
-      notes,
-      isCrossBorder: true,
-      crossBorderDetails: {
+      pickupDate: scheduledDate ? new Date(scheduledDate) : new Date(),
+      origin: pickupLocation?.city || pickupLocation?.address || '',
+      destination: deliveryLocation?.city || destination.countryName,
+      totalAmount: total,
+      crossBorder: {
+        enabled: true,
         destinationCountry: destination.countryCode,
         destinationCountryName: destination.countryName,
         borderPost: borderPost || destination.borderPosts[0]?.name,
-        requiredDocuments: documents,
+        requiredDocuments: {
+          commercialInvoice: true,
+          packingList: true,
+          certificateOrigin: true,
+          cargoManifest: true
+        },
+        documents: Array.isArray(documents) ? documents.map(document => ({
+          type: document.type || document.name || 'cross_border_document',
+          name: document.name || document.type || 'Cross-border document',
+          url: document.url,
+          status: document.url ? 'uploaded' : 'pending',
+          uploadedAt: document.url ? new Date() : undefined
+        })) : [],
         pricing: priceBreakdown,
         tradeAgreement: destination.tradeAgreement
       },
-      pricing: {
-        basePrice,
-        additionalCharges: [
-          { name: 'Cross-border surcharge', amount: pricing.crossBorderSurcharge },
-          { name: 'Yellow Card insurance', amount: pricing.yellowCardInsurance },
-          { name: 'Documentation handling', amount: pricing.documentationHandling }
-        ],
-        platformFee,
-        total
+      insurance: {
+        required: true,
+        premium: pricing.yellowCardInsurance,
+        coverage: Number(cargoDetails?.value || cargoDetails?.declaredValue || 0)
       },
-      status: 'pending'
-    });
+      pricing: {
+        breakdown: {
+          baseTransportFee: basePrice,
+          crossBorderFees: {
+            baseSurcharge: pricing.crossBorderSurcharge,
+            documentationFee: pricing.documentationHandling,
+            insurancePremium: pricing.yellowCardInsurance,
+            total: pricing.crossBorderSurcharge + pricing.documentationHandling + pricing.yellowCardInsurance
+          },
+          platformFee,
+          insurance: pricing.yellowCardInsurance
+        },
+        totals: {
+          subtotal,
+          total,
+          platformTotal: platformFee,
+          transporterTotal: subtotal,
+          insuranceTotal: pricing.yellowCardInsurance
+        },
+        currency: 'USD'
+      },
+      payment: {
+        method: req.body.paymentMethod || 'digital',
+        status: 'pending'
+      }
+    };
+
+    const corporateAccount = await assertCorporateCanBook(req.user, total);
+    if (corporateAccount && !bookingData.corporateAccount) {
+      bookingData.corporateAccount = corporateAccount._id;
+    }
+
+    const booking = await Booking.create(bookingData);
+
+    if (corporateAccount && booking.payment?.method === 'corporate') {
+      await reserveCorporateCredit(corporateAccount._id, total);
+    }
 
     // Update destination popularity
     destination.popularityScore += 1;
     await destination.save();
+
+    await recordAudit({
+      actor: req.user,
+      action: 'cross_border.booking_created',
+      entityType: 'Booking',
+      entityId: booking._id,
+      entityRef: booking.bookingReference,
+      after: { status: booking.status, countryCode: destination.countryCode, totalAmount: total },
+      req
+    });
 
     res.status(201).json({
       success: true,
@@ -385,7 +467,7 @@ exports.getMyCrossBorderBookings = async (req, res) => {
 
     let query = {
       shipper: req.user.id,
-      isCrossBorder: true
+      'crossBorder.enabled': true
     };
 
     if (status) {
@@ -409,6 +491,115 @@ exports.getMyCrossBorderBookings = async (req, res) => {
       message: 'Failed to fetch bookings',
       error: error.message
     });
+  }
+};
+
+exports.uploadBookingDocument = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const { type, name, url } = req.body;
+    const booking = await Booking.findById(bookingId);
+
+    if (!booking || !booking.crossBorder?.enabled) {
+      return res.status(404).json({ success: false, message: 'Cross-border booking not found' });
+    }
+
+    const canAccess = booking.shipper.toString() === req.user.id ||
+      booking.user.toString() === req.user.id ||
+      req.user.userType === 'admin';
+    if (!canAccess) {
+      return res.status(403).json({ success: false, message: 'Not authorized' });
+    }
+
+    booking.crossBorder.documents.push({
+      type,
+      name: name || type,
+      url,
+      status: url ? 'uploaded' : 'pending',
+      uploadedAt: new Date()
+    });
+    await booking.save();
+
+    await recordAudit({
+      actor: req.user,
+      action: 'cross_border.document_uploaded',
+      entityType: 'Booking',
+      entityId: booking._id,
+      entityRef: booking.bookingReference,
+      after: { type, status: url ? 'uploaded' : 'pending' },
+      req
+    });
+
+    res.status(201).json({ success: true, message: 'Document added', data: booking.crossBorder.documents });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to add document', error: error.message });
+  }
+};
+
+exports.getBookingCompliance = async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.bookingId);
+    if (!booking || !booking.crossBorder?.enabled) {
+      return res.status(404).json({ success: false, message: 'Cross-border booking not found' });
+    }
+
+    const required = Object.entries(booking.crossBorder.requiredDocuments || {})
+      .filter(([, value]) => value === true)
+      .map(([key]) => key);
+    const documents = booking.crossBorder.documents || [];
+    const uploadedTypes = new Set(documents.filter(doc => ['uploaded', 'verified'].includes(doc.status)).map(doc => doc.type));
+    const missing = required.filter(type => !uploadedTypes.has(type));
+    const rejected = documents.filter(doc => doc.status === 'rejected');
+    const verifiedCount = documents.filter(doc => doc.status === 'verified').length;
+
+    res.json({
+      success: true,
+      data: {
+        ready: missing.length === 0 && rejected.length === 0,
+        required,
+        missing,
+        rejected,
+        verifiedCount,
+        documents
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to check compliance', error: error.message });
+  }
+};
+
+exports.reviewBookingDocument = async (req, res) => {
+  try {
+    if (req.user.userType !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Admin access required' });
+    }
+
+    const { bookingId, documentId } = req.params;
+    const { status, notes } = req.body;
+    const booking = await Booking.findById(bookingId);
+    if (!booking) return res.status(404).json({ success: false, message: 'Booking not found' });
+
+    const document = booking.crossBorder.documents.id(documentId);
+    if (!document) return res.status(404).json({ success: false, message: 'Document not found' });
+
+    document.status = status;
+    document.notes = notes;
+    if (status === 'verified') document.verifiedAt = new Date();
+    await booking.save();
+
+    await recordAudit({
+      actor: req.user,
+      action: 'cross_border.document_reviewed',
+      entityType: 'Booking',
+      entityId: booking._id,
+      entityRef: booking.bookingReference,
+      after: { documentId, status, notes },
+      req
+    });
+
+    res.json({ success: true, message: 'Document reviewed', data: document });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to review document', error: error.message });
   }
 };
 

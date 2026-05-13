@@ -8,6 +8,9 @@ const CargoType = require('../models/CargoType');
 const VehicleType = require('../models/VehicleType');
 const pricingService = require('../services/pricingService');
 const distanceService = require('../services/distanceService');
+const Shipment = require('../models/Shipment');
+const { assertTransporterEligible, isPaymentConfirmed, assertBookingTransition } = require('../services/flowControlService');
+const { recordAudit } = require('../services/auditService');
 
 // Conversation states
 const STATES = {
@@ -473,10 +476,21 @@ async function confirmBooking(from, session, user) {
 
   try {
     // Create booking
+    const bookingReference = `PT${Date.now().toString(36).toUpperCase()}`;
+    const pickupCoordinates = ctx.pickup?.latitude ? {
+      type: 'Point',
+      coordinates: [ctx.pickup.longitude, ctx.pickup.latitude]
+    } : undefined;
+    const deliveryCoordinates = ctx.delivery?.latitude ? {
+      type: 'Point',
+      coordinates: [ctx.delivery.longitude, ctx.delivery.latitude]
+    } : undefined;
+
     const booking = new Booking({
+      user: user._id,
       shipper: user._id,
-      bookingNumber: `PT${Date.now().toString(36).toUpperCase()}`,
-      cargo: {
+      bookingReference,
+      cargoDetails: {
         type: ctx.cargoType,
         weight: ctx.weight,
         description: `WhatsApp booking - ${ctx.cargoType}`
@@ -484,28 +498,37 @@ async function confirmBooking(from, session, user) {
       route: {
         pickup: {
           address: ctx.pickup?.address,
-          coordinates: ctx.pickup?.latitude ? {
-            lat: ctx.pickup.latitude,
-            lng: ctx.pickup.longitude
-          } : undefined,
-          scheduledDate: ctx.pickupDate
+          coordinates: pickupCoordinates,
+          date: ctx.pickupDate
         },
         delivery: {
           address: ctx.delivery?.address,
-          coordinates: ctx.delivery?.latitude ? {
-            lat: ctx.delivery.latitude,
-            lng: ctx.delivery.longitude
-          } : undefined
+          coordinates: deliveryCoordinates
         },
         distance: ctx.distance
       },
       pricing: {
-        base: ctx.price * 0.7,
-        distance: ctx.price * 0.3,
-        total: ctx.price
+        breakdown: {
+          baseRate: ctx.price * 0.7,
+          distanceCharge: ctx.price * 0.3
+        },
+        totals: {
+          subtotal: ctx.price,
+          total: ctx.price,
+          transporterTotal: ctx.price * 0.85,
+          platformCommission: ctx.price * 0.15
+        },
+        currency: 'USD'
       },
+      payment: {
+        method: 'digital',
+        status: 'pending'
+      },
+      paymentStatus: 'pending',
       status: 'pending_payment',
-      source: 'whatsapp'
+      origin: ctx.pickup?.address,
+      destination: ctx.delivery?.address,
+      totalAmount: ctx.price
     });
 
     await booking.save();
@@ -516,7 +539,7 @@ async function confirmBooking(from, session, user) {
     // Send confirmation
     const message = `✅ *Booking Created!*
 
-📋 *Booking ID:* ${booking.bookingNumber}
+📋 *Booking ID:* ${booking.bookingReference}
 💰 *Amount:* $${ctx.price.toFixed(2)}
 
 To complete your booking, please make payment through our mobile app or use the link below:
@@ -558,7 +581,7 @@ async function startTrackingFlow(from, session, user) {
     title: 'Active Bookings',
     rows: bookings.map(b => ({
       id: `track_${b._id}`,
-      title: b.bookingNumber,
+      title: b.bookingReference || b.bookingNumber || b._id.toString(),
       description: `${b.status} - ${b.route.pickup.address?.substring(0, 40)}`
     }))
   }];
@@ -579,6 +602,7 @@ async function handleTrackingInput(from, text, session, user) {
 
   const booking = await Booking.findOne({
     $or: [
+      { bookingReference: bookingNumber },
       { bookingNumber },
       { _id: bookingNumber.length === 24 ? bookingNumber : null }
     ]
@@ -607,7 +631,7 @@ async function handleTrackingInput(from, text, session, user) {
 
   const message = `📋 *Booking Status*
 
-📌 *Booking:* ${booking.bookingNumber}
+📌 *Booking:* ${booking.bookingReference || booking.bookingNumber}
 ${statusEmoji[booking.status] || '📋'} *Status:* ${booking.status.replace(/_/g, ' ').toUpperCase()}
 
 📍 *From:* ${booking.route.pickup.address}
@@ -624,7 +648,7 @@ Send "menu" for more options.`;
 
 // Handle job acceptance (for transporters)
 async function handleJobAcceptance(from, bookingId, accepted, user) {
-  if (!user || user.role !== 'transporter') {
+  if (!user || user.userType !== 'transporter') {
     return whatsappService.sendTextMessage(from,
       'You must be a registered transporter to accept jobs. Please register through our app.');
   }
@@ -642,14 +666,61 @@ async function handleJobAcceptance(from, bookingId, accepted, user) {
     }
 
     if (accepted) {
+      if (!isPaymentConfirmed(booking)) {
+        return whatsappService.sendTextMessage(from, 'This job is not ready yet because payment has not been confirmed.');
+      }
+      await assertTransporterEligible(user._id);
+      assertBookingTransition(booking.status, 'transporter_assigned');
       booking.transporter = user._id;
-      booking.status = 'matched';
+      booking.status = 'transporter_assigned';
       booking.matchedAt = new Date();
       await booking.save();
 
+      const shipment = await Shipment.create({
+        bookingReference: booking.bookingReference,
+        booking: booking._id,
+        shipper: booking.user,
+        transporter: user._id,
+        status: 'assigned',
+        cargoDetails: booking.cargoDetails,
+        route: booking.route,
+        pricing: {
+          total: booking.pricing?.totals?.total,
+          platformFee: booking.pricing?.totals?.platformTotal,
+          insurance: booking.pricing?.totals?.insuranceTotal,
+          currency: booking.pricing?.currency || 'USD'
+        },
+        insurance: booking.insurance,
+        origin: booking.origin,
+        destination: booking.destination,
+        amount: booking.totalAmount,
+        transporterEarnings: booking.pricing?.totals?.transporterTotal,
+        schedule: {
+          pickupDate: booking.route?.pickup?.date,
+          deliveryDate: booking.route?.delivery?.date
+        }
+      });
+
+      booking.shipments = [...(booking.shipments || []), shipment._id];
+      await booking.save();
+
+      await recordAudit({
+        actor: user,
+        action: 'whatsapp.job_accepted',
+        entityType: 'Booking',
+        entityId: booking._id,
+        entityRef: booking.bookingReference,
+        after: { status: booking.status, shipment: shipment._id }
+      });
+
       return whatsappService.sendTextMessage(from,
-        `✅ *Job Accepted!*\n\n📋 *Booking:* ${booking.bookingNumber}\n📍 *Pickup:* ${booking.route.pickup.address}\n📅 *Date:* ${new Date(booking.route.pickup.scheduledDate).toLocaleDateString()}\n\nPlease proceed to the pickup location. The shipper has been notified.\n\nUse the Palmtrent app to update status and navigate.`);
+        `✅ *Job Accepted!*\n\n📋 *Booking:* ${booking.bookingReference || booking.bookingNumber}\n📍 *Pickup:* ${booking.route.pickup.address}\n📅 *Date:* ${new Date(booking.route.pickup.date || booking.route.pickup.scheduledDate).toLocaleDateString()}\n\nPlease proceed to the pickup location. The shipper has been notified.\n\nUse the Palmtrent app to update status and navigate.`);
     } else {
+      booking.declines = [
+        ...(booking.declines || []),
+        { transporter: user._id, reason: 'Declined via WhatsApp', declinedAt: new Date() }
+      ];
+      await booking.save();
       return whatsappService.sendTextMessage(from,
         'Job declined. We\'ll notify you of other available jobs.');
     }
@@ -670,27 +741,31 @@ async function sendJobDetails(from, bookingId) {
       return whatsappService.sendTextMessage(from, 'Job not found.');
     }
 
+    const cargo = booking.cargoDetails || booking.cargo || {};
+    const pickupDate = booking.route.pickup.date || booking.route.pickup.scheduledDate;
+    const total = booking.pricing?.totals?.total || booking.pricing?.total || booking.totalAmount || 0;
+
     const message = `📋 *Job Details*
 
-📦 *Cargo:* ${booking.cargo.type}
-⚖️ *Weight:* ${booking.cargo.weight} kg
-${booking.cargo.description ? `📝 *Description:* ${booking.cargo.description}` : ''}
+📦 *Cargo:* ${cargo.type || 'General'}
+⚖️ *Weight:* ${cargo.weight || 0} kg
+${cargo.description ? `📝 *Description:* ${cargo.description}` : ''}
 
 📍 *Pickup:*
 ${booking.route.pickup.address}
-📅 ${new Date(booking.route.pickup.scheduledDate).toLocaleString()}
+📅 ${pickupDate ? new Date(pickupDate).toLocaleString() : 'TBD'}
 
 📍 *Delivery:*
 ${booking.route.delivery.address}
 ${booking.route.delivery.deadline ? `⏰ Deadline: ${new Date(booking.route.delivery.deadline).toLocaleString()}` : ''}
 
 📏 *Distance:* ~${booking.route.distance || 'TBD'} km
-💰 *Your Earnings:* $${((booking.pricing.total || 0) * 0.85).toFixed(2)}
+💰 *Your Earnings:* $${(total * 0.85).toFixed(2)}
 
 👤 *Shipper:* ${booking.shipper?.fullName || 'N/A'}
 ⭐ *Rating:* ${booking.shipper?.rating || 'New'}
 
-${booking.cargo.specialRequirements ? `⚠️ *Special Requirements:*\n${booking.cargo.specialRequirements}` : ''}`;
+${cargo.specialRequirements ? `⚠️ *Special Requirements:*\n${cargo.specialRequirements}` : ''}`;
 
     const buttons = [
       { id: `accept_${bookingId}`, title: 'Accept Job' },
@@ -708,9 +783,15 @@ ${booking.cargo.specialRequirements ? `⚠️ *Special Requirements:*\n${booking
 function formatPhoneForDB(phone) {
   let cleaned = phone.replace(/\D/g, '');
   if (cleaned.startsWith('263')) {
-    cleaned = '0' + cleaned.substring(3);
+    return `+${cleaned}`;
   }
-  return cleaned;
+  if (cleaned.startsWith('0')) {
+    return `+263${cleaned.substring(1)}`;
+  }
+  if (cleaned.length === 9) {
+    return `+263${cleaned}`;
+  }
+  return phone;
 }
 
 // ============ NOTIFICATION EXPORTS ============
@@ -747,7 +828,7 @@ exports.sendNewJobNotification = async (booking, transporterIds) => {
   try {
     const transporters = await User.find({
       _id: { $in: transporterIds },
-      role: 'transporter'
+      userType: 'transporter'
     });
 
     for (const transporter of transporters) {

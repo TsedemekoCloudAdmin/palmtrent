@@ -11,6 +11,8 @@
  */
 
 // Try to load Mapbox SDK - gracefully handle if not installed
+const { getIntegrationConfig } = require('./integrationSettingsService');
+
 let mbxGeocoding = null;
 let mbxDirections = null;
 let mbxOptimization = null;
@@ -26,29 +28,30 @@ try {
   console.warn('To enable Mapbox, run: npm install @mapbox/mapbox-sdk');
 }
 
-// Initialize Mapbox clients
-const MAPBOX_ACCESS_TOKEN = process.env.MAPBOX_ACCESS_TOKEN;
-
 let geocodingClient = null;
 let directionsClient = null;
 let optimizationClient = null;
+let activeAccessToken = null;
+let isInitialized = false;
 
-const initializeClients = () => {
+const initializeClients = (accessToken = process.env.MAPBOX_ACCESS_TOKEN) => {
   if (!mapboxAvailable) {
     console.warn('Mapbox SDK not available. Using fallback location services.');
     return false;
   }
 
-  if (!MAPBOX_ACCESS_TOKEN || MAPBOX_ACCESS_TOKEN === 'your_mapbox_access_token') {
+  if (!accessToken || accessToken === 'your_mapbox_access_token') {
     console.warn('MAPBOX_ACCESS_TOKEN not set or using placeholder. Mapbox services will use fallback mode.');
     console.warn('Get a free token at: https://account.mapbox.com/access-tokens/');
     return false;
   }
 
   try {
-    geocodingClient = mbxGeocoding({ accessToken: MAPBOX_ACCESS_TOKEN });
-    directionsClient = mbxDirections({ accessToken: MAPBOX_ACCESS_TOKEN });
-    optimizationClient = mbxOptimization({ accessToken: MAPBOX_ACCESS_TOKEN });
+    geocodingClient = mbxGeocoding({ accessToken });
+    directionsClient = mbxDirections({ accessToken });
+    optimizationClient = mbxOptimization({ accessToken });
+    activeAccessToken = accessToken;
+    isInitialized = true;
     console.log('Mapbox services initialized successfully.');
     return true;
   } catch (error) {
@@ -57,8 +60,13 @@ const initializeClients = () => {
   }
 };
 
-// Initialize on module load
-const isInitialized = initializeClients();
+const ensureClients = async () => {
+  const config = await getIntegrationConfig('mapbox');
+  const accessToken = config.accessToken || process.env.MAPBOX_ACCESS_TOKEN;
+  if (isInitialized && accessToken === activeAccessToken) return true;
+  isInitialized = initializeClients(accessToken);
+  return isInitialized;
+};
 
 /**
  * Geocode an address to coordinates
@@ -67,7 +75,7 @@ const isInitialized = initializeClients();
  * @returns {Promise<object>} - Geocoded location with coordinates
  */
 const geocode = async (address, options = {}) => {
-  if (!isInitialized) {
+  if (!(await ensureClients())) {
     return getFallbackGeocode(address);
   }
 
@@ -124,7 +132,7 @@ const geocode = async (address, options = {}) => {
  * @returns {Promise<object>} - Address information
  */
 const reverseGeocode = async (latitude, longitude) => {
-  if (!isInitialized) {
+  if (!(await ensureClients())) {
     return getFallbackReverseGeocode(latitude, longitude);
   }
 
@@ -174,7 +182,7 @@ const reverseGeocode = async (latitude, longitude) => {
  * @returns {Promise<object>} - Route information with distance and duration
  */
 const calculateRoute = async (origin, destination, waypoints = [], options = {}) => {
-  if (!isInitialized) {
+  if (!(await ensureClients())) {
     return getFallbackRoute(origin, destination);
   }
 
@@ -331,7 +339,7 @@ const calculateRouteFromAddresses = async (originAddress, destinationAddress, wa
  * @returns {Promise<object>} - Search results
  */
 const searchLocations = async (query, options = {}) => {
-  if (!isInitialized) {
+  if (!(await ensureClients())) {
     return getFallbackSearch(query);
   }
 
@@ -389,7 +397,7 @@ const searchLocations = async (query, options = {}) => {
  * @returns {Promise<object>} - Distance matrix
  */
 const getDistanceMatrix = async (origins, destinations) => {
-  if (!isInitialized) {
+  if (!(await ensureClients())) {
     return getFallbackDistanceMatrix(origins, destinations);
   }
 
@@ -438,7 +446,7 @@ const getDistanceMatrix = async (origins, destinations) => {
  * @returns {Promise<object>} - Optimized route
  */
 const optimizeRoute = async (origin, stops, options = {}) => {
-  if (!isInitialized || !optimizationClient) {
+  if (!(await ensureClients()) || !optimizationClient) {
     return { success: false, message: 'Optimization service not available' };
   }
 
@@ -686,5 +694,5 @@ module.exports = {
   searchLocations,
   getDistanceMatrix,
   optimizeRoute,
-  isInitialized
+  isInitialized: () => isInitialized
 };

@@ -2,7 +2,11 @@
 // API endpoints for transporter-booking matching
 
 const Booking = require('../models/Booking');
+const Shipment = require('../models/Shipment');
+const Escrow = require('../models/Escrow');
 const matchingService = require('../services/matchingService');
+const escrowService = require('../services/escrowService');
+const whatsappController = require('./whatsappController');
 
 /**
  * Manually trigger transporter matching for a booking
@@ -23,7 +27,7 @@ exports.findTransporters = async (req, res) => {
     }
 
     // Authorization check - only shipper or admin can trigger matching
-    if (booking.shipper.toString() !== req.user.id && req.user.role !== 'admin') {
+    if (booking.shipper.toString() !== req.user.id && req.user.userType !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to trigger matching for this booking'
@@ -31,7 +35,7 @@ exports.findTransporters = async (req, res) => {
     }
 
     // Verify payment is confirmed
-    if (booking.paymentStatus !== 'confirmed' && !booking.paymentConfirmedAt) {
+    if (!['confirmed', 'escrowed', 'released'].includes(booking.paymentStatus) && !booking.paymentConfirmedAt) {
       return res.status(400).json({
         success: false,
         message: 'Payment must be confirmed before finding transporters',
@@ -84,7 +88,7 @@ exports.getMatches = async (req, res) => {
     }
 
     // Authorization check
-    if (booking.shipper && booking.shipper.toString() !== req.user.id && req.user.role !== 'admin') {
+    if (booking.shipper && booking.shipper.toString() !== req.user.id && req.user.userType !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to view matches for this booking'
@@ -135,7 +139,7 @@ exports.broadcastToTransporters = async (req, res) => {
     }
 
     // Authorization check
-    if (booking.shipper.toString() !== req.user.id && req.user.role !== 'admin') {
+    if (booking.shipper.toString() !== req.user.id && req.user.userType !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'Not authorized'
@@ -143,7 +147,7 @@ exports.broadcastToTransporters = async (req, res) => {
     }
 
     // Verify payment confirmed
-    if (booking.paymentStatus !== 'confirmed') {
+    if (!['confirmed', 'escrowed', 'released'].includes(booking.paymentStatus)) {
       return res.status(400).json({
         success: false,
         message: 'Payment must be confirmed before broadcasting'
@@ -187,7 +191,7 @@ exports.getAvailableJobs = async (req, res) => {
     const transporterId = req.user.id;
 
     // Verify user is a transporter
-    if (req.user.role !== 'transporter') {
+    if (req.user.userType !== 'transporter') {
       return res.status(403).json({
         success: false,
         message: 'Only transporters can view available jobs'
@@ -269,7 +273,7 @@ exports.acceptJob = async (req, res) => {
     const transporterId = req.user.id;
 
     // Verify user is a transporter
-    if (req.user.role !== 'transporter') {
+    if (req.user.userType !== 'transporter') {
       return res.status(403).json({
         success: false,
         message: 'Only transporters can accept jobs'
@@ -295,9 +299,75 @@ exports.acceptJob = async (req, res) => {
 
     // Assign transporter to booking
     booking.transporter = transporterId;
-    booking.status = 'matched';
+    booking.status = 'transporter_assigned';
     booking.matchedAt = new Date();
     await booking.save();
+
+    let shipments = await Shipment.find({ booking: booking._id });
+    if (shipments.length > 0) {
+      shipments = await Promise.all(shipments.map(async shipment => {
+        shipment.transporter = transporterId;
+        shipment.status = 'assigned';
+        await shipment.save();
+        return shipment;
+      }));
+    } else {
+      const vehicleRows = booking.bookingType === 'multiple' && booking.vehicles?.length > 0
+        ? booking.vehicles
+        : [null];
+
+      shipments = await Promise.all(vehicleRows.map((vehicleRow, index) => Shipment.create({
+        bookingReference: booking.bookingReference,
+        booking: booking._id,
+        shipper: booking.shipper || booking.user,
+        transporter: transporterId,
+        vehicle: vehicleRow?.vehicle,
+        status: 'assigned',
+        cargoDetails: vehicleRow ? {
+          type: booking.cargoDetails?.type || vehicleRow.vehicleType || 'cargo',
+          weight: vehicleRow.weight || booking.cargoDetails?.weight || 0,
+          value: booking.cargoDetails?.value,
+          description: vehicleRow.description || booking.cargoDetails?.description,
+          specialInstructions: booking.cargoDetails?.specialInstructions,
+          photos: booking.cargoDetails?.photos
+        } : booking.cargoDetails,
+        route: booking.route,
+        pricing: {
+          total: booking.pricing?.totals?.total,
+          platformFee: booking.pricing?.totals?.platformTotal,
+          insurance: booking.pricing?.totals?.insuranceTotal,
+          currency: booking.pricing?.currency || 'USD'
+        },
+        insurance: booking.insurance,
+        origin: booking.origin,
+        destination: booking.destination,
+        amount: booking.totalAmount,
+        transporterEarnings: booking.pricing?.totals?.transporterTotal,
+        schedule: {
+          pickupDate: booking.route?.pickup?.date,
+          deliveryDate: booking.route?.delivery?.date
+        },
+        statusHistory: [{
+          status: 'assigned',
+          notes: vehicleRow ? `Vehicle slot ${index + 1} assigned` : 'Shipment assigned'
+        }]
+      })));
+    }
+
+    try {
+      const escrow = await Escrow.findOne({ booking: booking._id });
+      if (escrow) {
+        await escrowService.assignTransporter(escrow._id, transporterId);
+      }
+    } catch (escrowError) {
+      console.error('Escrow transporter assignment error:', escrowError);
+    }
+
+    try {
+      await whatsappController.sendBookingStatusUpdate(booking, 'matched');
+    } catch (whatsappError) {
+      console.error('WhatsApp notification error:', whatsappError);
+    }
 
     // TODO: Send notification to shipper about match
     // const notificationService = require('../services/notificationService');
@@ -307,7 +377,9 @@ exports.acceptJob = async (req, res) => {
       success: true,
       message: 'Job accepted successfully',
       data: {
-        booking: booking
+        booking,
+        shipmentId: shipments[0]?._id,
+        shipmentIds: shipments.map(shipment => shipment._id)
       }
     });
 
@@ -332,7 +404,7 @@ exports.declineJob = async (req, res) => {
     const { reason } = req.body;
 
     // Verify user is a transporter
-    if (req.user.role !== 'transporter') {
+    if (req.user.userType !== 'transporter') {
       return res.status(403).json({
         success: false,
         message: 'Only transporters can decline jobs'

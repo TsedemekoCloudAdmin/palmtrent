@@ -1,0 +1,29 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "27017:27017"
+
+  backend:
+    image: node:20-alpine
+    working_dir: /app/palmtrent_backend
+    command: sh -c "npm ci --omit=dev && npm start"
+    restart: unless-stopped
+    env_file:
+      - ./palmtrent_backend/.env
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/palmtrent
+    volumes:
+      - ./:/app
+      - uploads:/app/palmtrent_backend/uploads
+    ports:
+      - "5000:5000"
+    depends_on:
+      - mongo
+
+volumes:
+  mongo_data:
+  uploads:

@@ -4,8 +4,11 @@ const mongoose = require('mongoose');
 const paymentSchema = new mongoose.Schema({
   booking: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Booking',
-    required: true
+    ref: 'Booking'
+  },
+  rental: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Rental'
   },
   paymentReference: {
     type: String,
@@ -22,7 +25,7 @@ const paymentSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    enum: ['ecocash', 'card', 'bank_transfer', 'cash_agent', 'cash_on_pickup', 'cash_on_delivery'],
+    enum: ['digital', 'ecocash', 'onemoney', 'card', 'bank_transfer', 'openapi_africa', 'clicknpay', 'cash_agent', 'cash_on_pickup', 'cash_on_delivery', 'corporate'],
     required: true
   },
   status: {
@@ -32,7 +35,7 @@ const paymentSchema = new mongoose.Schema({
   },
   gateway: {
     type: String,
-    enum: ['paynow', 'cash', 'none'],
+    enum: ['paynow', 'openapi_africa', 'cash', 'none'],
     default: 'none'
   },
   gatewayReference: String,
@@ -62,7 +65,6 @@ paymentSchema.pre('save', function(next) {
 
 // Indexes
 paymentSchema.index({ booking: 1 });
-paymentSchema.index({ paymentReference: 1 });
 paymentSchema.index({ status: 1 });
 paymentSchema.index({ createdAt: -1 });
 paymentSchema.index({ expiresAt: 1 });

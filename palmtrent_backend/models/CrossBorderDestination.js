@@ -123,7 +123,6 @@ const crossBorderDestinationSchema = new mongoose.Schema({
 });
 
 // Indexes
-crossBorderDestinationSchema.index({ countryCode: 1 });
 crossBorderDestinationSchema.index({ isActive: 1 });
 crossBorderDestinationSchema.index({ isPopular: -1, popularityScore: -1 });
 

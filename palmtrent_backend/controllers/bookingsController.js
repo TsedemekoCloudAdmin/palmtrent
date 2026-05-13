@@ -5,6 +5,14 @@ const Shipment = require('../models/Shipment');
 const User = require('../models/User');
 const { validationResult } = require('express-validator');
 const whatsappController = require('./whatsappController');
+const { recordAudit } = require('../services/auditService');
+const {
+  assertBookingTransition,
+  assertBookingReadyForMatching,
+  assertCorporateCanBook,
+  reserveCorporateCredit,
+  releaseCorporateCredit
+} = require('../services/flowControlService');
 
 // Get all bookings for current user - Merged
 exports.getAllBookings = async (req, res) => {
@@ -13,7 +21,11 @@ exports.getAllBookings = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const query = { user: req.user.id };
+    const ownership = [{ user: req.user.id }, { shipper: req.user.id }, { transporter: req.user.id }];
+    if (req.user.corporateAccount) {
+      ownership.push({ corporateAccount: req.user.corporateAccount });
+    }
+    const query = { $or: ownership };
     
     // Filter by status if provided
     if (req.query.status) {
@@ -64,7 +76,13 @@ exports.getBookingById = async (req, res) => {
     }
 
     // Check authorization
-    if (booking.user._id.toString() !== req.user.id) {
+    const isOwner = booking.user?._id?.toString() === req.user.id ||
+      booking.shipper?.toString?.() === req.user.id ||
+      booking.transporter?._id?.toString() === req.user.id ||
+      (req.user.corporateAccount && booking.corporateAccount?.toString() === req.user.corporateAccount.toString()) ||
+      req.user.userType === 'admin';
+
+    if (!isOwner) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to access this booking'
@@ -100,12 +118,32 @@ exports.createBooking = async (req, res) => {
     console.log(JSON.stringify(req.body, null, 2));
 
     // Transform frontend data to match backend schema
-    const transformedData = transformFrontendToBackend(req.body, req.user.id);
+    const transformedData = transformFrontendToBackend(req.body, req.user);
     
     console.log("Transformed booking data:");
     console.log(JSON.stringify(transformedData, null, 2));
 
+    const bookingAmount = transformedData.totalAmount || transformedData.pricing?.totals?.total || 0;
+    const corporateAccount = await assertCorporateCanBook(req.user, bookingAmount);
+    if (corporateAccount && !transformedData.corporateAccount) {
+      transformedData.corporateAccount = corporateAccount._id;
+    }
+
     const booking = await Booking.create(transformedData);
+
+    if (corporateAccount && transformedData.payment?.method === 'corporate') {
+      await reserveCorporateCredit(corporateAccount._id, bookingAmount);
+    }
+
+    await recordAudit({
+      actor: req.user,
+      action: 'booking.created',
+      entityType: 'Booking',
+      entityId: booking._id,
+      entityRef: booking.bookingReference,
+      after: { status: booking.status, paymentStatus: booking.paymentStatus, totalAmount: booking.totalAmount },
+      req
+    });
 
     res.status(201).json({
       success: true,
@@ -123,12 +161,13 @@ exports.createBooking = async (req, res) => {
 };
 
 // NEW: Transform frontend data to backend schema structure
-function transformFrontendToBackend(frontendData, userId) {
+function transformFrontendToBackend(frontendData, user) {
+  const userId = user.id || user._id;
   const {
     cargoType, weight, cargoValue, specialInstructions, images,
     pickupLocation, deliveryLocation, pickupDate, 
     routeInfo, vehicleRecommendation, isCrossBorder, 
-    paymentMethod, pricing, insurance, bookingType
+    paymentMethod, pricing, insurance, bookingType, vehicles = []
   } = frontendData;
 
   // Generate booking reference
@@ -143,6 +182,7 @@ function transformFrontendToBackend(frontendData, userId) {
     bookingReference: generateBookingReference(),
     user: userId,
     shipper: userId,
+    corporateAccount: user.corporateAccount,
     status: 'pending_payment', // CRITICAL: Payment required before broadcasting to transporters
     bookingType: bookingType || 'single',
     
@@ -151,11 +191,11 @@ function transformFrontendToBackend(frontendData, userId) {
       pickup: {
         address: pickupLocation || '',
         date: pickupDate ? new Date(pickupDate) : new Date(),
-        coordinates: [0, 0]
+        coordinates: { type: 'Point', coordinates: [0, 0] }
       },
       delivery: {
         address: deliveryLocation || '',
-        coordinates: [0, 0]
+        coordinates: { type: 'Point', coordinates: [0, 0] }
       },
       distance: routeInfo?.distance || 0,
       estimatedDuration: routeInfo?.duration || ''
@@ -243,7 +283,13 @@ function transformFrontendToBackend(frontendData, userId) {
     },
     
     // Vehicle data
-    vehicleType: vehicleRecommendation?.vehicleType,
+    vehicleType: vehicleRecommendation?.vehicleType || vehicles?.[0]?.vehicleType || '',
+    vehicles: Array.isArray(vehicles) ? vehicles.map(vehicle => ({
+      vehicleType: vehicle.vehicleType || vehicle.type || '',
+      weight: Number(vehicle.weight || weight || 0),
+      description: vehicle.description || cargoType || '',
+      vehicle: vehicle.vehicle
+    })) : [],
     
     // Additional fields for easier querying
     origin: pickupLocation?.split(',')[0]?.trim() || '',
@@ -281,11 +327,32 @@ exports.updateBooking = async (req, res) => {
       });
     }
 
+    if (req.body.status) {
+      assertBookingTransition(booking.status, req.body.status);
+    }
+
+    const before = {
+      status: booking.status,
+      paymentStatus: booking.paymentStatus,
+      totalAmount: booking.totalAmount
+    };
+
     booking = await Booking.findByIdAndUpdate(
       req.params.id,
       req.body,
       { new: true, runValidators: true }
     );
+
+    await recordAudit({
+      actor: req.user,
+      action: 'booking.updated',
+      entityType: 'Booking',
+      entityId: booking._id,
+      entityRef: booking.bookingReference,
+      before,
+      after: { status: booking.status, paymentStatus: booking.paymentStatus, totalAmount: booking.totalAmount },
+      req
+    });
 
     res.status(200).json({
       success: true,
@@ -334,8 +401,10 @@ console.log(booking)
     // Use payment service to confirm payment
     const paymentService = require('../services/paymentService');
     await paymentService.confirmPayment(paymentReference, {
-      gateway: paymentMethod === 'cash_agent' || paymentMethod === 'cash_on_pickup' || paymentMethod === 'cash_on_delivery' ? 'cash' : 'paynow'
+      gateway: paymentService.getGatewayForMethod(paymentMethod || 'digital')
     });
+
+    assertBookingTransition(booking.status, 'payment_confirmed');
 
     // CRITICAL: Update booking status to payment_confirmed and set timestamp
     booking.paymentStatus = 'confirmed';
@@ -344,10 +413,21 @@ console.log(booking)
     booking.status = 'payment_confirmed';
     await booking.save();
 
+    await recordAudit({
+      actor: req.user,
+      action: 'booking.payment_confirmed',
+      entityType: 'Booking',
+      entityId: booking._id,
+      entityRef: booking.bookingReference,
+      after: { status: booking.status, paymentStatus: booking.paymentStatus, paymentReference },
+      req
+    });
+
     // CRITICAL: Trigger matching service to find and notify transporters
     const matchingService = require('../services/matchingService');
     let matchingResult = null;
     try {
+      await assertBookingReadyForMatching(booking);
       matchingResult = await matchingService.findAndNotifyTransporters(booking._id, 10);
       console.log(`Matching triggered for booking ${booking.bookingReference}:`, matchingResult);
     } catch (matchingError) {
@@ -413,10 +493,20 @@ exports.createBookingWithPayment = async (req, res) => {
     console.log("Creating booking with payment:", req.body);
 
     // Transform frontend data
-    const transformedData = transformFrontendToBackend(req.body, req.user.id);
+    const transformedData = transformFrontendToBackend(req.body, req.user);
     
     // Create booking
+    const bookingAmount = transformedData.totalAmount || transformedData.pricing?.totals?.total || req.body.amount || 0;
+    const corporateAccount = await assertCorporateCanBook(req.user, bookingAmount);
+    if (corporateAccount && !transformedData.corporateAccount) {
+      transformedData.corporateAccount = corporateAccount._id;
+    }
+
     const booking = await Booking.create(transformedData);
+
+    if (corporateAccount && transformedData.payment?.method === 'corporate') {
+      await reserveCorporateCredit(corporateAccount._id, bookingAmount);
+    }
 
     // Create payment if payment method is provided
     let payment = null;
@@ -442,6 +532,17 @@ exports.createBookingWithPayment = async (req, res) => {
         } : null
       }
     };
+
+    await recordAudit({
+      actor: req.user,
+      action: 'booking.created_with_payment',
+      entityType: 'Booking',
+      entityId: booking._id,
+      entityRef: booking.bookingReference,
+      after: { status: booking.status, paymentStatus: booking.paymentStatus, totalAmount: booking.totalAmount },
+      metadata: { paymentCreated: Boolean(payment) },
+      req
+    });
 
     res.status(201).json(response);
   } catch (error) {
@@ -482,6 +583,8 @@ exports.cancelBooking = async (req, res) => {
       });
     }
 
+    assertBookingTransition(booking.status, 'cancelled');
+
     booking.status = 'cancelled';
     booking.cancellation = {
       cancelled: true,
@@ -492,8 +595,24 @@ exports.cancelBooking = async (req, res) => {
 
     await booking.save();
 
-    // TODO: Process refund if applicable
-    // TODO: Cancel associated shipments
+    await Shipment.updateMany(
+      { booking: booking._id, status: { $nin: ['delivered', 'completed', 'cancelled'] } },
+      { status: 'cancelled', 'timeline.cancelledAt': new Date() }
+    );
+
+    if (booking.corporateAccount) {
+      await releaseCorporateCredit(booking.corporateAccount, booking.totalAmount || booking.pricing?.totals?.total || 0);
+    }
+
+    await recordAudit({
+      actor: req.user,
+      action: 'booking.cancelled',
+      entityType: 'Booking',
+      entityId: booking._id,
+      entityRef: booking.bookingReference,
+      after: { status: booking.status, reason },
+      req
+    });
 
     res.status(200).json({
       success: true,
@@ -538,9 +657,21 @@ exports.confirmBooking = async (req, res) => {
       });
     }
 
+    assertBookingTransition(booking.status, 'pending_payment');
+
     // Update booking status
     booking.status = 'pending_payment';
     await booking.save();
+
+    await recordAudit({
+      actor: req.user,
+      action: 'booking.confirmed',
+      entityType: 'Booking',
+      entityId: booking._id,
+      entityRef: booking.bookingReference,
+      after: { status: booking.status },
+      req
+    });
 
     res.status(200).json({
       success: true,
@@ -593,7 +724,7 @@ exports.updatePricingConfig = async (req, res) => {
     const PricingConfig = require('../models/PricingConfig');
     
     // Only admins should access this
-    if (req.user.role !== 'admin') {
+    if (req.user.userType !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to update pricing configuration'
@@ -659,6 +790,46 @@ exports.getPricingConfig = async (req, res) => {
       message: 'Error fetching pricing configuration',
       error: error.message
     });
+  }
+};
+
+exports.getBookingStats = async (req, res) => {
+  try {
+    const { period = 'month' } = req.query;
+    const startDate = new Date();
+    if (period === 'week') startDate.setDate(startDate.getDate() - 7);
+    else if (period === 'year') startDate.setFullYear(startDate.getFullYear() - 1);
+    else startDate.setMonth(startDate.getMonth() - 1);
+
+    const ownership = [{ user: req.user.id }, { shipper: req.user.id }, { transporter: req.user.id }];
+    if (req.user.corporateAccount) ownership.push({ corporateAccount: req.user.corporateAccount });
+
+    const bookings = await Booking.find({
+      $or: ownership,
+      createdAt: { $gte: startDate }
+    }).lean();
+
+    const totalAmount = bookings.reduce((sum, booking) =>
+      sum + (booking.totalAmount || booking.pricing?.totals?.total || booking.pricing?.total || 0), 0
+    );
+    const statusBreakdown = bookings.reduce((acc, booking) => {
+      acc[booking.status] = (acc[booking.status] || 0) + 1;
+      return acc;
+    }, {});
+
+    res.json({
+      success: true,
+      data: {
+        period,
+        totalBookings: bookings.length,
+        activeBookings: bookings.filter(b => !['completed', 'cancelled'].includes(b.status)).length,
+        completedBookings: bookings.filter(b => ['completed', 'delivered'].includes(b.status)).length,
+        totalAmount,
+        statusBreakdown
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to fetch booking stats', error: error.message });
   }
 };
 

@@ -1,5 +1,6 @@
 const Booking = require('../models/Booking');
 const Shipment = require('../models/Shipment');
+const User = require('../models/User');
 const { formatRelativeTime } = require('../utils/formatDate');
 
 exports.getDashboardStats = async (req, res) => {
@@ -96,5 +97,61 @@ exports.getRecentActivity =   async (req, res) => {
       success: false,
       message: 'Failed to fetch recent activity'
     });
+  }
+};
+
+exports.getActiveShipments = async (req, res) => {
+  try {
+    const shipments = await Shipment.find({
+      shipper: req.user._id,
+      status: { $in: ['assigned', 'matched', 'en_route_pickup', 'picked_up', 'in_transit', 'arrived_delivery'] }
+    })
+      .populate('transporter', 'fullName phone rating')
+      .populate('vehicle', 'registrationNumber vehicleType')
+      .sort({ updatedAt: -1 });
+
+    res.json({ success: true, count: shipments.length, data: shipments });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to fetch active shipments', error: error.message });
+  }
+};
+
+exports.getFavoriteTransporters = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id)
+      .populate('favoriteTransporters', 'fullName phone rating verification');
+    res.json({ success: true, data: user.favoriteTransporters || [] });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to fetch favorites', error: error.message });
+  }
+};
+
+exports.addFavoriteTransporter = async (req, res) => {
+  try {
+    const { transporterId } = req.body;
+    const transporter = await User.findOne({ _id: transporterId, userType: 'transporter' });
+    if (!transporter) {
+      return res.status(404).json({ success: false, message: 'Transporter not found' });
+    }
+
+    await User.findByIdAndUpdate(req.user.id, {
+      $addToSet: { favoriteTransporters: transporterId }
+    });
+
+    res.json({ success: true, message: 'Transporter added to favorites' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to add favorite', error: error.message });
+  }
+};
+
+exports.removeFavoriteTransporter = async (req, res) => {
+  try {
+    await User.findByIdAndUpdate(req.user.id, {
+      $pull: { favoriteTransporters: req.params.transporterId }
+    });
+
+    res.json({ success: true, message: 'Transporter removed from favorites' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to remove favorite', error: error.message });
   }
 };

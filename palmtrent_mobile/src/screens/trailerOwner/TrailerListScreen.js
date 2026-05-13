@@ -48,7 +48,7 @@ const TrailerListScreen = ({ navigation }) => {
         params.append('search', searchQuery);
       }
 
-      const response = await apiService.request(`/trailers/my-trailers?${params.toString()}`);
+      const response = await apiService.request(`/trailers/my-fleet?${params.toString()}`);
 
       if (response.success) {
         setTrailers(response.data || []);
@@ -93,8 +93,8 @@ const TrailerListScreen = ({ navigation }) => {
 
   const handleDeleteTrailer = (trailer) => {
     Alert.alert(
-      'Delete Trailer',
-      `Are you sure you want to delete ${trailer.registrationNumber || 'this trailer'}?`,
+      'Delete Fleet Asset',
+      `Are you sure you want to delete ${trailer.registrationNumber || 'this asset'}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -103,10 +103,10 @@ const TrailerListScreen = ({ navigation }) => {
           onPress: async () => {
             try {
               await apiService.request(`/trailers/${trailer._id}`, { method: 'DELETE' });
-              Alert.alert('Success', 'Trailer deleted successfully');
+              Alert.alert('Success', 'Fleet asset deleted successfully');
               fetchTrailers();
             } catch (err) {
-              Alert.alert('Error', err.message || 'Failed to delete trailer');
+              Alert.alert('Error', err.message || 'Failed to delete fleet asset');
             }
           }
         }
@@ -128,15 +128,24 @@ const TrailerListScreen = ({ navigation }) => {
 
   // Get trailer display name
   const getTrailerName = (trailer) => {
+    if (trailer.assetName) {
+      return `${trailer.assetName} - ${trailer.registrationNumber}`;
+    }
     if (trailer.trailerType?.name) {
       return `${trailer.trailerType.name} - ${trailer.registrationNumber}`;
     }
-    return trailer.registrationNumber || 'Unknown Trailer';
+    return trailer.registrationNumber || 'Unknown Fleet Asset';
   };
 
   // Get trailer type name
   const getTrailerTypeName = (trailer) => {
-    return trailer.trailerType?.name || 'Unknown Type';
+    const assetLabels = {
+      trailer: 'Trailer',
+      tractor_unit: 'Tractor Unit',
+      truck: 'Truck',
+      full_rig: 'Full Rig'
+    };
+    return trailer.trailerType?.name || assetLabels[trailer.assetType] || 'Fleet Asset';
   };
 
   // Get capacity display
@@ -187,11 +196,11 @@ const TrailerListScreen = ({ navigation }) => {
             <MaterialIcons name="arrow-back" size={24} color="white" />
             <Text style={styles.backButtonText}>Back</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>My Trailer Fleet</Text>
+          <Text style={styles.headerTitle}>My Fleet</Text>
         </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#0C2D48" />
-          <Text style={styles.loadingText}>Loading trailers...</Text>
+          <Text style={styles.loadingText}>Loading fleet assets...</Text>
         </View>
       </SafeAreaView>
     );
@@ -210,8 +219,8 @@ const TrailerListScreen = ({ navigation }) => {
           <MaterialIcons name="arrow-back" size={24} color="white" />
           <Text style={styles.backButtonText}>Back</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>My Trailer Fleet</Text>
-        <Text style={styles.headerSubtitle}>{stats.total} trailers in total</Text>
+        <Text style={styles.headerTitle}>My Fleet</Text>
+        <Text style={styles.headerSubtitle}>{stats.total || stats.totalAssets || 0} assets in total</Text>
       </View>
 
       <ScrollView
@@ -228,7 +237,7 @@ const TrailerListScreen = ({ navigation }) => {
               <MaterialIcons name="search" size={20} color="#6b7280" />
               <TextInput
                 style={styles.searchTextInput}
-                placeholder="Search trailers..."
+                placeholder="Search fleet assets..."
                 value={searchQuery}
                 onChangeText={setSearchQuery}
               />
@@ -240,7 +249,7 @@ const TrailerListScreen = ({ navigation }) => {
             </View>
             <TouchableOpacity
               style={styles.addButton}
-              onPress={() => navigateTo('TrailerOwnerRegistration')}
+              onPress={() => navigateTo('AddFleetAsset')}
             >
               <MaterialIcons name="add" size={20} color="white" />
             </TouchableOpacity>
@@ -296,28 +305,28 @@ const TrailerListScreen = ({ navigation }) => {
           {!error && (
             <View style={styles.trailerList}>
               <Text style={styles.sectionTitle}>
-                {filter === 'all' ? 'All Trailers' :
-                 filter === 'available' ? 'Available Trailers' :
-                 filter === 'rented' ? 'Rented Trailers' : 'Under Maintenance'}
+                {filter === 'all' ? 'All Fleet Assets' :
+                 filter === 'available' ? 'Available Assets' :
+                 filter === 'rented' ? 'Rented Assets' : 'Under Maintenance'}
                 ({trailers.length})
               </Text>
 
               {trailers.length === 0 ? (
                 <View style={styles.emptyState}>
                   <MaterialIcons name="local-shipping" size={64} color="#d1d5db" />
-                  <Text style={styles.emptyStateTitle}>No trailers found</Text>
+                  <Text style={styles.emptyStateTitle}>No fleet assets found</Text>
                   <Text style={styles.emptyStateSubtitle}>
                     {searchQuery ? 'Try adjusting your search terms' :
-                     filter !== 'all' ? `No ${filter} trailers at the moment` :
-                     'Add your first trailer to get started'}
+                     filter !== 'all' ? `No ${filter} assets at the moment` :
+                     'Add your first fleet asset to get started'}
                   </Text>
                   {filter === 'all' && !searchQuery && (
                     <TouchableOpacity
                       style={styles.addTrailerButton}
-                      onPress={() => navigateTo('TrailerOwnerRegistration')}
+                      onPress={() => navigateTo('AddFleetAsset')}
                     >
                       <MaterialIcons name="add" size={20} color="white" />
-                      <Text style={styles.addTrailerButtonText}>Add Trailer</Text>
+                      <Text style={styles.addTrailerButtonText}>Add Asset</Text>
                     </TouchableOpacity>
                   )}
                 </View>

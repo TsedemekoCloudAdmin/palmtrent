@@ -17,7 +17,7 @@ const { width } = Dimensions.get('window');
 const CounterOfferScreen = ({ navigation, route }) => {
   const { job } = route.params || {};
   const [offerType, setOfferType] = useState('price');
-  const [newPrice, setNewPrice] = useState(job?.earnings || 400);
+  const [newPrice, setNewPrice] = useState(job?.earnings || job?.pricing?.totals?.transporterTotal || '');
   const [reason, setReason] = useState('');
   const [newTime, setNewTime] = useState('');
 
@@ -27,12 +27,18 @@ const CounterOfferScreen = ({ navigation, route }) => {
     }
   };
 
-  const jobData = job || {
-    id: 'PT-2025-001234',
-    route: { from: 'Harare', to: 'Bulawayo' },
-    earnings: 400,
-    pickup: { time: '6-12 PM' }
-  };
+  const jobData = job;
+
+  if (!jobData) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <MaterialIcons name="assignment" size={48} color="#9ca3af" />
+          <Text style={styles.loadingText}>Job details are not available.</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -59,9 +65,9 @@ const CounterOfferScreen = ({ navigation, route }) => {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Original Offer</Text>
             <View style={styles.detailsList}>
-              <DetailRow label="Route" value={`${jobData.route.from} → ${jobData.route.to}`} />
-              <DetailRow label="Payment" value={`$${jobData.earnings}`} />
-              <DetailRow label="Pickup Time" value={jobData.pickup.time} />
+              <DetailRow label="Route" value={`${jobData.route?.pickup?.city || jobData.route?.from || 'Pickup'} - ${jobData.route?.delivery?.city || jobData.route?.to || 'Delivery'}`} />
+              <DetailRow label="Payment" value={`$${jobData.earnings || jobData.pricing?.totals?.transporterTotal || 0}`} />
+              <DetailRow label="Pickup Time" value={jobData.pickup?.time || jobData.route?.pickup?.timeWindow || 'TBD'} />
             </View>
           </View>
         </View>

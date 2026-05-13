@@ -2,6 +2,23 @@ const Rental = require('../models/Rental');
 const Vehicle = require('../models/Vehicle');
 const Trailer = require('../models/Trailer');
 const User = require('../models/User');
+const rentalPaymentService = require('../services/rentalPaymentService');
+
+const TRAILER_FLEET_ITEM_TYPES = ['trailer', 'tractor_unit', 'truck', 'full_rig'];
+
+function isTrailerFleetItem(itemType) {
+  return TRAILER_FLEET_ITEM_TYPES.includes(itemType);
+}
+
+function displayItemType(itemType) {
+  return {
+    trailer: 'Trailer',
+    tractor_unit: 'Tractor unit',
+    truck: 'Truck',
+    full_rig: 'Full rig',
+    vehicle: 'Vehicle'
+  }[itemType] || 'Rental item';
+}
 
 // Get available rentals (vehicles and trailers)
 exports.getAvailableRentals = async (req, res) => {
@@ -18,7 +35,7 @@ exports.getAvailableRentals = async (req, res) => {
     } = req.query;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    const results = { vehicles: [], trailers: [] };
+    const results = { vehicles: [], fleetAssets: [], trailers: [] };
 
     // Get available vehicles
     if (!itemType || itemType === 'vehicle') {
@@ -64,12 +81,16 @@ exports.getAvailableRentals = async (req, res) => {
       }));
     }
 
-    // Get available trailers
-    if (!itemType || itemType === 'trailer') {
+    // Get available trailer-owner fleet assets
+    if (!itemType || isTrailerFleetItem(itemType)) {
       const trailerQuery = {
         'rentalSettings.availableForRental': true,
         status: 'available'
       };
+
+      if (itemType && itemType !== 'all') {
+        trailerQuery.assetType = itemType;
+      }
 
       if (city) {
         trailerQuery['operatingAreas.city'] = new RegExp(city, 'i');
@@ -88,11 +109,15 @@ exports.getAvailableRentals = async (req, res) => {
         .limit(itemType === 'trailer' ? parseInt(limit) : 10)
         .lean();
 
-      results.trailers = trailers.map(t => ({
+      results.fleetAssets = trailers.map(t => ({
         _id: t._id,
-        itemType: 'trailer',
+        itemType: t.assetType || 'trailer',
+        assetType: t.assetType || 'trailer',
+        assetName: t.assetName,
         registrationNumber: t.registrationNumber,
         trailerType: t.trailerType?.name || 'Unknown',
+        tractorUnit: t.tractorUnit,
+        combination: t.combination,
         capacity: t.capacity,
         features: t.features,
         images: t.images,
@@ -101,16 +126,18 @@ exports.getAvailableRentals = async (req, res) => {
         operatingAreas: t.operatingAreas,
         rating: t.rating
       }));
+      results.trailers = results.fleetAssets.filter(item => item.assetType === 'trailer');
     }
 
     // Combined results for mixed listing
-    const combined = [...results.vehicles, ...results.trailers];
+    const combined = [...results.vehicles, ...results.fleetAssets];
 
     res.status(200).json({
       success: true,
-      data: itemType ? (itemType === 'vehicle' ? results.vehicles : results.trailers) : combined,
+      data: itemType ? (itemType === 'vehicle' ? results.vehicles : results.fleetAssets) : combined,
       vehicles: results.vehicles,
       trailers: results.trailers,
+      fleetAssets: results.fleetAssets,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -126,6 +153,71 @@ exports.getAvailableRentals = async (req, res) => {
   }
 };
 
+exports.initiateRentalPayment = async (req, res) => {
+  try {
+    const rental = await Rental.findById(req.params.id).populate('renter');
+    if (!rental) {
+      return res.status(404).json({ success: false, message: 'Rental not found' });
+    }
+    if (rental.renter._id.toString() !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Only the renter can pay for this rental' });
+    }
+
+    const result = await rentalPaymentService.createRentalPayment(rental._id, {
+      userId: req.user.id,
+      email: req.user.email,
+      phone: req.user.phone
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        rental: result.rental,
+        paymentReference: result.payment.paymentReference,
+        redirectUrl: result.order.redirectUrl,
+        gatewayReference: result.order.gatewayReference
+      }
+    });
+  } catch (error) {
+    console.error('Initiate rental payment error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to initiate rental payment' });
+  }
+};
+
+exports.confirmRentalPayment = async (req, res) => {
+  try {
+    const { paymentReference } = req.body;
+    const rental = await rentalPaymentService.confirmRentalPayment(paymentReference, {
+      source: 'manual_confirmation',
+      confirmedBy: req.user.id
+    });
+    res.json({ success: true, data: rental, message: 'Rental payment confirmed' });
+  } catch (error) {
+    console.error('Confirm rental payment error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to confirm rental payment' });
+  }
+};
+
+exports.checkRentalPaymentStatus = async (req, res) => {
+  try {
+    const rental = await Rental.findById(req.params.id);
+    if (!rental) {
+      return res.status(404).json({ success: false, message: 'Rental not found' });
+    }
+    if (![rental.owner.toString(), rental.renter.toString()].includes(req.user.id)) {
+      return res.status(403).json({ success: false, message: 'Not authorized to view this rental payment' });
+    }
+    if (!rental.payment?.paymentReference) {
+      return res.status(400).json({ success: false, message: 'Rental payment has not been initiated yet' });
+    }
+    const result = await rentalPaymentService.refreshRentalPaymentStatus(rental.payment?.paymentReference);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Check rental payment status error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to check rental payment' });
+  }
+};
+
 // Get rental details
 exports.getRentalDetails = async (req, res) => {
   try {
@@ -133,7 +225,7 @@ exports.getRentalDetails = async (req, res) => {
     const { itemType } = req.query;
 
     let item;
-    if (itemType === 'trailer') {
+    if (isTrailerFleetItem(itemType)) {
       item = await Trailer.findById(id)
         .populate('owner', 'fullName email phone rating')
         .populate('trailerType', 'name icon description');
@@ -182,7 +274,7 @@ exports.createRentalRequest = async (req, res) => {
 
     // Get the item
     let item;
-    if (itemType === 'trailer') {
+    if (isTrailerFleetItem(itemType)) {
       item = await Trailer.findById(itemId);
     } else {
       item = await Vehicle.findById(itemId);
@@ -191,7 +283,7 @@ exports.createRentalRequest = async (req, res) => {
     if (!item) {
       return res.status(404).json({
         success: false,
-        message: `${itemType === 'trailer' ? 'Trailer' : 'Vehicle'} not found`
+        message: `${displayItemType(itemType)} not found`
       });
     }
 
@@ -269,7 +361,7 @@ exports.createRentalRequest = async (req, res) => {
     };
 
     // Set either vehicle or trailer reference
-    if (itemType === 'trailer') {
+    if (isTrailerFleetItem(itemType)) {
       rentalData.trailer = itemId;
     } else {
       rentalData.vehicle = itemId;
@@ -304,7 +396,7 @@ exports.getMyRentals = async (req, res) => {
 
     const rentals = await Rental.find(query)
       .populate('vehicle', 'registrationNumber images rentalSettings')
-      .populate('trailer', 'registrationNumber images rentalSettings')
+      .populate('trailer', 'registrationNumber assetType assetName tractorUnit combination images rentalSettings')
       .populate('owner', 'fullName phone')
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -344,7 +436,7 @@ exports.getMyListings = async (req, res) => {
 
     const rentals = await Rental.find(query)
       .populate('vehicle', 'registrationNumber images')
-      .populate('trailer', 'registrationNumber images')
+      .populate('trailer', 'registrationNumber assetType assetName tractorUnit combination images')
       .populate('renter', 'fullName phone rating')
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -390,10 +482,12 @@ exports.approveRental = async (req, res) => {
     }
 
     rental.status = 'approved';
+    rental.payment.rentalPayment.status = 'pending';
+    rental.payment.depositPayment.status = 'pending';
     rental.statusHistory.push({
       status: 'approved',
       changedBy: req.user.id,
-      notes: 'Rental approved by owner'
+      notes: 'Rental approved by owner; awaiting payment'
     });
     await rental.save();
 
@@ -498,7 +592,7 @@ exports.confirmPickup = async (req, res) => {
     await rental.save();
 
     // Update item status
-    if (rental.itemType === 'trailer') {
+    if (isTrailerFleetItem(rental.itemType)) {
       await Trailer.findByIdAndUpdate(rental.trailer, {
         status: 'rented',
         currentRental: rental._id
@@ -564,9 +658,10 @@ exports.confirmReturn = async (req, res) => {
     });
 
     await rental.save();
+    await rentalPaymentService.settleRental(rental);
 
     // Update item status back to available
-    if (rental.itemType === 'trailer') {
+    if (isTrailerFleetItem(rental.itemType)) {
       await Trailer.findByIdAndUpdate(rental.trailer, {
         status: 'available',
         currentRental: null
@@ -614,7 +709,7 @@ exports.getActiveRentals = async (req, res) => {
 
     const rentals = await Rental.find(query)
       .populate('vehicle', 'registrationNumber images rentalSettings')
-      .populate('trailer', 'registrationNumber images rentalSettings trailerType currentLocation')
+      .populate('trailer', 'registrationNumber assetType assetName tractorUnit combination images rentalSettings trailerType currentLocation')
       .populate('owner', 'fullName phone rating')
       .populate('renter', 'fullName phone rating')
       .sort({ 'rentalPeriod.startDate': -1 });

@@ -39,4 +39,28 @@ router.get('/insurance-options', getInsuranceOptions);
 router.get('/insurance-options/by-category', getInsuranceOptionsByCategory);
 router.post('/insurance-quotes', getInsuranceQuotes);
 
+router.get('/payment-options', (req, res) => {
+  res.json({
+    success: true,
+    data: [
+      { code: 'openapi_africa', name: 'OpenAPI Africa ClicknPay' },
+      { code: 'card', name: 'Card' },
+      { code: 'bank_transfer', name: 'Bank Transfer' },
+      { code: 'ecocash', name: 'EcoCash' },
+      { code: 'onemoney', name: 'OneMoney' },
+      { code: 'cash_agent', name: 'Cash via Agent' },
+      { code: 'cash_on_pickup', name: 'Cash on Pickup' },
+      { code: 'cash_on_delivery', name: 'Cash on Delivery' },
+      { code: 'corporate', name: 'Corporate Invoice' }
+    ]
+  });
+});
+
+router.get('/cities', (req, res) => {
+  res.json({
+    success: true,
+    data: ['Harare', 'Bulawayo', 'Mutare', 'Gweru', 'Masvingo', 'Kwekwe', 'Kadoma', 'Chitungwiza', 'Victoria Falls']
+  });
+});
+
 module.exports = router;

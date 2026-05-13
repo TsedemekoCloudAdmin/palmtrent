@@ -40,14 +40,14 @@ export const DeliveryCompletedScreen = ({ navigation, route, onNavigate }) => {
           </TouchableOpacity>
           <View>
             <Text style={styles.headerTitle}>Delivery Complete!</Text>
-            <Text style={styles.jobId}>Job ID: {job?.id || 'PT-2025-001234'}</Text>
+            <Text style={styles.jobId}>Job ID: {job?.id || job?.bookingReference || route.params?.shipmentId || 'Unavailable'}</Text>
           </View>
         </View>
         
         <View style={styles.ratingContainer}>
           <MaterialIcons name="star" size={16} color="#fbbf24" />
-          <Text style={styles.ratingText}>4.8</Text>
-          <Text style={styles.tripsText}>• 45 trips</Text>
+          <Text style={styles.ratingText}>{user?.rating?.average || 'N/A'}</Text>
+          <Text style={styles.tripsText}>{user?.rating?.count ? ` - ${user.rating.count} trips` : ''}</Text>
           <Text style={styles.userTypeBadge}>
             {user?.userType === 'transporter' ? 'Transporter' : 'Shipper'}
           </Text>

@@ -1,0 +1,310 @@
+.fleet-page {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 250px 1fr;
+  background: #f6f7f9;
+  color: #172033;
+}
+
+.fleet-sidebar {
+  background: #172033;
+  color: #fff;
+  padding: 1.25rem;
+}
+
+.fleet-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-weight: 700;
+  margin-bottom: 2rem;
+}
+
+.fleet-sidebar button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border: none;
+  background: transparent;
+  color: #d1d5db;
+  padding: 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-bottom: 0.4rem;
+}
+
+.fleet-sidebar button.active,
+.fleet-sidebar button:hover {
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+}
+
+.fleet-main {
+  padding: 1.5rem;
+}
+
+.fleet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.fleet-header h1 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1.6rem;
+}
+
+.fleet-header p,
+.settings-copy p {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.icon {
+  width: 18px;
+  height: 18px;
+}
+
+.fleet-primary,
+.fleet-secondary,
+.asset-actions button,
+.rental-actions button {
+  border: none;
+  border-radius: 6px;
+  padding: 0.65rem 1rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.fleet-primary {
+  background: #2563eb;
+  color: #fff;
+}
+
+.fleet-secondary,
+.asset-actions button,
+.rental-actions button {
+  background: #fff;
+  border: 1px solid #d1d5db;
+  color: #172033;
+}
+
+.fleet-message {
+  background: #ecfeff;
+  border: 1px solid #a5f3fc;
+  color: #155e75;
+  padding: 0.8rem 1rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+
+.fleet-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.fleet-stat,
+.fleet-panel,
+.asset-card,
+.rental-row {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.fleet-stat {
+  padding: 1rem;
+}
+
+.stat-icon {
+  color: #2563eb;
+  margin-bottom: 0.5rem;
+}
+
+.fleet-stat span {
+  display: block;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.fleet-stat strong {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 1.4rem;
+}
+
+.fleet-grid-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) 1fr;
+  gap: 1rem;
+}
+
+.fleet-panel {
+  padding: 1rem;
+}
+
+.panel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.panel-title h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.fleet-form,
+.asset-list,
+.rental-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.fleet-form label,
+.request-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: #475569;
+  font-size: 0.85rem;
+}
+
+.fleet-form input,
+.fleet-form select,
+.request-controls input,
+.panel-title select {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 0.65rem;
+  font: inherit;
+}
+
+.form-row,
+.toggle-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.request-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.toggle-row label {
+  flex-direction: row;
+  align-items: center;
+}
+
+.asset-card,
+.rental-row {
+  padding: 1rem;
+  display: grid;
+  grid-template-columns: 1.4fr 1fr auto auto;
+  align-items: center;
+  gap: 1rem;
+}
+
+.asset-card h3,
+.rental-row h3 {
+  margin: 0 0 0.2rem 0;
+  font-size: 1rem;
+}
+
+.asset-card p,
+.rental-row p,
+.asset-meta {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.asset-meta,
+.asset-actions,
+.rental-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.rental-note {
+  color: #64748b;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.status {
+  display: inline-flex;
+  width: fit-content;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  background: #e5e7eb;
+  color: #374151;
+  font-size: 0.75rem;
+  text-transform: capitalize;
+}
+
+.status.available,
+.status.approved,
+.status.completed {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.status.rented,
+.status.active,
+.status.confirmed {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.status.maintenance,
+.status.pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.empty-state {
+  padding: 1.5rem;
+  text-align: center;
+  color: #64748b;
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+@media (max-width: 900px) {
+  .fleet-page,
+  .fleet-grid-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .fleet-sidebar {
+    display: flex;
+    gap: 0.5rem;
+    overflow-x: auto;
+  }
+
+  .fleet-sidebar button,
+  .fleet-brand {
+    width: auto;
+    margin: 0;
+    white-space: nowrap;
+  }
+
+  .asset-card,
+  .rental-row {
+    grid-template-columns: 1fr;
+  }
+}

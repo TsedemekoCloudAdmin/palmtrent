@@ -1,4 +1,4 @@
-const Vehicle = require('../models/Vehicle');
+const Trailer = require('../models/Trailer');
 const Rental = require('../models/Rental');
 const { formatRelativeTime } = require('../utils/formatDate');
 
@@ -6,14 +6,16 @@ exports.getDashboardStats = async (req, res) => {
   try {
     const ownerId = req.user.id;
 
-    // Get all trailers owned by user
-    const trailers = await Vehicle.find({ owner: ownerId, type: 'trailer' });
-    const totalTrailers = trailers.length;
+    const assets = await Trailer.find({ owner: ownerId });
+    const totalAssets = assets.length;
 
-    // Count trailers by status
-    const available = trailers.filter(t => t.status === 'available').length;
-    const rented = trailers.filter(t => t.status === 'rented').length;
-    const maintenance = trailers.filter(t => t.status === 'maintenance').length;
+    const available = assets.filter(t => t.status === 'available').length;
+    const rented = assets.filter(t => t.status === 'rented').length;
+    const maintenance = assets.filter(t => t.status === 'maintenance').length;
+    const trailers = assets.filter(t => (t.assetType || 'trailer') === 'trailer').length;
+    const tractorUnits = assets.filter(t => t.assetType === 'tractor_unit').length;
+    const trucks = assets.filter(t => t.assetType === 'truck').length;
+    const fullRigs = assets.filter(t => t.assetType === 'full_rig').length;
 
     // Calculate this month's earnings (if Rental model exists)
     const startOfMonth = new Date();
@@ -46,14 +48,19 @@ exports.getDashboardStats = async (req, res) => {
     */
 
     // Calculate utilization rate
-    const utilizationRate = totalTrailers > 0 
-      ? ((rented / totalTrailers) * 100).toFixed(0) 
+    const utilizationRate = totalAssets > 0
+      ? ((rented / totalAssets) * 100).toFixed(0)
       : 0;
 
     res.status(200).json({
       success: true,
       data: {
-        totalTrailers,
+        totalAssets,
+        totalTrailers: trailers,
+        trailers,
+        tractorUnits,
+        trucks,
+        fullRigs,
         available,
         rented,
         maintenance,
@@ -75,26 +82,22 @@ exports.getRecentActivity = async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 5;
 
-    // Get recent trailer status changes
-    const recentTrailers = await Vehicle.find({
-      owner: req.user._id,
-      type: 'trailer'
-    })
+    const recentAssets = await Trailer.find({ owner: req.user._id })
       .sort({ updatedAt: -1 })
       .limit(limit)
-      .select('registrationNumber model status updatedAt')
+      .select('registrationNumber assetType assetName tractorUnit status updatedAt')
       .lean();
 
-    const activities = recentTrailers.map(trailer => {
+    const activities = recentAssets.map(asset => {
       let status = 'Available';
-      if (trailer.status === 'rented') status = 'Rental Active';
-      if (trailer.status === 'maintenance') status = 'In Maintenance';
+      if (asset.status === 'rented') status = 'Rental Active';
+      if (asset.status === 'maintenance') status = 'In Maintenance';
 
       return {
-        id: trailer._id,
-        title: `${trailer.model} ${trailer.registrationNumber}`,
+        id: asset._id,
+        title: `${asset.assetName || asset.tractorUnit?.model || asset.assetType || 'Fleet asset'} ${asset.registrationNumber}`,
         status,
-        date: formatRelativeTime(trailer.updatedAt),
+        date: formatRelativeTime(asset.updatedAt),
         amount: '$0' // You can add rental amount if available
       };
     });
@@ -114,10 +117,7 @@ exports.getRecentActivity = async (req, res) => {
 
 exports.getTrailers = async (req, res) => {
   try {
-    const trailers = await Vehicle.find({
-      owner: req.user._id,
-      type: 'trailer'
-    }).sort({ createdAt: -1 });
+    const trailers = await Trailer.find({ owner: req.user._id }).sort({ createdAt: -1 });
 
     res.status(200).json({
       success: true,

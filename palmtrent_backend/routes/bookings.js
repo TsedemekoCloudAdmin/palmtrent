@@ -9,6 +9,7 @@ const {
   confirmPayment,
   cancelBooking,
   calculatePricing,
+  getBookingStats,
   getPricingConfig,
   updatePricingConfig,
   createBookingWithPayment
@@ -21,7 +22,7 @@ const {
   acceptJob,
   declineJob
 } = require('../controllers/matchingController');
-const { protect } = require('../middleware/auth');
+const { protect, authorize, requireVerified } = require('../middleware/auth');
 
 // All routes require authentication
 router.use(protect);
@@ -35,20 +36,23 @@ router.get('/my-bookings', getAllBookings);
 router.post('/calculate-pricing', calculatePricing);
 
 // POST /api/v1/bookings/update-pricing-config - Update pricing config (MUST be before /:id)
-router.post('/update-pricing-config', updatePricingConfig);
+router.post('/update-pricing-config', authorize('admin'), updatePricingConfig);
 
 // POST /api/v1/bookings/create-with-payment - Create booking with payment (MUST be before /:id)
 router.post('/create-with-payment', createBookingWithPayment);
 
+router.get('/stats', getBookingStats);
+router.get('/pricing-config', getPricingConfig);
+
 // JOB ENDPOINTS - For transporters (MUST be before /:id)
 // GET /api/v1/bookings/jobs/available - Get available jobs for transporter
-router.get('/jobs/available', getAvailableJobs);
+router.get('/jobs/available', authorize('transporter'), requireVerified('transporter'), getAvailableJobs);
 
 // POST /api/v1/bookings/jobs/:id/accept - Accept a job
-router.post('/jobs/:id/accept', acceptJob);
+router.post('/jobs/:id/accept', authorize('transporter'), requireVerified('transporter'), acceptJob);
 
 // POST /api/v1/bookings/jobs/:id/decline - Decline a job
-router.post('/jobs/:id/decline', declineJob);
+router.post('/jobs/:id/decline', authorize('transporter'), requireVerified('transporter'), declineJob);
 
 // ============ BASE ROUTES ============
 
@@ -77,12 +81,12 @@ router.post('/:id/cancel', cancelBooking);
 
 // MATCHING ENDPOINTS - Transporter-Booking Matching
 // POST /api/v1/bookings/:id/find-transporters - Manually trigger matching for a booking
-router.post('/:id/find-transporters', findTransporters);
+router.post('/:id/find-transporters', authorize('admin', 'shipper', 'corporate'), findTransporters);
 
 // GET /api/v1/bookings/:id/matches - Get match results for a booking
 router.get('/:id/matches', getMatches);
 
 // POST /api/v1/bookings/:id/broadcast - Broadcast booking to top transporters
-router.post('/:id/broadcast', broadcastToTransporters);
+router.post('/:id/broadcast', authorize('admin', 'shipper', 'corporate'), broadcastToTransporters);
 
 module.exports = router;

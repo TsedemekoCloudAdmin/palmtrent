@@ -39,6 +39,13 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
   };
 
   const isCashOnDelivery = job?.payment === 'cash_delivery' || job?.payment?.method === 'cash_on_delivery';
+  const cargoDetails = job?.cargoDetails || {};
+  const expectedRecipient = job?.route?.delivery?.contactPerson || job?.receiver?.name || 'Recipient';
+  const expectedRecipientPhone = job?.route?.delivery?.contactPhone || job?.receiver?.phone || '';
+  const expectedCargo = cargoDetails.description ||
+    `${cargoDetails.quantity ? `${cargoDetails.quantity} ` : ''}${cargoDetails.type || 'cargo'}${cargoDetails.weight ? ` (${cargoDetails.weight} kg)` : ''}`;
+  const paymentTotal = job?.pricing?.totals?.total || job?.pricing?.total || job?.totalAmount || job?.amount || 0;
+  const platformFee = job?.pricing?.totals?.platformCommission || job?.pricing?.breakdown?.platformCommission || 0;
 
   const handleCompleteDelivery = async () => {
     if (!checklist.signature || (isCashOnDelivery && !checklist.cashCollected)) return;
@@ -59,8 +66,8 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
         photos: checklist.photos,
         notes: `Cargo delivered and inspected. ${checklist.photos.length} photos taken. Recipient verified.`,
         signature: checklist.signature,
-        receiverName: 'Mr. Dube', // In a real app, this would come from user input
-        receiverPhone: job?.receiver?.phone || ''
+        receiverName: expectedRecipient,
+        receiverPhone: expectedRecipientPhone
       });
 
       if (response.success) {
@@ -103,7 +110,7 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
           </TouchableOpacity>
           <View>
             <Text style={styles.headerTitle}>Delivery Checklist</Text>
-            <Text style={styles.jobId}>Job ID: {job?.id || 'PT-2025-001234'}</Text>
+            <Text style={styles.jobId}>Job ID: {job?.id || job?.bookingReference || shipmentId || 'Unavailable'}</Text>
           </View>
         </View>
       </View>
@@ -139,8 +146,8 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
           >
             <View style={styles.infoCard}>
               <Text style={styles.infoLabel}>Expected Recipient:</Text>
-              <Text style={styles.infoValue}>Mr. Dube</Text>
-              <Text style={styles.infoSubtext}>+263 71 XXX XXXX</Text>
+              <Text style={styles.infoValue}>{expectedRecipient}</Text>
+              <Text style={styles.infoSubtext}>{expectedRecipientPhone || 'Phone not provided'}</Text>
             </View>
             <TouchableOpacity
               style={[styles.button, styles.primaryButton, !checklist.arrived && styles.buttonDisabled]}
@@ -162,7 +169,7 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
             <View style={styles.detailsContainer}>
               <View style={styles.detailRow}>
                 <Text style={styles.detailLabel}>Expected:</Text>
-                <Text style={styles.detailValue}>100 bags maize</Text>
+                <Text style={styles.detailValue}>{expectedCargo}</Text>
               </View>
               <View style={styles.detailRow}>
                 <Text style={styles.detailLabel}>Offloading:</Text>
@@ -225,9 +232,9 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
             >
               <View style={styles.paymentCard}>
                 <Text style={styles.paymentTitle}>💰 Collect from recipient:</Text>
-                <Text style={styles.paymentAmount}>USD $505.00</Text>
+                <Text style={styles.paymentAmount}>USD ${paymentTotal.toFixed(2)}</Text>
                 <Text style={styles.paymentBreakdown}>
-                  Includes: Transport ($400) + Platform Fee ($60) + Insurance ($45)
+                  Includes platform charges and any selected insurance.
                 </Text>
               </View>
               <TouchableOpacity
@@ -262,7 +269,7 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
             {checklist.signature && (
               <View style={styles.successMessage}>
                 <MaterialIcons name="check-circle" size={16} color="#166534" />
-                <Text style={styles.successText}>Signed by Mr. Dube • ID: 63-XXXXXX-X-XX</Text>
+                <Text style={styles.successText}>Signed by {expectedRecipient}</Text>
               </View>
             )}
           </ChecklistCard>
@@ -271,14 +278,14 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
             <View style={styles.warningCard}>
               <Text style={styles.warningTitle}>⚠️ IMPORTANT: Pay Platform Fee Now</Text>
               <Text style={styles.warningText}>
-                You must remit USD $105 (platform fee + insurance) before completing delivery
+                You must remit USD ${platformFee.toFixed(2)} platform fee before completing delivery
               </Text>
               <TouchableOpacity
                 style={[styles.button, styles.dangerButton]}
                 onPress={() => navigateTo('remit-commission')}
                 activeOpacity={0.7}
               >
-                <Text style={styles.buttonText}>Pay Platform Fee ($105)</Text>
+                <Text style={styles.buttonText}>Pay Platform Fee (${platformFee.toFixed(2)})</Text>
               </TouchableOpacity>
             </View>
           )}

@@ -1,18 +1,19 @@
 // services/storageService.js
 const crypto = require('crypto');
 const path = require('path');
+const { getIntegrationConfig } = require('./integrationSettingsService');
 
 class StorageService {
   constructor() {
-    this.provider = process.env.STORAGE_PROVIDER || 'local';
+    this.provider = process.env.STORAGE_PROVIDER || process.env.STORAGE_DRIVER || 'local';
     this.baseUrl = process.env.STORAGE_BASE_URL || '/uploads';
 
     // AWS S3 config (if using S3)
     this.s3Config = {
-      bucket: process.env.AWS_S3_BUCKET,
-      region: process.env.AWS_REGION || 'us-east-1',
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+      bucket: process.env.AWS_S3_BUCKET || process.env.STORAGE_BUCKET,
+      region: process.env.AWS_REGION || process.env.STORAGE_REGION || 'us-east-1',
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID || process.env.STORAGE_ACCESS_KEY_ID,
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || process.env.STORAGE_SECRET_ACCESS_KEY
     };
 
     // Cloudinary config (if using Cloudinary)
@@ -21,6 +22,19 @@ class StorageService {
       apiKey: process.env.CLOUDINARY_API_KEY,
       apiSecret: process.env.CLOUDINARY_API_SECRET
     };
+  }
+
+  async refreshConfig() {
+    const config = await getIntegrationConfig('storage');
+    this.provider = config.driver || process.env.STORAGE_PROVIDER || process.env.STORAGE_DRIVER || 'local';
+    this.baseUrl = config.baseUrl || process.env.STORAGE_BASE_URL || '/uploads';
+    this.s3Config = {
+      bucket: config.bucket || process.env.AWS_S3_BUCKET || process.env.STORAGE_BUCKET,
+      region: config.region || process.env.AWS_REGION || process.env.STORAGE_REGION || 'us-east-1',
+      accessKeyId: config.accessKeyId || process.env.AWS_ACCESS_KEY_ID || process.env.STORAGE_ACCESS_KEY_ID,
+      secretAccessKey: config.secretAccessKey || process.env.AWS_SECRET_ACCESS_KEY || process.env.STORAGE_SECRET_ACCESS_KEY
+    };
+    return this;
   }
 
   /**
@@ -37,6 +51,7 @@ class StorageService {
    * Get upload URL for direct client upload (presigned URL for S3)
    */
   async getUploadUrl(filename, contentType, folder = 'general') {
+    await this.refreshConfig();
     if (this.provider === 's3' && this.s3Config.bucket) {
       return this.getS3PresignedUrl(filename, contentType, folder);
     }
@@ -88,10 +103,35 @@ class StorageService {
     }
   }
 
+  async getSignedDownloadUrl(key, expiresIn = 900) {
+    await this.refreshConfig();
+    if (this.provider !== 's3' || !this.s3Config.bucket) {
+      return { url: key, provider: 'local', expiresIn: null };
+    }
+
+    const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
+    const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
+    const client = new S3Client({
+      region: this.s3Config.region,
+      credentials: {
+        accessKeyId: this.s3Config.accessKeyId,
+        secretAccessKey: this.s3Config.secretAccessKey
+      }
+    });
+
+    const command = new GetObjectCommand({ Bucket: this.s3Config.bucket, Key: key });
+    return {
+      url: await getSignedUrl(client, command, { expiresIn }),
+      provider: 's3',
+      expiresIn
+    };
+  }
+
   /**
    * Upload file to storage (server-side upload)
    */
   async uploadFile(fileBuffer, filename, contentType, folder = 'general') {
+    await this.refreshConfig();
     if (this.provider === 's3' && this.s3Config.bucket) {
       return this.uploadToS3(fileBuffer, filename, contentType, folder);
     }
@@ -196,6 +236,7 @@ class StorageService {
    * Delete file from storage
    */
   async deleteFile(fileUrl) {
+    await this.refreshConfig();
     if (this.provider === 's3') {
       return this.deleteFromS3(fileUrl);
     }

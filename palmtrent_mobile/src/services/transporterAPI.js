@@ -5,7 +5,7 @@ export const transporterAPI = {
   getAvailableJobs: async (filters = {}) => {
     const { page = 1, limit = 10, vehicleType, maxDistance, minPrice } = filters;
     
-    let url = `/jobs/available?page=${page}&limit=${limit}`;
+    let url = `/bookings/jobs/available?page=${page}&limit=${limit}`;
     const params = new URLSearchParams();
     
     if (vehicleType) params.append('vehicleType', vehicleType);
@@ -21,13 +21,13 @@ export const transporterAPI = {
 
   // Job actions
   acceptJob: async (shipmentId) => {
-    return apiService.request(`/jobs/${shipmentId}/accept`, {
+    return apiService.request(`/bookings/jobs/${shipmentId}/accept`, {
       method: 'POST',
     });
   },
 
   rejectJob: async (shipmentId, reason = '') => {
-    return apiService.request(`/jobs/${shipmentId}/reject`, {
+    return apiService.request(`/bookings/jobs/${shipmentId}/decline`, {
       method: 'POST',
       body: JSON.stringify({ reason }),
     });

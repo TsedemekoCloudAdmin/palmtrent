@@ -14,8 +14,12 @@ const escrowSchema = new mongoose.Schema({
   },
   escrowReference: {
     type: String,
-    required: true,
-    unique: true
+    unique: true,
+    default: () => {
+      const timestamp = Date.now().toString(36);
+      const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+      return `ESC-${timestamp}-${random}`;
+    }
   },
   amount: {
     type: Number,
@@ -58,7 +62,7 @@ const escrowSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    enum: ['ecocash', 'onemoney', 'card', 'bank_transfer', 'cash_agent', 'cash_on_pickup', 'cash_on_delivery'],
+    enum: ['digital', 'ecocash', 'onemoney', 'card', 'bank_transfer', 'openapi_africa', 'clicknpay', 'cash_agent', 'cash_on_pickup', 'cash_on_delivery', 'corporate'],
     required: true
   },
   heldAt: {
@@ -171,12 +175,14 @@ escrowSchema.statics.findReadyForRelease = function() {
 escrowSchema.statics.getCommissionRate = function(paymentMethod) {
   const rates = {
     'ecocash': 0.12,        // 12% digital
+    'digital': 0.12,        // 12% digital
     'onemoney': 0.12,       // 12% digital
     'card': 0.12,           // 12% digital
     'bank_transfer': 0.12,  // 12% digital
     'cash_agent': 0.12,     // 12% via agent
     'cash_on_pickup': 0.15, // 15% cash on pickup
-    'cash_on_delivery': 0.18 // 18% cash on delivery
+    'cash_on_delivery': 0.18, // 18% cash on delivery
+    'corporate': 0.12
   };
   return rates[paymentMethod] || 0.12;
 };
@@ -184,7 +190,6 @@ escrowSchema.statics.getCommissionRate = function(paymentMethod) {
 // Indexes
 escrowSchema.index({ booking: 1 });
 escrowSchema.index({ payment: 1 });
-escrowSchema.index({ escrowReference: 1 });
 escrowSchema.index({ status: 1 });
 escrowSchema.index({ transporter: 1 });
 escrowSchema.index({ shipper: 1 });

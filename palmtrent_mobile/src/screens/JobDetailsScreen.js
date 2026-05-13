@@ -94,32 +94,18 @@ const JobDetailsScreen = ({ navigation, route }) => {
     }
   };
 
-  // Use actual data or mock data for display
-  const jobData = bookingData || job || {
-    id: 'PT-2025-001234',
-    bookingReference: 'PT-2025-001234',
-    route: {
-      from: 'Harare',
-      to: 'Bulawayo',
-      pickup: { address: 'Harare' },
-      delivery: { address: 'Bulawayo' },
-      distance: 440
-    },
-    distance: 440,
-    cargo: '5 tonnes maize in bags',
-    earnings: 400,
-    shipper: { name: 'John Moyo', rating: 4.8, trips: 45 },
-    transporter: null,
-    pickup: { date: 'Tomorrow', time: '6-12 PM' },
-    payment: 'digital',
-    expiresIn: 28,
-    recommended: true,
-    returnLoads: 2,
-    status: 'pending',
-    totalPrice: 450,
-    pricing: { totals: { transporterTotal: 400 } },
-    cargoDetails: { type: 'General', weight: 5000 }
-  };
+  const jobData = bookingData || job;
+
+  if (!jobData) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <MaterialIcons name="assignment" size={48} color="#9ca3af" />
+          <Text style={styles.loadingText}>Job details are not available.</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   // Extract data from actual booking structure
   const displayData = {

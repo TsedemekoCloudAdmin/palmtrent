@@ -359,7 +359,6 @@ insuranceProviderSchema.statics.seedProviders = async function() {
 };
 
 // Indexes
-insuranceProviderSchema.index({ code: 1 });
 insuranceProviderSchema.index({ active: 1 });
 insuranceProviderSchema.index({ priority: -1 });
 

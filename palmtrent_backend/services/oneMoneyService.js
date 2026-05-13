@@ -1,6 +1,7 @@
 // services/oneMoneyService.js
 const { Paynow } = require("paynow");
 const Payment = require('../models/Payment');
+const { getIntegrationConfig } = require('./integrationSettingsService');
 
 class OneMoneyService {
   constructor() {
@@ -25,6 +26,22 @@ class OneMoneyService {
     if (process.env.NODE_ENV === 'development') {
       this.paynow.debug = true;
     }
+  }
+
+  async refreshPaynowClient() {
+    const config = await getIntegrationConfig('paynow');
+    if (!config.integrationId || !config.integrationKey) {
+      this.paynow = null;
+      return null;
+    }
+
+    this.paynow = new Paynow(config.integrationId, config.integrationKey);
+    this.paynow.resultUrl = config.resultUrl || process.env.PAYNOW_RESULT_URL || "http://localhost:3000/api/payments/webhook";
+    this.paynow.returnUrl = config.returnUrl || process.env.PAYNOW_RETURN_URL || "http://localhost:3000/payment/return";
+    if (process.env.NODE_ENV === 'development') {
+      this.paynow.debug = true;
+    }
+    return this.paynow;
   }
 
   /**
@@ -71,6 +88,7 @@ class OneMoneyService {
    * Initiate OneMoney payment via Paynow
    */
   async initiatePayment(paymentReference, amount, phoneNumber, email) {
+    await this.refreshPaynowClient();
     if (!this.paynow) {
       throw new Error('OneMoney service not configured. Missing Paynow credentials.');
     }
@@ -124,6 +142,7 @@ class OneMoneyService {
    * Poll payment status
    */
   async pollStatus(pollUrl) {
+    await this.refreshPaynowClient();
     if (!this.paynow) {
       throw new Error('OneMoney service not configured');
     }

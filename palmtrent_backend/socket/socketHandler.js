@@ -36,7 +36,7 @@ const setupSocketHandler = (io) => {
 
   io.on('connection', (socket) => {
     const userId = socket.user._id.toString();
-    const userRole = socket.user.role;
+    const userRole = socket.user.userType;
 
     console.log(`User connected: ${userId} (${userRole})`);
 
@@ -314,14 +314,17 @@ const emitToRole = (io, role, event, data) => {
 };
 
 const emitNewJob = (io, booking) => {
+  const cargo = booking.cargoDetails || booking.cargo || {};
+  const total = booking.pricing?.totals?.total || booking.pricing?.total || booking.totalAmount || 0;
+
   io.to('jobs:available').emit('jobs:new', {
     bookingId: booking._id,
     pickup: booking.route.pickup,
     delivery: booking.route.delivery,
-    cargoType: booking.cargo.type,
-    weight: booking.cargo.weight,
-    price: booking.pricing.total,
-    pickupDate: booking.route.pickup.scheduledDate
+    cargoType: cargo.type,
+    weight: cargo.weight,
+    price: total,
+    pickupDate: booking.route.pickup.date || booking.route.pickup.scheduledDate
   });
 };
 

@@ -14,6 +14,10 @@ const bookingSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  corporateAccount: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'CorporateAccount'
+  },
   
   transporter: {
     type: mongoose.Schema.Types.ObjectId,
@@ -29,9 +33,17 @@ const bookingSchema = new mongoose.Schema({
       'pending',
       'finding_transporter',
       'matched',
+      'transporter_assigned',
       'confirmed',
+      'en_route_pickup',
+      'pickup_started',
+      'picked_up',
       'in_progress',
+      'in_transit',
+      'arrived_delivery',
+      'delivered',
       'completed',
+      'disputed',
       'cancelled'
     ],
     default: 'draft'
@@ -342,7 +354,7 @@ const bookingSchema = new mongoose.Schema({
     },
     status: {
       type: String,
-      enum: ['pending', 'confirmed', 'failed', 'refunded'],
+      enum: ['pending', 'confirmed', 'escrowed', 'released', 'failed', 'refunded', 'partially_refunded'],
       default: 'pending'
     },
     reference: {
@@ -360,13 +372,18 @@ const bookingSchema = new mongoose.Schema({
   // Separate payment status field for easier querying
   paymentStatus: {
     type: String,
-    enum: ['pending', 'confirmed', 'failed', 'refunded'],
+    enum: ['pending', 'confirmed', 'escrowed', 'released', 'failed', 'refunded', 'partially_refunded'],
     default: 'pending'
   },
 
   // Payment confirmation timestamp (for payment-before-broadcasting enforcement)
   paymentConfirmedAt: {
     type: Date
+  },
+
+  escrow: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Escrow'
   },
 
   // Matching timestamp
@@ -452,6 +469,18 @@ const bookingSchema = new mongoose.Schema({
       type: String,
       default: ''
     },
+    destinationCountryName: {
+      type: String,
+      default: ''
+    },
+    borderPost: {
+      type: String,
+      default: ''
+    },
+    tradeAgreement: {
+      type: String,
+      default: ''
+    },
     requiredDocuments: {
       commercialInvoice: {
         type: Boolean,
@@ -469,7 +498,20 @@ const bookingSchema = new mongoose.Schema({
         type: Boolean,
         default: false
       }
-    }
+    },
+    documents: [{
+      type: String,
+      name: String,
+      url: String,
+      status: {
+        type: String,
+        enum: ['pending', 'uploaded', 'verified', 'rejected'],
+        default: 'pending'
+      },
+      uploadedAt: Date,
+      verifiedAt: Date
+    }],
+    pricing: mongoose.Schema.Types.Mixed
   },
 
   // Cancellation structure
@@ -511,12 +553,25 @@ const bookingSchema = new mongoose.Schema({
 bookingSchema.pre('save', function(next) {
   // Check if status is being changed to finding_transporter or beyond
   if (this.isModified('status')) {
-    const statusesRequiringPayment = ['finding_transporter', 'matched', 'confirmed', 'in_progress'];
+    const statusesRequiringPayment = [
+      'finding_transporter',
+      'matched',
+      'transporter_assigned',
+      'confirmed',
+      'en_route_pickup',
+      'pickup_started',
+      'picked_up',
+      'in_progress',
+      'in_transit',
+      'arrived_delivery',
+      'delivered',
+      'completed'
+    ];
 
     if (statusesRequiringPayment.includes(this.status)) {
       // Verify payment is confirmed
       const isPaymentConfirmed =
-        this.paymentStatus === 'confirmed' ||
+        ['confirmed', 'escrowed', 'released'].includes(this.paymentStatus) ||
         this.payment?.status === 'confirmed' ||
         this.paymentConfirmedAt;
 
@@ -579,7 +634,7 @@ bookingSchema.pre('save', function(next) {
   }
   
   // Sync payment status and set paymentConfirmedAt timestamp
-  if (this.payment?.status) {
+  if (this.payment?.status && (this.isModified('payment.status') || !this.paymentStatus)) {
     this.paymentStatus = this.payment.status;
 
     // Auto-set paymentConfirmedAt when payment is confirmed
@@ -601,11 +656,11 @@ bookingSchema.index({ shipper: 1, status: 1 });
 bookingSchema.index({ transporter: 1, status: 1 });
 bookingSchema.index({ status: 1, transporter: 1 });
 bookingSchema.index({ user: 1, status: 1 });
+bookingSchema.index({ corporateAccount: 1, status: 1 });
 bookingSchema.index({ createdAt: -1 });
 bookingSchema.index({ updatedAt: -1 });
 bookingSchema.index({ vehicleType: 1, status: 1 });
 bookingSchema.index({ shipper: 1, createdAt: -1 });
-bookingSchema.index({ bookingReference: 1 });
 bookingSchema.index({ paymentStatus: 1 });
 // Payment-related indexes for enforcement and auto-cancellation
 bookingSchema.index({ paymentConfirmedAt: 1 });

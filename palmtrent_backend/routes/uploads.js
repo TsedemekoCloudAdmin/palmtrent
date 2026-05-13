@@ -8,6 +8,15 @@ const path = require('path');
 const fs = require('fs');
 const { protect } = require('../middleware/auth');
 const storageService = require('../services/storageService');
+const { recordAudit } = require('../services/auditService');
+const { execFile } = require('child_process');
+
+const MAGIC_BYTES = {
+  'image/jpeg': ['ffd8ff'],
+  'image/png': ['89504e47'],
+  'image/webp': ['52494646'],
+  'application/pdf': ['25504446']
+};
 
 // Ensure upload directories exist
 const uploadDirs = [
@@ -58,6 +67,23 @@ const createMulterConfig = (folder, maxSize = 10 * 1024 * 1024) => {
   });
 };
 
+const verifyMagicBytes = (file) => {
+  const allowed = MAGIC_BYTES[file.mimetype];
+  if (!allowed) return true;
+  const buffer = fs.readFileSync(file.path, { encoding: null });
+  const signature = buffer.subarray(0, 4).toString('hex');
+  return allowed.some(prefix => signature.startsWith(prefix));
+};
+
+const scanFile = (filePath) => new Promise((resolve, reject) => {
+  const command = process.env.UPLOAD_SCAN_COMMAND;
+  if (!command) return resolve({ scanned: false });
+  execFile(command, [filePath], { timeout: 30000 }, (error, stdout, stderr) => {
+    if (error) return reject(new Error(stderr || stdout || error.message));
+    resolve({ scanned: true, stdout });
+  });
+});
+
 // Upload presets
 const uploadPresets = {
   cargo: createMulterConfig('cargo', 10 * 1024 * 1024),
@@ -83,6 +109,26 @@ const handleUpload = (uploadType) => {
 
       const baseUrl = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
       const fileUrl = `${baseUrl}/uploads/${uploadType}/${req.file.filename}`;
+
+      if (!verifyMagicBytes(req.file)) {
+        fs.unlinkSync(req.file.path);
+        return res.status(400).json({ success: false, message: 'File content does not match its declared type' });
+      }
+      try {
+        await scanFile(req.file.path);
+      } catch (scanError) {
+        fs.unlinkSync(req.file.path);
+        return res.status(400).json({ success: false, message: `File failed security scan: ${scanError.message}` });
+      }
+
+      await recordAudit({
+        actor: req.user,
+        action: 'file.uploaded',
+        entityType: 'Upload',
+        entityRef: req.file.filename,
+        after: { uploadType, mimetype: req.file.mimetype, size: req.file.size },
+        req
+      });
 
       res.status(200).json({
         success: true,
@@ -119,6 +165,19 @@ const handleMultipleUpload = (uploadType) => {
       }
 
       const baseUrl = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+      const invalidFile = req.files.find(file => !verifyMagicBytes(file));
+      if (invalidFile) {
+        req.files.forEach(file => fs.existsSync(file.path) && fs.unlinkSync(file.path));
+        return res.status(400).json({ success: false, message: `File content does not match declared type: ${invalidFile.originalname}` });
+      }
+      for (const file of req.files) {
+        try {
+          await scanFile(file.path);
+        } catch (scanError) {
+          req.files.forEach(uploaded => fs.existsSync(uploaded.path) && fs.unlinkSync(uploaded.path));
+          return res.status(400).json({ success: false, message: `File failed security scan: ${file.originalname}` });
+        }
+      }
 
       const uploadedFiles = req.files.map(file => ({
         filename: file.filename,
@@ -133,6 +192,14 @@ const handleMultipleUpload = (uploadType) => {
         success: true,
         message: `${uploadedFiles.length} file(s) uploaded successfully`,
         data: uploadedFiles
+      });
+
+      await recordAudit({
+        actor: req.user,
+        action: 'files.uploaded',
+        entityType: 'Upload',
+        after: { uploadType, count: uploadedFiles.length },
+        req
       });
     } catch (error) {
       console.error('Multiple upload error:', error);
@@ -166,11 +233,28 @@ router.post('/claims/multiple', uploadPresets.claims.array('files', 10), handleM
 router.post('/verification/multiple', uploadPresets.verification.array('files', 10), handleMultipleUpload('verification'));
 router.post('/pod/multiple', uploadPresets.pod.array('files', 5), handleMultipleUpload('pod'));
 
+router.get('/signed-url/:type/:filename', async (req, res) => {
+  try {
+    const { type, filename } = req.params;
+    const key = `${type}/${path.basename(filename)}`;
+    const signed = await storageService.getSignedDownloadUrl(key);
+    res.json({ success: true, data: signed });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to create signed URL', error: error.message });
+  }
+});
+
 // Delete file route
 router.delete('/:type/:filename', async (req, res) => {
   try {
     const { type, filename } = req.params;
-    const filePath = path.join(process.cwd(), 'uploads', type, filename);
+    const safeFilename = path.basename(filename);
+    const filePath = path.join(process.cwd(), 'uploads', type, safeFilename);
+    const resolvedBase = path.resolve(process.cwd(), 'uploads', type);
+    const resolvedFile = path.resolve(filePath);
+    if (!resolvedFile.startsWith(resolvedBase)) {
+      return res.status(400).json({ success: false, message: 'Invalid file path' });
+    }
 
     // Check if file exists
     if (!fs.existsSync(filePath)) {
@@ -182,6 +266,15 @@ router.delete('/:type/:filename', async (req, res) => {
 
     // Delete file
     fs.unlinkSync(filePath);
+
+    await recordAudit({
+      actor: req.user,
+      action: 'file.deleted',
+      entityType: 'Upload',
+      entityRef: safeFilename,
+      metadata: { type },
+      req
+    });
 
     res.status(200).json({
       success: true,

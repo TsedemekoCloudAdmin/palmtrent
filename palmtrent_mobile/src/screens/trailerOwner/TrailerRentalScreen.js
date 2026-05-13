@@ -24,9 +24,9 @@ const TrailerRentalScreen = ({ navigation, route }) => {
 
   const fetchAvailableTrailers = useCallback(async () => {
     try {
-      const response = await apiService.request('/rentals/available?itemType=trailer');
+      const response = await apiService.request('/rentals/available');
       if (response.success) {
-        setTrailers(response.trailers || response.data || []);
+        setTrailers(response.fleetAssets || response.data || []);
       } else {
         setTrailers([]);
       }
@@ -50,13 +50,13 @@ const TrailerRentalScreen = ({ navigation, route }) => {
 
   const handleRentTrailer = async () => {
     if (!selectedTrailer) {
-      Alert.alert('Select Trailer', 'Please select a trailer to rent');
+      Alert.alert('Select Asset', 'Please select a fleet asset to rent');
       return;
     }
 
     Alert.alert(
       'Confirm Rental',
-      `Rent ${selectedTrailer.trailerType || 'this trailer'} for $${selectedTrailer.rentalSettings?.dailyRate || 0}/day?`,
+      `Rent ${selectedTrailer.assetName || selectedTrailer.registrationNumber || 'this asset'} for $${selectedTrailer.rentalSettings?.dailyRate || 0}/day?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -71,7 +71,7 @@ const TrailerRentalScreen = ({ navigation, route }) => {
               const response = await apiService.request('/rentals/request', {
                 method: 'POST',
                 body: JSON.stringify({
-                  itemType: 'trailer',
+                  itemType: selectedTrailer.itemType || selectedTrailer.assetType || 'trailer',
                   itemId: selectedTrailer._id,
                   startDate,
                   endDate,
@@ -82,7 +82,7 @@ const TrailerRentalScreen = ({ navigation, route }) => {
               if (response.success) {
                 Alert.alert(
                   'Rental Requested',
-                  'Your trailer rental request has been submitted. The owner will respond shortly.',
+                  'Your fleet rental request has been submitted. The owner will respond shortly.',
                   [
                     {
                       text: 'OK',
@@ -119,11 +119,11 @@ const TrailerRentalScreen = ({ navigation, route }) => {
             <MaterialIcons name="arrow-back" size={24} color="white" />
             <Text style={styles.backButtonText}>Back</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Rent a Trailer</Text>
+          <Text style={styles.headerTitle}>Rent Fleet Asset</Text>
         </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#0C2D48" />
-          <Text style={styles.loadingText}>Loading available trailers...</Text>
+          <Text style={styles.loadingText}>Loading available assets...</Text>
         </View>
       </SafeAreaView>
     );
@@ -142,8 +142,8 @@ const TrailerRentalScreen = ({ navigation, route }) => {
           <MaterialIcons name="arrow-back" size={24} color="white" />
           <Text style={styles.backButtonText}>Back</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Rent a Trailer</Text>
-        <Text style={styles.headerSubtitle}>I have truck, need trailer</Text>
+        <Text style={styles.headerTitle}>Rent Fleet Asset</Text>
+        <Text style={styles.headerSubtitle}>Trailers, tractor units, trucks, and full rigs</Text>
       </View>
 
       <ScrollView
@@ -158,22 +158,22 @@ const TrailerRentalScreen = ({ navigation, route }) => {
           <View style={styles.infoBanner}>
             <Text style={styles.infoTitle}>How it works</Text>
             <View style={styles.infoList}>
-              <Text style={styles.infoItem}>1. Select a trailer near your location</Text>
+              <Text style={styles.infoItem}>1. Select an asset near your location</Text>
               <Text style={styles.infoItem}>2. Rental fee is deducted from your earnings</Text>
               <Text style={styles.infoItem}>3. Damage deposit held in escrow</Text>
-              <Text style={styles.infoItem}>4. Return trailer after delivery</Text>
+              <Text style={styles.infoItem}>4. Return the asset after delivery</Text>
             </View>
           </View>
 
           {/* Available Trailers */}
           <Text style={styles.sectionTitle}>
-            Available Trailers ({trailers.length})
+            Available Fleet Assets ({trailers.length})
           </Text>
 
           {trailers.length === 0 ? (
             <View style={styles.emptyState}>
               <MaterialIcons name="local-shipping" size={48} color="#d1d5db" />
-              <Text style={styles.emptyTitle}>No trailers available</Text>
+              <Text style={styles.emptyTitle}>No fleet assets available</Text>
               <Text style={styles.emptySubtitle}>
                 Check back later or expand your search area
               </Text>
@@ -251,7 +251,7 @@ const TrailerRentalScreen = ({ navigation, route }) => {
             <Text style={styles.rentButtonText}>
               {selectedTrailer
                 ? `Rent for $${selectedTrailer.rentalSettings?.dailyRate || 0}/day`
-                : 'Select a Trailer'}
+                : 'Select an Asset'}
             </Text>
           )}
         </TouchableOpacity>
@@ -270,7 +270,7 @@ const TrailerCard = ({ trailer, selected, onSelect }) => (
       <View style={styles.trailerType}>
         <MaterialIcons name="local-shipping" size={20} color="#F37021" />
         <Text style={styles.trailerTypeText}>
-          {trailer.trailerType || 'Trailer'}
+          {trailer.assetName || trailer.trailerType || trailer.assetType || 'Fleet Asset'}
         </Text>
       </View>
       {trailer.rating?.average > 0 && (

@@ -42,7 +42,14 @@ const invoiceSchema = new mongoose.Schema({
     reference: String,
     paidAt: Date
   }],
-  notes: String
+  notes: String,
+  generatedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  sentAt: Date,
+  paidAt: Date,
+  cancelledAt: Date
 }, {
   timestamps: true
 });

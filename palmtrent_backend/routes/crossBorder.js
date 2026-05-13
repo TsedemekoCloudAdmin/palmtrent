@@ -9,6 +9,9 @@ const {
   updateBorderStatus,
   createCrossBorderBooking,
   getMyCrossBorderBookings,
+  uploadBookingDocument,
+  getBookingCompliance,
+  reviewBookingDocument,
   seedDestinations
 } = require('../controllers/crossBorderController');
 const { protect, authorize } = require('../middleware/auth');
@@ -26,8 +29,11 @@ router.use(protect);
 // Bookings
 router.post('/bookings', createCrossBorderBooking);
 router.get('/my-bookings', getMyCrossBorderBookings);
+router.get('/bookings/:bookingId/compliance', getBookingCompliance);
+router.post('/bookings/:bookingId/documents', uploadBookingDocument);
 
 // Admin routes
+router.patch('/bookings/:bookingId/documents/:documentId/review', reviewBookingDocument);
 router.patch('/border-status/:countryCode/:borderPostName', updateBorderStatus);
 router.post('/seed', seedDestinations);
 

@@ -158,6 +158,20 @@ const vehicleSchema = new mongoose.Schema({
       document: String
     }]
   },
+
+  verification: {
+    status: {
+      type: String,
+      enum: ['not_started', 'pending', 'approved', 'rejected'],
+      default: 'pending'
+    },
+    verifiedAt: Date,
+    verifiedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    notes: String
+  },
   
   // Status
   status: {
@@ -240,7 +254,6 @@ const vehicleSchema = new mongoose.Schema({
 });
 
 // Indexes
-vehicleSchema.index({ registrationNumber: 1 });
 vehicleSchema.index({ owner: 1 });
 vehicleSchema.index({ vehicleType: 1 });
 vehicleSchema.index({ status: 1 });

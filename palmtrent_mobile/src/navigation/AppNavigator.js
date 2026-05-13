@@ -5,6 +5,7 @@ import useAuth from '../hook/useAuth';
 // Import tab navigators
 import ShipperTabs from './ShipperTabs';
 import TransporterTabs from './TransporterTabs';
+import TrailerOwnerTabs from './TrailerOwnerTabs';
 
 // Import other screens
 import HomeScreen from '../screens/HomeScreen';
@@ -31,6 +32,8 @@ import TrailerDetailScreen from '../screens/trailerOwner/TrailerDetailScreen';
 import TrailerListScreen from '../screens/trailerOwner/TrailerListScreen';
 import TrailerTrackingScreen from '../screens/trailerOwner/TrailerTrackingScreen';
 import EditTrailerScreen from '../screens/trailerOwner/EditTrailerScreen';
+import FleetAssetFormScreen from '../screens/trailerOwner/FleetAssetFormScreen';
+import FleetRentalRequestsScreen from '../screens/trailerOwner/FleetRentalRequestsScreen';
 import CorporateAccountSetup from '../screens/shipper/CorporateAccountSetupScreen';
 import FleetDashboardScreen from '../screens/transporter/FleetDashboardScreen';
 import AddDriverScreen from '../screens/transporter/AddDriverScreen';
@@ -57,6 +60,12 @@ import ChatScreen from '../screens/ChatScreen';
 
 const Stack = createStackNavigator();
 
+const getMainTabs = (userType) => {
+  if (userType === 'transporter') return TransporterTabs;
+  if (userType === 'trailer_owner') return TrailerOwnerTabs;
+  return ShipperTabs;
+};
+
 const AppNavigator = () => {
   const { user } = useAuth();
 
@@ -68,7 +77,7 @@ const AppNavigator = () => {
       {/* Main Tab Navigator based on user type */}
       <Stack.Screen 
         name="MainTabs" 
-        component={user?.userType === 'transporter' ? TransporterTabs : ShipperTabs}
+        component={getMainTabs(user?.userType)}
       />
       
       {/* Common screens accessible from both user types */}
@@ -94,6 +103,8 @@ const AppNavigator = () => {
       <Stack.Screen name="TrailerRental" component={TrailerRental} />
        <Stack.Screen name="TrailerTracking" component={TrailerTrackingScreen} />
         <Stack.Screen name="EditTrailer" component={EditTrailerScreen} />
+        <Stack.Screen name="AddFleetAsset" component={FleetAssetFormScreen} />
+        <Stack.Screen name="FleetRentalRequests" component={FleetRentalRequestsScreen} />
       
       {/* Transporter specific screens */}
       <Stack.Screen name="AvailableJobs" component={AvailableJobsScreen} />
@@ -112,7 +123,7 @@ const AppNavigator = () => {
       <Stack.Screen name="EditVehicle" component={EditVehicleScreen} />
       <Stack.Screen name="EditDriver" component={EditDriverScreen} />
       <Stack.Screen name="VehicleRental" component={VehicleRentalScreen} />
-      <Stack.Screen name="MyRentals" component={HistoryScreen} />
+      <Stack.Screen name="MyRentals" component={FleetRentalRequestsScreen} />
 
       {/* Payment screens */}
       <Stack.Screen name="MobileMoneyPayment" component={MobileMoneyPaymentScreen} />

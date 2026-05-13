@@ -43,7 +43,7 @@ export const bookingAPI = {
 
   // Confirm booking (move to payment)
   confirmBooking: async (id) => {
-    return apiService.request(`/bookings/${id}/confirm`, {
+    return apiService.request(`/bookings/${id}/confirm-booking`, {
       method: 'POST',
     });
   },

@@ -6,13 +6,17 @@ const Rental = require('../models/Rental');
 // @access  Private
 exports.getMyTrailers = async (req, res) => {
   try {
-    const { status, search } = req.query;
+    const { status, search, assetType } = req.query;
 
     let query = { owner: req.user.id };
 
     // Filter by status
     if (status && status !== 'all') {
       query.status = status;
+    }
+
+    if (assetType && assetType !== 'all') {
+      query.assetType = assetType;
     }
 
     // Search by registration number or description
@@ -30,6 +34,10 @@ exports.getMyTrailers = async (req, res) => {
     // Get stats
     const stats = {
       total: await Trailer.countDocuments({ owner: req.user.id }),
+      trailers: await Trailer.countDocuments({ owner: req.user.id, assetType: 'trailer' }),
+      tractorUnits: await Trailer.countDocuments({ owner: req.user.id, assetType: 'tractor_unit' }),
+      trucks: await Trailer.countDocuments({ owner: req.user.id, assetType: 'truck' }),
+      fullRigs: await Trailer.countDocuments({ owner: req.user.id, assetType: 'full_rig' }),
       available: await Trailer.countDocuments({ owner: req.user.id, status: 'available' }),
       rented: await Trailer.countDocuments({ owner: req.user.id, status: 'rented' }),
       inUse: await Trailer.countDocuments({ owner: req.user.id, status: 'in_use' }),
@@ -104,11 +112,20 @@ exports.createTrailer = async (req, res) => {
     req.body.owner = req.user.id;
     req.body.createdBy = req.user.id;
 
-    const trailer = await Trailer.create(req.body);
+    const payload = {
+      ...req.body,
+      assetType: req.body.assetType || 'trailer'
+    };
+
+    if (payload.assetType !== 'trailer' && !payload.assetName) {
+      payload.assetName = `${payload.tractorUnit?.make || 'Fleet'} ${payload.tractorUnit?.model || 'Asset'}`.trim();
+    }
+
+    const trailer = await Trailer.create(payload);
 
     res.status(201).json({
       success: true,
-      message: 'Trailer registered successfully',
+      message: 'Fleet asset registered successfully',
       data: trailer
     });
   } catch (error) {
@@ -379,6 +396,7 @@ exports.getAvailableTrailers = async (req, res) => {
   try {
     const {
       trailerType,
+      assetType,
       city,
       minCapacity,
       maxCapacity,
@@ -393,6 +411,10 @@ exports.getAvailableTrailers = async (req, res) => {
 
     if (trailerType) {
       query.trailerType = trailerType;
+    }
+
+    if (assetType && assetType !== 'all') {
+      query.assetType = assetType;
     }
 
     if (city) {

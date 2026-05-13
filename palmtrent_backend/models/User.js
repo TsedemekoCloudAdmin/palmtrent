@@ -44,6 +44,90 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  isActive: {
+    type: Boolean,
+    default: true
+  },
+  verification: {
+    status: {
+      type: String,
+      enum: ['not_started', 'pending', 'approved', 'verified', 'rejected'],
+      default: 'not_started'
+    },
+    isVerified: {
+      type: Boolean,
+      default: false
+    },
+    submittedAt: Date,
+    verifiedAt: Date,
+    rejectedAt: Date,
+    verifiedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    rejectionReason: String,
+    personalInfo: {
+      idNumber: String,
+      dateOfBirth: Date,
+      address: String,
+      city: String,
+      province: String
+    },
+    documents: [{
+      type: {
+        type: String,
+        enum: [
+          'national_id_front',
+          'national_id_back',
+          'passport',
+          'driver_license_front',
+          'driver_license_back',
+          'selfie',
+          'proof_of_address',
+          'vehicle_registration',
+          'vid_certificate',
+          'zinara_license',
+          'insurance_certificate',
+          'reference',
+          'other'
+        ]
+      },
+      url: String,
+      originalName: String,
+      uploadedAt: { type: Date, default: Date.now },
+      expiryDate: Date,
+      verified: { type: Boolean, default: false }
+    }],
+    driverLicense: {
+      number: String,
+      expiryDate: Date,
+      classes: [String]
+    },
+    trustScore: {
+      type: Number,
+      min: 0,
+      max: 100,
+      default: 0
+    },
+    badges: [String]
+  },
+  stats: {
+    completedJobs: { type: Number, default: 0 },
+    totalJobs: { type: Number, default: 0 },
+    acceptanceRate: { type: Number, default: 0 },
+    avgResponseTime: { type: Number, default: 0 },
+    onTimeRate: { type: Number, default: 0 },
+    disputeRate: { type: Number, default: 0 }
+  },
+  location: {
+    type: { type: String, enum: ['Point'], default: 'Point' },
+    coordinates: { type: [Number], default: [0, 0] },
+    updatedAt: Date
+  },
+  lastActive: {
+    type: Date,
+    default: Date.now
+  },
   companyName: {
     type: String,
     trim: true
@@ -92,6 +176,10 @@ const userSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'CorporateAccount'
   },
+  favoriteTransporters: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
 
   // Push notification tokens
   fcmToken: {
@@ -137,6 +225,9 @@ const userSchema = new mongoose.Schema({
 //userSchema.index({ phone: 1 });
 userSchema.index({ userType: 1 });
 userSchema.index({ status: 1 });
+userSchema.index({ isActive: 1 });
+userSchema.index({ 'verification.status': 1 });
+userSchema.index({ location: '2dsphere' });
 
 // Hash password before saving
 userSchema.pre('save', async function(next) {

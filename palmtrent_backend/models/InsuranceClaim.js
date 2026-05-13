@@ -4,8 +4,12 @@ const mongoose = require('mongoose');
 const insuranceClaimSchema = new mongoose.Schema({
   claimReference: {
     type: String,
-    required: true,
-    unique: true
+    unique: true,
+    default: () => {
+      const timestamp = Date.now().toString(36);
+      const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+      return `CLM-${timestamp}-${random}`;
+    }
   },
   booking: {
     type: mongoose.Schema.Types.ObjectId,
@@ -297,7 +301,6 @@ insuranceClaimSchema.statics.getStatistics = async function(dateFrom, dateTo) {
 };
 
 // Indexes
-insuranceClaimSchema.index({ claimReference: 1 });
 insuranceClaimSchema.index({ booking: 1 });
 insuranceClaimSchema.index({ 'claimant.user': 1 });
 insuranceClaimSchema.index({ status: 1 });

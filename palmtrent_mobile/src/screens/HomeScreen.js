@@ -146,6 +146,7 @@ const HomeScreen = ({ navigation }) => {
   const stats = useMemo(() => {
     if (isTrailerOwner) {
       return trailerStats || {
+        totalAssets: 0,
         totalTrailers: 0,
         available: 0,
         rented: 0,
@@ -235,7 +236,7 @@ const HomeScreen = ({ navigation }) => {
           </Text>
           <Text style={styles.tripsText}>
             • {isTrailerOwner 
-              ? `${stats.totalTrailers || 0} trailers` 
+              ? `${stats.totalAssets || stats.totalTrailers || 0} assets` 
               : isTransporter 
                 ? `${stats.totalTrips || 0} trips`
                 : `${stats.totalShipments || 0} shipments`}
@@ -262,8 +263,8 @@ const HomeScreen = ({ navigation }) => {
             {isTrailerOwner ? (
               <View style={styles.statsCard}>
                 <View style={styles.statItem}>
-                  <Text style={[styles.statNumber, styles.blueText]}>{stats.totalTrailers}</Text>
-                  <Text style={styles.statLabel}>Total Trailers</Text>
+                  <Text style={[styles.statNumber, styles.blueText]}>{stats.totalAssets || stats.totalTrailers || 0}</Text>
+                  <Text style={styles.statLabel}>Fleet Assets</Text>
                 </View>
                 <View style={[styles.statItem, styles.statDivider]}>
                   <Text style={[styles.statNumber, styles.greenText]}>${stats.monthlyEarnings}</Text>
@@ -303,17 +304,24 @@ const HomeScreen = ({ navigation }) => {
             <View style={styles.actionsContainer}>
               <ActionButton
                 icon="add"
-                title="Add Trailer"
-                subtitle="Register a new trailer to your fleet"
+                title="Add Asset"
+                subtitle="Add trailer, tractor unit, truck, or full rig"
                 color="blue"
-                onPress={() => navigation.navigate('TrailerOwnerRegistration')}
+                onPress={() => navigation.navigate('AddFleetAsset')}
               />
               <ActionButton
                 icon="local-shipping"
-                title="My Trailers"
-                subtitle="View and manage your trailer fleet"
+                title="My Fleet"
+                subtitle="View and manage all rental assets"
                 color="green"
                 onPress={() => navigation.navigate('TrailerList')}
+              />
+              <ActionButton
+                icon="assignment"
+                title="Rental Requests"
+                subtitle="Approve, reject, pickup, and return"
+                color="orange"
+                onPress={() => navigation.navigate('FleetRentalRequests')}
               />
               <ActionButton
                 icon="trending-up"

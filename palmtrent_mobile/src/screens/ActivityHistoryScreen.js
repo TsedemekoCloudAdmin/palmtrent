@@ -34,8 +34,7 @@ const ActivityHistoryScreen = ({ navigation }) => {
       }
     } catch (error) {
       console.error('Error fetching activities:', error);
-      // Use mock data if API not available
-      setActivities(getMockActivities());
+      setActivities([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -50,81 +49,6 @@ const ActivityHistoryScreen = ({ navigation }) => {
     setRefreshing(true);
     fetchActivities();
   };
-
-  const getMockActivities = () => [
-    {
-      id: '1',
-      type: 'booking',
-      title: 'Booking Created',
-      description: 'New booking #BK-001234 from Harare to Bulawayo',
-      timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-      icon: 'local-shipping',
-      color: '#0C2D48',
-    },
-    {
-      id: '2',
-      type: 'payment',
-      title: 'Payment Received',
-      description: 'Payment of $150.00 for booking #BK-001234',
-      timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
-      icon: 'payment',
-      color: '#16a34a',
-    },
-    {
-      id: '3',
-      type: 'booking',
-      title: 'Delivery Completed',
-      description: 'Booking #BK-001230 delivered successfully',
-      timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-      icon: 'check-circle',
-      color: '#16a34a',
-    },
-    {
-      id: '4',
-      type: 'rating',
-      title: 'Rating Received',
-      description: 'You received a 5-star rating from John Moyo',
-      timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-      icon: 'star',
-      color: '#F37021',
-    },
-    {
-      id: '5',
-      type: 'account',
-      title: 'Profile Updated',
-      description: 'Your phone number was updated',
-      timestamp: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-      icon: 'person',
-      color: '#7c3aed',
-    },
-    {
-      id: '6',
-      type: 'booking',
-      title: 'Booking Cancelled',
-      description: 'Booking #BK-001225 was cancelled',
-      timestamp: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
-      icon: 'cancel',
-      color: '#dc2626',
-    },
-    {
-      id: '7',
-      type: 'payment',
-      title: 'Withdrawal Processed',
-      description: 'Withdrawal of $500.00 to EcoCash',
-      timestamp: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-      icon: 'account-balance-wallet',
-      color: '#16a34a',
-    },
-    {
-      id: '8',
-      type: 'account',
-      title: 'Password Changed',
-      description: 'Your password was changed successfully',
-      timestamp: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-      icon: 'lock',
-      color: '#7c3aed',
-    },
-  ];
 
   const formatTimestamp = (timestamp) => {
     const date = new Date(timestamp);

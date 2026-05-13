@@ -1,6 +1,18 @@
 const mongoose = require('mongoose');
 
 const trailerSchema = new mongoose.Schema({
+  assetType: {
+    type: String,
+    enum: ['trailer', 'tractor_unit', 'truck', 'full_rig'],
+    default: 'trailer',
+    index: true
+  },
+
+  assetName: {
+    type: String,
+    trim: true
+  },
+
   // Basic Information
   registrationNumber: {
     type: String,
@@ -12,8 +24,33 @@ const trailerSchema = new mongoose.Schema({
   // Trailer Type (database-driven)
   trailerType: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'TrailerType',
-    required: true
+    ref: 'TrailerType'
+  },
+
+  tractorUnit: {
+    make: String,
+    model: String,
+    engineNumber: String,
+    chassisNumber: String,
+    horsePower: Number,
+    fuelType: {
+      type: String,
+      enum: ['diesel', 'petrol', 'electric', 'hybrid']
+    },
+    transmission: {
+      type: String,
+      enum: ['manual', 'automatic', 'semi_automatic']
+    },
+    fifthWheelType: String,
+    grossCombinationMass: Number
+  },
+
+  combination: {
+    tractorRegistrationNumber: String,
+    trailerRegistrationNumber: String,
+    includedDriver: { type: Boolean, default: false },
+    driverName: String,
+    notes: String
   },
 
   // Specifications
@@ -133,6 +170,12 @@ const trailerSchema = new mongoose.Schema({
   // Rental Settings
   rentalSettings: {
     availableForRental: { type: Boolean, default: true },
+    availableForShipmentWork: { type: Boolean, default: false },
+    rentalMode: {
+      type: String,
+      enum: ['dry_rental', 'operated_rental', 'per_trip', 'per_km'],
+      default: 'dry_rental'
+    },
     dailyRate: { type: Number, default: 0 },
     weeklyRate: { type: Number, default: 0 },
     monthlyRate: { type: Number, default: 0 },
@@ -194,8 +237,8 @@ const trailerSchema = new mongoose.Schema({
 });
 
 // Indexes
-trailerSchema.index({ registrationNumber: 1 });
 trailerSchema.index({ owner: 1 });
+trailerSchema.index({ owner: 1, assetType: 1 });
 trailerSchema.index({ trailerType: 1 });
 trailerSchema.index({ status: 1 });
 trailerSchema.index({ 'rentalSettings.availableForRental': 1 });

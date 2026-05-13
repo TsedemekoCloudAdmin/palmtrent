@@ -61,6 +61,54 @@ const authorize = (...roles) => {
   };
 };
 
+const requireCorporateRole = (...allowedRoles) => {
+  return async (req, res, next) => {
+    try {
+      if (req.user.userType === 'admin') return next();
+
+      const CorporateAccount = require('../models/CorporateAccount');
+      const account = await CorporateAccount.findOne({
+        $or: [
+          { user: req.user._id },
+          { 'settings.allowedUsers.user': req.user._id }
+        ]
+      });
+
+      if (!account) {
+        return res.status(403).json({ success: false, message: 'Corporate account access required' });
+      }
+
+      const isOwner = account.user.toString() === req.user._id.toString();
+      const member = account.settings?.allowedUsers?.find(item => item.user.toString() === req.user._id.toString());
+      const role = isOwner ? 'admin' : member?.role;
+
+      if (!allowedRoles.includes(role)) {
+        return res.status(403).json({ success: false, message: `Corporate role ${role || 'none'} is not authorized` });
+      }
+
+      req.corporateAccount = account;
+      req.corporateRole = role;
+      next();
+    } catch (error) {
+      res.status(500).json({ success: false, message: 'Corporate authorization failed' });
+    }
+  };
+};
+
+const requireVerified = (role = null) => {
+  return (req, res, next) => {
+    const targetRole = role || req.user.userType;
+    const verified = req.user.isVerified ||
+      req.user.verification?.isVerified ||
+      ['approved', 'verified'].includes(req.user.verification?.status);
+
+    if (['transporter', 'corporate'].includes(targetRole) && !verified) {
+      return res.status(403).json({ success: false, message: `${targetRole} verification is required` });
+    }
+    next();
+  };
+};
+
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN,
@@ -70,5 +118,7 @@ const generateToken = (id) => {
 module.exports = {
   protect,
   authorize,
+  requireCorporateRole,
+  requireVerified,
   generateToken
 };

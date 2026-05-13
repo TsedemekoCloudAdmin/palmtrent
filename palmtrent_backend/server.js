@@ -7,7 +7,10 @@ const { Server } = require('socket.io');
 require('dotenv').config();
 
 const connectDB = require('./config/database');
+const validateEnv = require('./config/validateEnv');
 const { setupSocketHandler } = require('./socket/socketHandler');
+const { requestContext } = require('./middleware/observability');
+const opsController = require('./controllers/opsController');
 
 // Route files
 const auth = require('./routes/auth');
@@ -34,12 +37,19 @@ const documentExpiry = require('./routes/documentExpiry');
 const whatsapp = require('./routes/whatsapp');
 const uploads = require('./routes/uploads');
 const admin = require('./routes/admin');
+const tracking = require('./routes/tracking');
+const safety = require('./routes/safety');
+const ops = require('./routes/ops');
+const insurance = require('./routes/insurance');
 const path = require('path');
+
+validateEnv();
 
 // Connect to database
 connectDB();
 
 const app = express();
+app.use(requestContext);
 
 // Security middleware
 app.use(helmet());
@@ -60,8 +70,17 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // CORS middleware
+const allowedOrigins = (process.env.CORS_ORIGINS || process.env.FRONTEND_URL || '*')
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean);
 app.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
+  origin: (origin, callback) => {
+    if (allowedOrigins.includes('*') || !origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Origin not allowed by CORS'));
+  },
   credentials: true
 }));
 
@@ -93,16 +112,13 @@ app.use('/api/v1/documents', documentExpiry);
 app.use('/api/v1/whatsapp', whatsapp);
 app.use('/api/v1/uploads', uploads);
 app.use('/api/v1/admin', admin);
+app.use('/api/v1/tracking', tracking);
+app.use('/api/v1/safety', safety);
+app.use('/api/v1/ops', ops);
+app.use('/api/v1/insurance', insurance);
 
 // Health check route
-app.get('/api/v1/health', (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'Server is running',
-    timestamp: new Date().toISOString(),
-    version: '2.0.0'
-  });
-});
+app.get('/api/v1/health', opsController.health);
 
 // 404 handler
 app.use((req, res) => {
@@ -118,6 +134,7 @@ app.use((err, req, res, next) => {
 
   res.status(err.statusCode || 500).json({
     success: false,
+    requestId: req.requestId,
     message: err.message || 'Internal Server Error',
     ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
   });

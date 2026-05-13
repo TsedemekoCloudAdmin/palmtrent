@@ -14,6 +14,8 @@ const CorporateDashboard = () => {
   const [activeNav, setActiveNav] = useState('overview');
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const userDropdownRef = useRef(null);
+  const currentUser = authAPI.getCurrentUser() || {};
+  const corporateName = currentUser.corporateAccount?.companyName || currentUser.companyName || currentUser.fullName || '';
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -104,7 +106,7 @@ const CorporateDashboard = () => {
                 {activeNav === 'reports' && 'Reports'}
                 {activeNav === 'settings' && 'Account Settings'}
               </h1>
-              <p className="corp-page-subtitle">ABC Manufacturing Ltd</p>
+              <p className="corp-page-subtitle">{corporateName}</p>
             </div>
             <div className="corp-topbar-right">
               <button className="corp-notification-btn">
@@ -116,8 +118,8 @@ const CorporateDashboard = () => {
                 <button className="corp-user-trigger" onClick={() => setUserDropdownOpen(!userDropdownOpen)}>
                   <div className="corp-user-avatar"><Building className="icon" /></div>
                   <div className="corp-user-info">
-                    <p className="corp-user-name">ABC Manufacturing</p>
-                    <p className="corp-user-role">Admin</p>
+                    <p className="corp-user-name">{corporateName || currentUser.email}</p>
+                    <p className="corp-user-role">{currentUser.corporateRole || currentUser.userType || 'Corporate user'}</p>
                   </div>
                   <ChevronDown className="corp-dropdown-arrow" size={16} />
                 </button>
@@ -188,21 +190,8 @@ const OverviewTab = ({ setActiveNav }) => {
 
       } catch (error) {
         console.error('Error fetching corporate dashboard:', error);
-        // Set default mock data on error
-        setStats({
-          totalBookings: 156, activeShipments: 12, monthlySpend: 45680, teamMembers: 8,
-          growth: { bookings: 23, spend: 15 }
-        });
-        setRecentBookings([
-          { id: 'PT-2025-001250', route: 'Harare → Bulawayo', status: 'in_transit', bookedBy: 'John Moyo', amount: 450 },
-          { id: 'PT-2025-001249', route: 'Mutare → Harare', status: 'delivered', bookedBy: 'Sarah Dube', amount: 380 }
-        ]);
-        setTopRoutes([
-          { route: 'Harare → Bulawayo', count: 45, percentage: 35 },
-          { route: 'Mutare → Harare', count: 32, percentage: 25 },
-          { route: 'Harare → Gweru', count: 28, percentage: 22 },
-          { route: 'Other Routes', count: 23, percentage: 18 }
-        ]);
+        setRecentBookings([]);
+        setTopRoutes([]);
       } finally {
         setLoading(false);
       }
@@ -411,13 +400,28 @@ const BookingsTab = () => {
 // ============ Team Tab ============
 const TeamTab = () => {
   const [showAddMember, setShowAddMember] = useState(false);
+  const [teamMembers, setTeamMembers] = useState([]);
 
-  const teamMembers = [
-    { id: 1, name: 'John Moyo', email: 'john@abcmfg.co.zw', role: 'Admin', bookings: 45, lastActive: '2025-01-10', status: 'active' },
-    { id: 2, name: 'Sarah Dube', email: 'sarah@abcmfg.co.zw', role: 'Manager', bookings: 32, lastActive: '2025-01-10', status: 'active' },
-    { id: 3, name: 'Peter Ndlovu', email: 'peter@abcmfg.co.zw', role: 'Member', bookings: 18, lastActive: '2025-01-09', status: 'active' },
-    { id: 4, name: 'Grace Mutasa', email: 'grace@abcmfg.co.zw', role: 'Member', bookings: 12, lastActive: '2025-01-08', status: 'inactive' }
-  ];
+  useEffect(() => {
+    const loadTeam = async () => {
+      try {
+        const response = await corporateAPI.getUsers();
+        setTeamMembers((response.data || []).map(member => ({
+          id: member._id,
+          name: member.fullName || member.email,
+          email: member.email,
+          role: member.corporateRole || member.role || 'Member',
+          bookings: member.bookingCount || 0,
+          lastActive: member.lastLogin || member.updatedAt || member.createdAt,
+          status: member.status || 'active'
+        })));
+      } catch (error) {
+        console.error('Failed to load team:', error);
+        setTeamMembers([]);
+      }
+    };
+    loadTeam();
+  }, []);
 
   return (
     <div className="team-management">
@@ -425,7 +429,7 @@ const TeamTab = () => {
         <div className="team-stats">
           <div className="team-stat"><span className="stat-value">{teamMembers.length}</span><span className="stat-label">Total Members</span></div>
           <div className="team-stat"><span className="stat-value">{teamMembers.filter(m => m.status === 'active').length}</span><span className="stat-label">Active</span></div>
-          <div className="team-stat"><span className="stat-value">1</span><span className="stat-label">Admins</span></div>
+          <div className="team-stat"><span className="stat-value">{teamMembers.filter(m => String(m.role).toLowerCase() === 'admin').length}</span><span className="stat-label">Admins</span></div>
         </div>
         <button className="btn-primary" onClick={() => setShowAddMember(true)}><UserPlus className="icon" /> Add Member</button>
       </div>
@@ -516,21 +520,8 @@ const AnalyticsTab = () => {
         }
       } catch (error) {
         console.error('Error fetching analytics:', error);
-        // Set mock data on error
-        setMetrics([
-          { label: 'Total Shipments', value: '156', change: '+23%', trend: 'up' },
-          { label: 'On-Time Delivery', value: '94%', change: '+2%', trend: 'up' },
-          { label: 'Avg. Cost per Shipment', value: '$385', change: '-5%', trend: 'down' },
-          { label: 'Customer Satisfaction', value: '4.8/5', change: '+0.2', trend: 'up' }
-        ]);
-        setMonthlyData([
-          { month: 'Aug', bookings: 18, spend: 6840 },
-          { month: 'Sep', bookings: 22, spend: 8360 },
-          { month: 'Oct', bookings: 28, spend: 10640 },
-          { month: 'Nov', bookings: 35, spend: 13300 },
-          { month: 'Dec', bookings: 42, spend: 15960 },
-          { month: 'Jan', bookings: 48, spend: 18240 }
-        ]);
+        setMetrics([]);
+        setMonthlyData([]);
       } finally {
         setLoading(false);
       }
@@ -633,17 +624,7 @@ const BillingTab = () => {
         }
       } catch (error) {
         console.error('Error fetching billing data:', error);
-        // Set mock data on error
-        setInvoices([
-          { id: 'INV-2025-001', date: '2025-01-01', period: 'December 2024', amount: 15960, status: 'paid' },
-          { id: 'INV-2024-012', date: '2024-12-01', period: 'November 2024', amount: 13300, status: 'paid' }
-        ]);
-        setCurrentBilling({
-          currentCharges: 12450,
-          pendingPayments: 0,
-          creditBalance: 500,
-          nextBillingDate: '2025-02-01'
-        });
+        setInvoices([]);
       } finally {
         setLoading(false);
       }
@@ -807,26 +788,26 @@ const SettingsTab = () => {
           <div className="form-row">
             <div className="form-group">
               <label>Company Name</label>
-              <input type="text" defaultValue="ABC Manufacturing Ltd" />
+              <input type="text" defaultValue={authAPI.getCurrentUser()?.corporateAccount?.companyName || authAPI.getCurrentUser()?.companyName || ''} />
             </div>
             <div className="form-group">
               <label>Registration Number</label>
-              <input type="text" defaultValue="12345/2020" />
+              <input type="text" defaultValue={authAPI.getCurrentUser()?.corporateAccount?.registrationNumber || ''} />
             </div>
           </div>
           <div className="form-row">
             <div className="form-group">
               <label>Email Address</label>
-              <input type="email" defaultValue="logistics@abcmfg.co.zw" />
+              <input type="email" defaultValue={authAPI.getCurrentUser()?.email || ''} />
             </div>
             <div className="form-group">
               <label>Phone Number</label>
-              <input type="tel" defaultValue="+263 242 123 456" />
+              <input type="tel" defaultValue={authAPI.getCurrentUser()?.phone || ''} />
             </div>
           </div>
           <div className="form-group">
             <label>Address</label>
-            <textarea defaultValue="123 Industrial Park, Msasa, Harare" rows={2} />
+            <textarea defaultValue={authAPI.getCurrentUser()?.corporateAccount?.address || authAPI.getCurrentUser()?.address || ''} rows={2} />
           </div>
         </div>
       </div>

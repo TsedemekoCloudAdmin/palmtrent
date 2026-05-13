@@ -1,6 +1,9 @@
 const Shipment = require('../models/Shipment');
+const Rating = require('../models/Rating');
 const User = require('../models/User');
 const { validationResult } = require('express-validator');
+const { assertShipmentTransition } = require('../services/flowControlService');
+const { recordAudit } = require('../services/auditService');
 
 // Get all active shipments for user
 exports.getActiveShipments = async (req, res) => {
@@ -10,15 +13,15 @@ exports.getActiveShipments = async (req, res) => {
     let query = {};
     
     // Different logic based on user type
-    if (user.userType === 'shipper') {
+    if (user.userType === 'shipper' || user.userType === 'corporate') {
       query = { 
         shipper: user._id, 
-        status: { $in: ['payment_confirmed', 'matched', 'in_transit'] } 
+        status: { $in: ['assigned', 'matched', 'en_route_pickup', 'picked_up', 'in_transit', 'arrived_delivery'] } 
       };
     } else if (user.userType === 'transporter') {
       query = { 
         transporter: user._id, 
-        status: { $in: ['matched', 'in_transit'] } 
+        status: { $in: ['assigned', 'matched', 'en_route_pickup', 'picked_up', 'in_transit', 'arrived_delivery'] } 
       };
     } else {
       return res.status(400).json({
@@ -55,7 +58,9 @@ exports.getAllShipments = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const query = { shipper: req.user.id };
+    const query = req.user.userType === 'transporter'
+      ? { transporter: req.user.id }
+      : { shipper: req.user.id };
     
     // Filter by status if provided
     if (req.query.status) {
@@ -280,21 +285,8 @@ exports.updateStatus = async (req, res) => {
       });
     }
 
-    // Validate status transition
-    const validTransitions = {
-      'matched': ['in_transit', 'cancelled'],
-      'in_transit': ['delivered', 'incident'],
-      'delivered': ['completed']
-    };
-
-    if (!validTransitions[shipment.status]?.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: `Cannot transition from ${shipment.status} to ${status}`
-      });
-    }
-
     const oldStatus = shipment.status;
+    assertShipmentTransition(oldStatus, status);
     shipment.status = status;
     
     // Update specific timestamps based on status
@@ -350,5 +342,132 @@ exports.createShipment = async (req, res) => {
       message: 'Error creating shipment',
       error: error.message
     });
+  }
+};
+
+exports.uploadProofOfDelivery = async (req, res) => {
+  try {
+    const shipment = await Shipment.findById(req.params.id);
+    if (!shipment) {
+      return res.status(404).json({ success: false, message: 'Shipment not found' });
+    }
+
+    if (!shipment.transporter || shipment.transporter.toString() !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Not authorized to upload proof for this shipment' });
+    }
+
+    const uploadedFiles = (req.files || []).map(file => `/uploads/pod/${file.filename}`);
+    shipment.proofOfDelivery = {
+      ...shipment.proofOfDelivery,
+      photos: [...(shipment.proofOfDelivery?.photos || []), ...uploadedFiles],
+      signature: req.body.signature || shipment.proofOfDelivery?.signature,
+      receivedBy: req.body.receivedBy || req.body.receiverName || shipment.proofOfDelivery?.receivedBy,
+      receivedAt: req.body.receivedAt ? new Date(req.body.receivedAt) : shipment.proofOfDelivery?.receivedAt,
+      notes: req.body.notes || shipment.proofOfDelivery?.notes
+    };
+
+    await shipment.save();
+
+    await recordAudit({
+      actor: req.user,
+      action: 'shipment.status_updated',
+      entityType: 'Shipment',
+      entityId: shipment._id,
+      entityRef: shipment.bookingReference,
+      before: { status: oldStatus },
+      after: { status },
+      metadata: { notes },
+      req
+    });
+    res.json({ success: true, message: 'Proof of delivery uploaded', data: shipment.proofOfDelivery });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to upload proof of delivery', error: error.message });
+  }
+};
+
+exports.rateShipment = async (req, res) => {
+  try {
+    const { rating, review, comment } = req.body;
+    const shipment = await Shipment.findById(req.params.id);
+    if (!shipment) {
+      return res.status(404).json({ success: false, message: 'Shipment not found' });
+    }
+
+    const userId = req.user.id;
+    const isShipper = shipment.shipper?.toString() === userId;
+    const isTransporter = shipment.transporter?.toString() === userId;
+    if (!isShipper && !isTransporter) {
+      return res.status(403).json({ success: false, message: 'Not authorized to rate this shipment' });
+    }
+
+    const ratee = isShipper ? shipment.transporter : shipment.shipper;
+    if (!ratee) {
+      return res.status(400).json({ success: false, message: 'No counterparty available to rate' });
+    }
+
+    const ratingDoc = await Rating.create({
+      booking: shipment.booking,
+      rater: { user: userId, role: isShipper ? 'shipper' : 'transporter' },
+      ratee: { user: ratee, role: isShipper ? 'transporter' : 'shipper' },
+      overallRating: Number(rating),
+      review: { text: review || comment || '' },
+      tripDetails: {
+        distance: shipment.route?.distance,
+        origin: shipment.route?.pickup?.address || shipment.origin,
+        destination: shipment.route?.delivery?.address || shipment.destination,
+        cargoType: shipment.cargoDetails?.type,
+        completedAt: shipment.completedAt || shipment.timeline?.deliveredAt
+      }
+    });
+
+    shipment.rating = Number(rating);
+    await shipment.save();
+
+    await recordAudit({
+      actor: req.user,
+      action: 'shipment.pod_uploaded',
+      entityType: 'Shipment',
+      entityId: shipment._id,
+      entityRef: shipment.bookingReference,
+      after: { photoCount: uploadedFiles.length, receivedBy: shipment.proofOfDelivery?.receivedBy },
+      req
+    });
+
+    res.status(201).json({ success: true, message: 'Rating submitted', data: ratingDoc });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to submit rating', error: error.message });
+  }
+};
+
+exports.getShipmentAnalytics = async (req, res) => {
+  try {
+    const { period = 'month' } = req.query;
+    const startDate = new Date();
+    if (period === 'week') startDate.setDate(startDate.getDate() - 7);
+    else if (period === 'year') startDate.setFullYear(startDate.getFullYear() - 1);
+    else startDate.setMonth(startDate.getMonth() - 1);
+
+    const match = {
+      createdAt: { $gte: startDate },
+      ...(req.user.userType === 'transporter' ? { transporter: req.user._id } : { shipper: req.user._id })
+    };
+
+    const shipments = await Shipment.find(match).lean();
+    const completed = shipments.filter(s => ['completed', 'delivered'].includes(s.status));
+    const totalAmount = shipments.reduce((sum, s) => sum + (s.amount || s.pricing?.total || 0), 0);
+
+    res.json({
+      success: true,
+      data: {
+        period,
+        totalShipments: shipments.length,
+        activeShipments: shipments.filter(s => !['completed', 'cancelled'].includes(s.status)).length,
+        completedShipments: completed.length,
+        completionRate: shipments.length ? Math.round((completed.length / shipments.length) * 100) : 0,
+        totalAmount
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to fetch shipment analytics', error: error.message });
   }
 };

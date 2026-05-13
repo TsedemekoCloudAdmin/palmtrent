@@ -4,8 +4,7 @@ const shipmentSchema = new mongoose.Schema({
   // From your code
   bookingReference: {
     type: String,
-    required: true,
-    unique: true
+    required: true
   },
   shipper: {
     type: mongoose.Schema.Types.ObjectId,
@@ -20,6 +19,26 @@ const shipmentSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Vehicle'
   },
+  rentedAssets: [{
+    rental: { type: mongoose.Schema.Types.ObjectId, ref: 'Rental' },
+    asset: { type: mongoose.Schema.Types.ObjectId, ref: 'Trailer' },
+    assetType: String,
+    role: {
+      type: String,
+      enum: ['supporting_trailer', 'supporting_tractor', 'full_rig']
+    },
+    owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    amount: Number
+  }],
+  earningsSplit: {
+    shipmentTotal: Number,
+    platformFee: Number,
+    transporterEarnings: Number,
+    trailerOwnerEarnings: Number,
+    driverEarnings: Number,
+    rentalCosts: Number,
+    currency: { type: String, default: 'USD' }
+  },
   status: {
     type: String,
     enum: [
@@ -27,8 +46,10 @@ const shipmentSchema = new mongoose.Schema({
       'payment_confirmed',
       'assigned',      // ADDED: When transporter is assigned
       'matched',
+      'en_route_pickup',
       'picked_up',     // ADDED: When cargo is picked up
       'in_transit',
+      'arrived_delivery',
       'delivered',
       'completed',
       'cancelled',
@@ -135,7 +156,7 @@ const shipmentSchema = new mongoose.Schema({
   // ADDED: Separate paymentStatus field for easier querying
   paymentStatus: {
     type: String,
-    enum: ['pending', 'confirmed', 'failed', 'refunded'],
+    enum: ['pending', 'confirmed', 'escrowed', 'released', 'failed', 'refunded', 'partially_refunded'],
     default: 'pending'
   },
 
@@ -167,6 +188,20 @@ const shipmentSchema = new mongoose.Schema({
   }],
 
   // Proof of delivery
+  pickupDetails: {
+    photos: [String],
+    notes: String,
+    signature: String,
+    confirmedAt: Date
+  },
+  deliveryDetails: {
+    photos: [String],
+    notes: String,
+    signature: String,
+    receiverName: String,
+    receiverPhone: String,
+    confirmedAt: Date
+  },
   proofOfDelivery: {
     photos: [String],
     signature: String,

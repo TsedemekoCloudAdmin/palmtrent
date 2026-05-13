@@ -6,9 +6,11 @@ const {
   getTrailers
 } = require('../controllers/trailerOwnersController');
 const { protect } = require('../middleware/auth');
+const { authorize } = require('../middleware/auth');
 
 // All routes require authentication
 router.use(protect);
+router.use(authorize('trailer_owner', 'admin'));
 
 router.get('/recent-activity', getRecentActivity);
 

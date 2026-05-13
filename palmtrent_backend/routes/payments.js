@@ -46,6 +46,7 @@ router.post('/create', createPayment);
 
 // Initiate Paynow payment
 router.post('/initiate-paynow', initiatePaynowPayment);
+router.post('/initiate-openapi', initiatePaynowPayment);
 
 // Confirm cash payment (agent, pickup, delivery)
 router.post('/confirm-cash', confirmCashPayment);
@@ -59,9 +60,6 @@ router.get('/status/:paymentReference', checkPaymentStatus);
 
 // Check payment expiry
 router.get('/expiry/:paymentReference', checkPaymentExpiry);
-
-// Get payment by reference
-router.get('/:reference', getPaymentByReference);
 
 // ============ ESCROW ROUTES ============
 
@@ -99,5 +97,8 @@ router.get('/withdrawal/history', getWithdrawalHistory);
 // Payout preferences
 router.get('/payout-preferences', getPayoutPreferences);
 router.put('/payout-preferences', updatePayoutPreferences);
+
+// Get payment by reference - keep this last so it does not shadow static routes
+router.get('/:reference', getPaymentByReference);
 
 module.exports = router;

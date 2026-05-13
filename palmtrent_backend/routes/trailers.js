@@ -11,7 +11,7 @@ const {
   getTrailerRentals,
   getAvailableTrailers
 } = require('../controllers/trailerController');
-const { protect } = require('../middleware/auth');
+const { protect, authorize } = require('../middleware/auth');
 
 // Public routes
 router.get('/available', getAvailableTrailers);
@@ -21,9 +21,10 @@ router.use(protect);
 
 // Trailer CRUD
 router.route('/')
-  .post(createTrailer);
+  .post(authorize('trailer_owner', 'transporter', 'admin'), createTrailer);
 
-router.get('/my-trailers', getMyTrailers);
+router.get('/my-trailers', authorize('trailer_owner', 'transporter', 'admin'), getMyTrailers);
+router.get('/my-fleet', authorize('trailer_owner', 'transporter', 'admin'), getMyTrailers);
 
 router.route('/:id')
   .get(getTrailerById)
@@ -31,8 +32,8 @@ router.route('/:id')
   .delete(deleteTrailer);
 
 // Status and settings
-router.patch('/:id/status', updateTrailerStatus);
-router.patch('/:id/rental-settings', updateRentalSettings);
+router.patch('/:id/status', authorize('trailer_owner', 'transporter', 'admin'), updateTrailerStatus);
+router.patch('/:id/rental-settings', authorize('trailer_owner', 'transporter', 'admin'), updateRentalSettings);
 
 // Trailer rentals
 router.get('/:id/rentals', getTrailerRentals);

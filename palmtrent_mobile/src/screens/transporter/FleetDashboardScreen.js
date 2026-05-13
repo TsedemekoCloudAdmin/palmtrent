@@ -306,7 +306,13 @@ const FleetDashboardScreen = () => {
   const renderRentalsTab = () => (
     <View style={styles.tabContent}>
       <Text style={styles.sectionTitle}>Vehicle Rentals</Text>
-      <Text style={styles.comingSoon}>Rental management coming soon...</Text>
+      <TouchableOpacity
+        style={styles.addButton}
+        onPress={() => navigation.navigate('MyRentals')}
+      >
+        <MaterialIcons name="assignment" size={20} color="white" />
+        <Text style={styles.addButtonText}>Open Rentals</Text>
+      </TouchableOpacity>
     </View>
   );
 

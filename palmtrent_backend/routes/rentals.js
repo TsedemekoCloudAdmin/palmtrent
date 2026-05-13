@@ -11,7 +11,10 @@ const {
   rejectRental,
   confirmPickup,
   confirmReturn,
-  getRentalById
+  getRentalById,
+  initiateRentalPayment,
+  confirmRentalPayment,
+  checkRentalPaymentStatus
 } = require('../controllers/rentalController');
 const { protect } = require('../middleware/auth');
 
@@ -32,6 +35,9 @@ router.get('/:id', getRentalById);
 // Owner actions
 router.post('/:id/approve', approveRental);
 router.post('/:id/reject', rejectRental);
+router.post('/:id/pay', initiateRentalPayment);
+router.get('/:id/payment-status', checkRentalPaymentStatus);
+router.post('/payment/confirm', confirmRentalPayment);
 
 // Pickup and return
 router.post('/:id/confirm-pickup', confirmPickup);

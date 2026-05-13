@@ -23,14 +23,14 @@ router.post('/sos', triggerSOS);
 router.get('/contacts', getEmergencyContacts);
 router.put('/contacts', updateEmergencyContacts);
 router.get('/history', getEmergencyHistory);
+router.get('/admin/active', authorize('admin'), getActiveEmergencies);
 router.get('/:id', getEmergencyStatus);
 router.put('/:id/location', updateLocation);
 router.put('/:id/cancel', cancelEmergency);
 
 // Admin/Support routes
-router.get('/admin/active', authorize('admin', 'support'), getActiveEmergencies);
-router.put('/:id/acknowledge', authorize('admin', 'support'), acknowledgeEmergency);
-router.put('/:id/dispatch', authorize('admin', 'support'), dispatchResponder);
-router.put('/:id/resolve', authorize('admin', 'support'), resolveEmergency);
+router.put('/:id/acknowledge', authorize('admin'), acknowledgeEmergency);
+router.put('/:id/dispatch', authorize('admin'), dispatchResponder);
+router.put('/:id/resolve', authorize('admin'), resolveEmergency);
 
 module.exports = router;

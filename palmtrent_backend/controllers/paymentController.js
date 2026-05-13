@@ -4,25 +4,25 @@ const Booking = require('../models/Booking');
 const Payment = require('../models/Payment');
 const paymentService = require('../services/paymentService');
 const escrowService = require('../services/escrowService');
+const openApiAfricaService = require('../services/openApiAfricaService');
+const { getIntegrationConfig } = require('../services/integrationSettingsService');
 
-// Initialize Paynow
-let paynow;
+const getPaynowClient = async () => {
+  const config = await getIntegrationConfig('paynow');
+  if (!config.integrationId || !config.integrationKey) {
+    throw new Error('Paynow is not configured. Add credentials in the admin integration settings.');
+  }
 
-const initPaynow = () => {
-  paynow = new Paynow(
-    process.env.PAYNOW_INTEGRATION_ID,
-    process.env.PAYNOW_INTEGRATION_KEY
-  );
-
-  paynow.resultUrl = process.env.PAYNOW_RESULT_URL || "http://localhost:3000/api/payments/webhook";
-  paynow.returnUrl = process.env.PAYNOW_RETURN_URL || "http://localhost:3000/payment/return";
+  const client = new Paynow(config.integrationId, config.integrationKey);
+  client.resultUrl = config.resultUrl || process.env.PAYNOW_RESULT_URL || "http://localhost:3000/api/payments/webhook";
+  client.returnUrl = config.returnUrl || process.env.PAYNOW_RETURN_URL || "http://localhost:3000/payment/return";
 
   if (process.env.NODE_ENV === 'development') {
-    paynow.debug = true;
+    client.debug = true;
   }
-};
 
-initPaynow();
+  return client;
+};
 
 // NEW: Create payment for any method
 exports.createPayment = async (req, res) => {
@@ -89,6 +89,21 @@ exports.initiatePaynowPayment = async (req, res) => {
     payment.status = 'initiated';
     payment.initiatedAt = new Date();
     await payment.save();
+
+    if (payment.gateway === 'openapi_africa') {
+      const result = await openApiAfricaService.createOrder(paymentReference, customer);
+      return res.status(200).json({
+        success: true,
+        data: {
+          paymentId: payment._id,
+          redirectUrl: result.redirectUrl,
+          gatewayReference: result.gatewayReference,
+          paymentReference: payment.paymentReference
+        }
+      });
+    }
+
+    const paynow = await getPaynowClient();
 
     // Create Paynow payment
     const paynowPayment = paynow.createPayment(paymentReference, customer.email);
@@ -203,6 +218,7 @@ exports.checkPaymentStatus = async (req, res) => {
     // For Paynow payments, poll status if available
     if (payment.gateway === 'paynow' && payment.pollUrl && payment.status === 'initiated') {
       try {
+        const paynow = await getPaynowClient();
         const status = await paynow.pollTransaction(payment.pollUrl);
         console.log('Paynow poll status:', status);
 
@@ -223,6 +239,14 @@ exports.checkPaymentStatus = async (req, res) => {
       } catch (pollError) {
         console.error('Polling error:', pollError);
         // Continue with current status if polling fails
+      }
+    }
+
+    if (payment.gateway === 'openapi_africa' && ['initiated', 'processing', 'pending'].includes(payment.status)) {
+      try {
+        await openApiAfricaService.checkAndUpdateStatus(paymentReference);
+      } catch (pollError) {
+        console.error('OpenAPI Africa polling error:', pollError);
       }
     }
 
@@ -256,6 +280,8 @@ exports.handlePaynowWebhook = async (req, res) => {
     const { reference, paynowreference, amount, status, hash } = req.body;
 
     console.log('Paynow webhook received:', req.body);
+
+    const paynow = await getPaynowClient();
 
     // Verify the hash
     const expectedHash = paynow.verifyHash(req.body);
@@ -824,7 +850,7 @@ exports.adminReleaseFunds = async (req, res) => {
     const { escrowId } = req.params;
 
     // Check admin role
-    if (req.user.role !== 'admin') {
+    if (req.user.userType !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'Admin access required'
@@ -860,7 +886,7 @@ exports.adminResolveDispute = async (req, res) => {
     const { resolution, resolvedInFavorOf, splitPercentage } = req.body;
 
     // Check admin role
-    if (req.user.role !== 'admin') {
+    if (req.user.userType !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'Admin access required'
@@ -906,7 +932,7 @@ exports.adminResolveDispute = async (req, res) => {
 exports.adminGetEscrowSummary = async (req, res) => {
   try {
     // Check admin role
-    if (req.user.role !== 'admin') {
+    if (req.user.userType !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'Admin access required'

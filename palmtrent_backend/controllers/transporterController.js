@@ -2,10 +2,119 @@ const Shipment = require('../models/Shipment');
 const Booking = require('../models/Booking');
 const Escrow = require('../models/Escrow');
 const User = require('../models/User');
+const Rental = require('../models/Rental');
 const escrowService = require('../services/escrowService');
 const notificationService = require('../services/notificationService');
 const whatsappController = require('./whatsappController');
 const { formatRelativeTime } = require('../utils/formatDate');
+const { recordAudit } = require('../services/auditService');
+const tractorTrailerMatchingService = require('../services/tractorTrailerMatchingService');
+const {
+  assertBookingTransition,
+  assertShipmentTransition,
+  assertTransporterEligible,
+  assertVehicleAssignable,
+  isPaymentConfirmed
+} = require('../services/flowControlService');
+
+exports.submitVerification = async (req, res) => {
+  try {
+    if (req.user.userType !== 'transporter') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only transporters can submit transporter verification'
+      });
+    }
+
+    const {
+      fullName,
+      idNumber,
+      dateOfBirth,
+      address,
+      city,
+      province,
+      licenseNumber,
+      licenseExpiry,
+      licenseClasses
+    } = req.body;
+
+    const documentTypeByField = {
+      idFront: 'national_id_front',
+      idBack: 'national_id_back',
+      licenseFront: 'driver_license_front',
+      licenseBack: 'driver_license_back',
+      selfie: 'selfie'
+    };
+
+    const uploadedDocuments = [];
+    Object.entries(req.files || {}).forEach(([fieldName, files]) => {
+      const documentType = documentTypeByField[fieldName] || 'other';
+      files.forEach(file => {
+        uploadedDocuments.push({
+          type: documentType,
+          url: `/uploads/verification/${file.filename}`,
+          originalName: file.originalname,
+          uploadedAt: new Date()
+        });
+      });
+    });
+
+    const parsedLicenseClasses = (() => {
+      if (!licenseClasses) return [];
+      try {
+        return Array.isArray(licenseClasses) ? licenseClasses : JSON.parse(licenseClasses);
+      } catch {
+        return String(licenseClasses).split(',').map(item => item.trim()).filter(Boolean);
+      }
+    })();
+
+    const user = await User.findById(req.user.id);
+    user.fullName = fullName || user.fullName;
+    const existingVerification = user.verification?.toObject?.() || user.verification || {};
+
+    user.verification = {
+      ...existingVerification,
+      status: 'pending',
+      isVerified: false,
+      submittedAt: new Date(),
+      personalInfo: {
+        idNumber,
+        dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
+        address,
+        city,
+        province
+      },
+      driverLicense: {
+        number: licenseNumber,
+        expiryDate: licenseExpiry ? new Date(licenseExpiry) : undefined,
+        classes: parsedLicenseClasses
+      },
+      documents: [
+        ...(user.verification?.documents || []),
+        ...uploadedDocuments
+      ]
+    };
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Verification submitted successfully',
+      data: {
+        status: user.verification.status,
+        submittedAt: user.verification.submittedAt,
+        documents: uploadedDocuments.length
+      }
+    });
+  } catch (error) {
+    console.error('Submit transporter verification error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to submit verification',
+      error: error.message
+    });
+  }
+};
 
 exports.getDashboardStats = async (req, res) => {
   try {
@@ -122,7 +231,8 @@ exports.getAvailableJobs = async (req, res) => {
     const { page = 1, limit = 10, vehicleType, maxDistance, minPrice } = req.query;
 
     const query = {
-      status: 'pending',
+      status: 'finding_transporter',
+      paymentStatus: { $in: ['confirmed', 'escrowed'] },
       transporter: { $exists: false }
     };
 
@@ -131,7 +241,7 @@ exports.getAvailableJobs = async (req, res) => {
     }
 
     if (minPrice) {
-      query.amount = { $gte: parseFloat(minPrice) };
+      query.totalAmount = { $gte: parseFloat(minPrice) };
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -141,14 +251,19 @@ exports.getAvailableJobs = async (req, res) => {
       .skip(skip)
       .limit(parseInt(limit))
       .populate('shipper', 'fullName email phone')
-      .select('origin destination vehicleType amount pickupDate deliveryDate cargoDetails')
+      .select('origin destination vehicleType amount totalAmount pricing pickupDate deliveryDate cargoDetails')
       .lean();
+    const normalizedJobs = jobs.map(job => ({
+      ...job,
+      id: job._id,
+      amount: job.amount || job.totalAmount || job.pricing?.totals?.transporterTotal || job.pricing?.totals?.total || 0
+    }));
 
     const total = await Booking.countDocuments(query);
 
     res.status(200).json({
       success: true,
-      data: jobs,
+      data: normalizedJobs,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -276,6 +391,7 @@ exports.acceptJob = async (req, res) => {
   try {
     const { jobId } = req.params;
     const transporterId = req.user.id;
+    const { vehicleAssignments = [], linkedRentalIds = [] } = req.body || {};
 
     const booking = await Booking.findById(jobId);
 
@@ -293,6 +409,34 @@ exports.acceptJob = async (req, res) => {
       });
     }
 
+    if (!isPaymentConfirmed(booking)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment must be confirmed before this job can be accepted'
+      });
+    }
+
+    await assertTransporterEligible(transporterId);
+    assertBookingTransition(booking.status, 'transporter_assigned');
+
+    const requestedVehicleIds = vehicleAssignments
+      .map(item => item.vehicle || item.vehicleId || item)
+      .filter(Boolean);
+
+    for (const vehicleId of requestedVehicleIds) {
+      await assertVehicleAssignable(vehicleId, transporterId);
+    }
+
+    const linkedRentals = await Rental.find({
+      _id: { $in: linkedRentalIds },
+      renter: transporterId,
+      status: { $in: ['confirmed', 'active'] }
+    }).populate('trailer');
+
+    if (linkedRentalIds.length !== linkedRentals.length) {
+      throw new Error('All linked rentals must be paid and confirmed before accepting the job');
+    }
+
     // Update booking
     booking.transporter = transporterId;
     booking.status = 'transporter_assigned';
@@ -302,29 +446,95 @@ exports.acceptJob = async (req, res) => {
     };
     await booking.save();
 
-    // Create or update shipment
-    let shipment = await Shipment.findOne({ bookingReference: booking.bookingReference });
+    // Create or update shipment(s). Multiple-vehicle bookings create one shipment per vehicle.
+    let shipments = await Shipment.find({ booking: booking._id });
 
-    if (shipment) {
-      shipment.transporter = transporterId;
-      shipment.status = 'assigned';
-      await shipment.save();
+    if (shipments.length > 0) {
+      shipments = await Promise.all(shipments.map(async (shipment, index) => {
+        const assignedVehicle = requestedVehicleIds[index] || shipment.vehicle;
+        assertShipmentTransition(shipment.status, 'assigned');
+        shipment.transporter = transporterId;
+        if (assignedVehicle) shipment.vehicle = assignedVehicle;
+        shipment.rentedAssets = linkedRentals.map(rental => ({
+          rental: rental._id,
+          asset: rental.trailer?._id,
+          assetType: rental.itemType,
+          role: rental.linkedShipment?.role || 'supporting_trailer',
+          owner: rental.owner,
+          amount: rental.pricing?.total || 0
+        }));
+        shipment.earningsSplit = calculateEarningsSplit(booking, linkedRentals);
+        shipment.status = 'assigned';
+        await shipment.save();
+        return shipment;
+      }));
     } else {
-      shipment = await Shipment.create({
+      const vehicleRows = booking.bookingType === 'multiple' && booking.vehicles?.length > 0
+        ? booking.vehicles
+        : [null];
+
+      shipments = await Promise.all(vehicleRows.map((vehicleRow, index) => Shipment.create({
         bookingReference: booking.bookingReference,
         booking: booking._id,
         shipper: booking.user,
         transporter: transporterId,
+        vehicle: requestedVehicleIds[index] || vehicleRow?.vehicle,
         status: 'assigned',
-        cargoDetails: booking.cargoDetails,
+        cargoDetails: vehicleRow ? {
+          type: booking.cargoDetails?.type || vehicleRow.vehicleType || 'cargo',
+          weight: vehicleRow.weight || booking.cargoDetails?.weight || 0,
+          value: booking.cargoDetails?.value,
+          description: vehicleRow.description || booking.cargoDetails?.description,
+          specialInstructions: booking.cargoDetails?.specialInstructions,
+          photos: booking.cargoDetails?.photos
+        } : booking.cargoDetails,
         route: booking.route,
-        pricing: booking.pricing,
+        pricing: {
+          total: booking.pricing?.totals?.total,
+          platformFee: booking.pricing?.totals?.platformTotal,
+          insurance: booking.pricing?.totals?.insuranceTotal,
+          currency: booking.pricing?.currency || 'USD'
+        },
         insurance: booking.insurance,
+        origin: booking.origin,
+        destination: booking.destination,
+        amount: booking.totalAmount,
+        transporterEarnings: booking.pricing?.totals?.transporterTotal,
+        rentedAssets: linkedRentals.map(rental => ({
+          rental: rental._id,
+          asset: rental.trailer?._id,
+          assetType: rental.itemType,
+          role: rental.linkedShipment?.role || 'supporting_trailer',
+          owner: rental.owner,
+          amount: rental.pricing?.total || 0
+        })),
+        earningsSplit: calculateEarningsSplit(booking, linkedRentals),
         schedule: {
           pickupDate: booking.route?.pickup?.date,
           deliveryDate: booking.route?.delivery?.date
+        },
+        statusHistory: [{
+          status: 'assigned',
+          notes: vehicleRow ? `Vehicle slot ${index + 1} assigned` : 'Shipment assigned'
+        }]
+      })));
+    }
+
+    if (requestedVehicleIds.length > 0) {
+      await require('../models/Vehicle').updateMany(
+        { _id: { $in: requestedVehicleIds } },
+        { status: 'in_use' }
+      );
+    }
+
+    if (linkedRentals.length > 0) {
+      await Rental.updateMany(
+        { _id: { $in: linkedRentals.map(rental => rental._id) } },
+        {
+          'linkedShipment.booking': booking._id,
+          'linkedShipment.shipment': shipments[0]?._id
         }
-      });
+      );
     }
 
     // Update escrow with transporter
@@ -351,10 +561,27 @@ exports.acceptJob = async (req, res) => {
       console.error('WhatsApp notification error:', whatsappError);
     }
 
+    await recordAudit({
+      actor: req.user,
+      action: 'job.accepted',
+      entityType: 'Booking',
+      entityId: booking._id,
+      entityRef: booking.bookingReference,
+      after: {
+        status: booking.status,
+        transporter: transporterId,
+        shipmentIds: shipments.map(shipment => shipment._id),
+        vehicleIds: requestedVehicleIds,
+        linkedRentalIds
+      },
+      req
+    });
+
     res.status(200).json({
       success: true,
       data: {
-        shipmentId: shipment._id,
+        shipmentId: shipments[0]?._id,
+        shipmentIds: shipments.map(shipment => shipment._id),
         bookingReference: booking.bookingReference,
         status: 'assigned'
       },
@@ -364,8 +591,54 @@ exports.acceptJob = async (req, res) => {
     console.error('Accept job error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to accept job'
+      message: error.message || 'Failed to accept job'
     });
+  }
+};
+
+function calculateEarningsSplit(booking, rentals = []) {
+  const shipmentTotal = Number(booking.pricing?.totals?.total || booking.totalAmount || 0);
+  const platformFee = Number(booking.pricing?.totals?.platformTotal || Math.round(shipmentTotal * 0.15 * 100) / 100);
+  const baseTransporterEarnings = Number(booking.pricing?.totals?.transporterTotal || Math.max(0, shipmentTotal - platformFee));
+  const rentalCosts = rentals.reduce((sum, rental) => sum + Number(rental.pricing?.total || 0), 0);
+  return {
+    shipmentTotal,
+    platformFee,
+    rentalCosts,
+    trailerOwnerEarnings: rentalCosts,
+    transporterEarnings: Math.max(0, baseTransporterEarnings - rentalCosts),
+    driverEarnings: 0,
+    currency: booking.pricing?.currency || 'USD'
+  };
+}
+
+exports.getTrailerPairingOptions = async (req, res) => {
+  try {
+    const result = await tractorTrailerMatchingService.getTrailerPairingOptions({
+      bookingId: req.params.jobId,
+      transporterId: req.user.id,
+      vehicleId: req.query.vehicleId,
+      limit: req.query.limit || 10
+    });
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Trailer pairing options error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to get trailer options' });
+  }
+};
+
+exports.requestTrailerPairing = async (req, res) => {
+  try {
+    const rental = await tractorTrailerMatchingService.createLinkedTrailerRental({
+      bookingId: req.params.jobId,
+      transporterId: req.user.id,
+      vehicleId: req.body.vehicleId,
+      trailerId: req.body.trailerId
+    });
+    res.status(201).json({ success: true, data: rental, message: 'Trailer rental requested for this job' });
+  } catch (error) {
+    console.error('Request trailer pairing error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to request trailer pairing' });
   }
 };
 
@@ -378,6 +651,25 @@ exports.rejectJob = async (req, res) => {
 
     // Just log the rejection - job stays available for others
     console.log(`Transporter ${transporterId} rejected job ${jobId}: ${reason}`);
+
+    await Booking.findByIdAndUpdate(jobId, {
+      $push: {
+        declines: {
+          transporter: transporterId,
+          reason,
+          declinedAt: new Date()
+        }
+      }
+    });
+
+    await recordAudit({
+      actor: req.user,
+      action: 'job.declined',
+      entityType: 'Booking',
+      entityId: jobId,
+      metadata: { reason },
+      req
+    });
 
     res.status(200).json({
       success: true,
@@ -417,6 +709,7 @@ exports.startPickup = async (req, res) => {
       });
     }
 
+    assertShipmentTransition(shipment.status, 'en_route_pickup');
     shipment.status = 'en_route_pickup';
     shipment.timeline = {
       ...shipment.timeline,
@@ -432,6 +725,16 @@ exports.startPickup = async (req, res) => {
         'timeline.enRoutePickupAt': new Date()
       }
     );
+
+    await recordAudit({
+      actor: req.user,
+      action: 'shipment.pickup_started',
+      entityType: 'Shipment',
+      entityId: shipment._id,
+      entityRef: shipment.bookingReference,
+      after: { status: shipment.status },
+      req
+    });
 
     res.status(200).json({
       success: true,
@@ -466,6 +769,7 @@ exports.confirmPickup = async (req, res) => {
       });
     }
 
+    assertShipmentTransition(shipment.status, 'picked_up');
     shipment.status = 'picked_up';
     shipment.timeline = {
       ...shipment.timeline,
@@ -497,6 +801,16 @@ exports.confirmPickup = async (req, res) => {
     } catch (whatsappError) {
       console.error('WhatsApp notification error:', whatsappError);
     }
+
+    await recordAudit({
+      actor: req.user,
+      action: 'shipment.pickup_confirmed',
+      entityType: 'Shipment',
+      entityId: shipment._id,
+      entityRef: shipment.bookingReference,
+      after: { status: shipment.status, hasSignature: Boolean(signature), photoCount: (photos || []).length },
+      req
+    });
 
     res.status(200).json({
       success: true,
@@ -530,6 +844,7 @@ exports.startTransit = async (req, res) => {
       });
     }
 
+    assertShipmentTransition(shipment.status, 'in_transit');
     shipment.status = 'in_transit';
     shipment.timeline = {
       ...shipment.timeline,
@@ -545,6 +860,16 @@ exports.startTransit = async (req, res) => {
         'timeline.inTransitAt': new Date()
       }
     );
+
+    await recordAudit({
+      actor: req.user,
+      action: 'shipment.transit_started',
+      entityType: 'Shipment',
+      entityId: shipment._id,
+      entityRef: shipment.bookingReference,
+      after: { status: shipment.status },
+      req
+    });
 
     res.status(200).json({
       success: true,
@@ -579,23 +904,21 @@ exports.updateLocation = async (req, res) => {
       });
     }
 
-    // Add location to tracking history
-    if (!shipment.tracking) {
-      shipment.tracking = { locations: [] };
-    }
+    const coordinates = [Number(longitude), Number(latitude)];
 
-    shipment.tracking.locations.push({
-      latitude,
-      longitude,
-      address,
+    shipment.tracking.push({
+      location: {
+        type: 'Point',
+        coordinates
+      },
+      event: 'location_update',
+      note: address,
       timestamp: new Date()
     });
 
-    shipment.tracking.currentLocation = {
-      latitude,
-      longitude,
-      address,
-      updatedAt: new Date()
+    shipment.currentLocation = {
+      type: 'Point',
+      coordinates
     };
 
     await shipment.save();
@@ -631,12 +954,23 @@ exports.arriveAtDelivery = async (req, res) => {
       });
     }
 
+    assertShipmentTransition(shipment.status, 'arrived_delivery');
     shipment.status = 'arrived_delivery';
     shipment.timeline = {
       ...shipment.timeline,
       arrivedDeliveryAt: new Date()
     };
     await shipment.save();
+
+    await recordAudit({
+      actor: req.user,
+      action: 'shipment.arrived_delivery',
+      entityType: 'Shipment',
+      entityId: shipment._id,
+      entityRef: shipment.bookingReference,
+      after: { status: shipment.status },
+      req
+    });
 
     res.status(200).json({
       success: true,
@@ -671,6 +1005,7 @@ exports.confirmDelivery = async (req, res) => {
       });
     }
 
+    assertShipmentTransition(shipment.status, 'delivered');
     shipment.status = 'delivered';
     shipment.timeline = {
       ...shipment.timeline,
@@ -720,6 +1055,22 @@ exports.confirmDelivery = async (req, res) => {
     } catch (whatsappError) {
       console.error('WhatsApp notification error:', whatsappError);
     }
+
+    await recordAudit({
+      actor: req.user,
+      action: 'shipment.delivered',
+      entityType: 'Shipment',
+      entityId: shipment._id,
+      entityRef: shipment.bookingReference,
+      after: {
+        status: shipment.status,
+        receiverName,
+        receiverPhone,
+        hasSignature: Boolean(signature),
+        photoCount: (photos || []).length
+      },
+      req
+    });
 
     res.status(200).json({
       success: true,
@@ -796,5 +1147,53 @@ exports.getEarnings = async (req, res) => {
       success: false,
       message: 'Failed to fetch earnings'
     });
+  }
+};
+
+exports.getEarningStats = async (req, res) => {
+  try {
+    const transporterId = req.user.id;
+    const delivered = await Shipment.find({
+      transporter: transporterId,
+      status: { $in: ['delivered', 'completed'] }
+    }).lean();
+
+    const totalEarnings = delivered.reduce((sum, s) =>
+      sum + (s.transporterEarnings || s.pricing?.transporterTotal || s.pricing?.total || 0), 0
+    );
+
+    res.json({
+      success: true,
+      data: {
+        totalEarnings,
+        deliveredJobs: delivered.length,
+        averagePerJob: delivered.length ? totalEarnings / delivered.length : 0
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to fetch earning stats', error: error.message });
+  }
+};
+
+exports.getPerformance = async (req, res) => {
+  try {
+    const transporterId = req.user.id;
+    const shipments = await Shipment.find({ transporter: transporterId }).lean();
+    const completed = shipments.filter(s => ['delivered', 'completed'].includes(s.status));
+    const cancelled = shipments.filter(s => s.status === 'cancelled');
+    const ratings = completed.map(s => s.rating).filter(Boolean);
+
+    res.json({
+      success: true,
+      data: {
+        totalJobs: shipments.length,
+        completedJobs: completed.length,
+        cancelledJobs: cancelled.length,
+        completionRate: shipments.length ? Math.round((completed.length / shipments.length) * 100) : 0,
+        averageRating: ratings.length ? ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length : 0
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to fetch performance', error: error.message });
   }
 };

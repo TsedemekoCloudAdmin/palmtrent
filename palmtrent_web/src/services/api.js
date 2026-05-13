@@ -1,5 +1,5 @@
 // API Service for Palmtrent Web
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
 
 // Token management
 const getToken = () => localStorage.getItem('palmtrent_token');
@@ -79,13 +79,23 @@ export const authAPI = {
     return response;
   },
 
+  forgotPassword: (email) => apiFetch('/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  }),
+
+  resetPassword: (token, password) => apiFetch('/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ token, password }),
+  }),
+
   logout: () => {
     removeToken();
     removeUser();
     window.location.href = '/login';
   },
 
-  getProfile: () => apiFetch('/auth/profile'),
+  getProfile: () => apiFetch('/auth/me'),
 
   updateProfile: (data) => apiFetch('/auth/profile', {
     method: 'PUT',
@@ -121,7 +131,7 @@ export const bookingsAPI = {
     body: JSON.stringify({ reason }),
   }),
 
-  getQuote: (quoteData) => apiFetch('/bookings/quote', {
+  getQuote: (quoteData) => apiFetch('/bookings/calculate-pricing', {
     method: 'POST',
     body: JSON.stringify(quoteData),
   }),
@@ -142,10 +152,10 @@ export const trackingAPI = {
   },
 
   // Authenticated tracking with full details
-  track: (bookingId) => apiFetch(`/bookings/${bookingId}/tracking`),
+  track: (bookingId) => apiFetch(`/tracking/${bookingId}`),
 
   // Get tracking history
-  getHistory: (bookingId) => apiFetch(`/bookings/${bookingId}/tracking/history`),
+  getHistory: (bookingId) => apiFetch(`/tracking/${bookingId}`),
 
   // Subscribe to live updates (returns WebSocket URL)
   getLiveTrackingUrl: (bookingId) => {
@@ -163,12 +173,12 @@ export const paymentsAPI = {
 
   getById: (id) => apiFetch(`/payments/${id}`),
 
-  initiate: (bookingId, paymentMethod) => apiFetch('/payments/initiate', {
+  initiate: (bookingId, paymentMethod, amount, customer = {}) => apiFetch('/payments/create', {
     method: 'POST',
-    body: JSON.stringify({ bookingId, paymentMethod }),
+    body: JSON.stringify({ bookingId, paymentMethod, amount, customer }),
   }),
 
-  verify: (reference) => apiFetch(`/payments/verify/${reference}`),
+  verify: (reference) => apiFetch(`/payments/status/${reference}`),
 };
 
 // Ratings API
@@ -189,7 +199,72 @@ export const vehiclesAPI = {
 
   getMakes: () => apiFetch('/reference/vehicle-makes'),
 
-  getModels: (makeId) => apiFetch(`/reference/vehicle-models/${makeId}`),
+  getModels: (makeId) => apiFetch(`/reference/vehicle-makes/${makeId}/models`),
+};
+
+// Trailer owner / fleet rental API
+export const fleetAPI = {
+  getDashboard: () => apiFetch('/trailer-owner/dashboard-stats'),
+
+  getFleet: (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    return apiFetch(`/trailers/my-fleet${queryString ? `?${queryString}` : ''}`);
+  },
+
+  createAsset: (data) => apiFetch('/trailers', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  updateAsset: (id, data) => apiFetch(`/trailers/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
+  updateStatus: (id, status) => apiFetch(`/trailers/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  }),
+
+  updateRentalSettings: (id, data) => apiFetch(`/trailers/${id}/rental-settings`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
+
+  getAvailableRentals: (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    return apiFetch(`/rentals/available${queryString ? `?${queryString}` : ''}`);
+  },
+
+  requestRental: (data) => apiFetch('/rentals/request', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  getMyListings: () => apiFetch('/rentals/my-listings'),
+
+  getMyRentals: () => apiFetch('/rentals/my-rentals'),
+
+  approveRental: (id) => apiFetch(`/rentals/${id}/approve`, { method: 'POST' }),
+
+  payRental: (id) => apiFetch(`/rentals/${id}/pay`, { method: 'POST' }),
+
+  checkRentalPayment: (id) => apiFetch(`/rentals/${id}/payment-status`),
+
+  rejectRental: (id, reason) => apiFetch(`/rentals/${id}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  }),
+
+  confirmPickup: (id, data = {}) => apiFetch(`/rentals/${id}/confirm-pickup`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  confirmReturn: (id, data = {}) => apiFetch(`/rentals/${id}/confirm-return`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
 };
 
 // Reference Data API
@@ -202,7 +277,7 @@ export const referenceAPI = {
 
   getCities: () => apiFetch('/reference/cities'),
 
-  getCrossBoderDestinations: () => apiFetch('/reference/cross-border-destinations'),
+  getCrossBoderDestinations: () => apiFetch('/cross-border/destinations'),
 };
 
 // Corporate API
@@ -227,6 +302,13 @@ export const corporateAPI = {
   },
 
   getInvoices: () => apiFetch('/corporate/invoices'),
+
+  getUsers: () => apiFetch('/corporate/users'),
+
+  inviteUser: (data) => apiFetch('/corporate/users/invite', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
 
   uploadDocument: (formData) => {
     const token = getToken();
@@ -281,7 +363,10 @@ export const adminAPI = {
     return apiFetch(`/admin/bookings${queryString ? `?${queryString}` : ''}`);
   },
 
-  getDisputes: () => apiFetch('/admin/disputes'),
+  getDisputes: (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    return apiFetch(`/admin/disputes${queryString ? `?${queryString}` : ''}`);
+  },
 
   resolveDispute: (id, resolution) => apiFetch(`/admin/disputes/${id}/resolve`, {
     method: 'POST',
@@ -293,10 +378,36 @@ export const adminAPI = {
     return apiFetch(`/admin/payments${queryString ? `?${queryString}` : ''}`);
   },
 
+  getAuditLogs: (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    return apiFetch(`/admin/audit-logs${queryString ? `?${queryString}` : ''}`);
+  },
+
+  getRentals: (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    return apiFetch(`/admin/rentals${queryString ? `?${queryString}` : ''}`);
+  },
+
+  getRatings: (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    return apiFetch(`/admin/ratings${queryString ? `?${queryString}` : ''}`);
+  },
+
   getReports: (type, params = {}) => {
     const queryString = new URLSearchParams(params).toString();
     return apiFetch(`/admin/reports/${type}${queryString ? `?${queryString}` : ''}`);
   },
+
+  getIntegrations: () => apiFetch('/admin/integrations'),
+
+  updateIntegration: (provider, data) => apiFetch(`/admin/integrations/${provider}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
+  testIntegration: (provider) => apiFetch(`/admin/integrations/${provider}/test`, {
+    method: 'POST',
+  }),
 };
 
 // Notifications API
@@ -307,7 +418,7 @@ export const notificationsAPI = {
     method: 'POST',
   }),
 
-  markAllAsRead: () => apiFetch('/notifications/read-all', {
+  markAllAsRead: () => apiFetch('/notifications/mark-all-read', {
     method: 'POST',
   }),
 
@@ -322,6 +433,7 @@ export default {
   payments: paymentsAPI,
   ratings: ratingsAPI,
   vehicles: vehiclesAPI,
+  fleet: fleetAPI,
   reference: referenceAPI,
   corporate: corporateAPI,
   shipper: shipperAPI,

@@ -48,10 +48,7 @@ exports.triggerSOS = async (req, res) => {
     }
 
     // Determine user type
-    let userType = 'shipper';
-    if (user.role === 'transporter' || user.role === 'driver') {
-      userType = user.role;
-    }
+    const userType = user.userType === 'transporter' ? 'transporter' : 'shipper';
 
     // Create emergency record
     const emergency = await Emergency.create({

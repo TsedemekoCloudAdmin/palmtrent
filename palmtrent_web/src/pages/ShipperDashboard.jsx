@@ -16,6 +16,7 @@ export const ShipperDashboard = () => {
   const [activeNav, setActiveNav] = useState('overview');
   const [timeRange, setTimeRange] = useState('today');
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const currentUser = authAPI.getCurrentUser() || {};
 
   const userDropdownRef = useRef(null);
 
@@ -129,7 +130,7 @@ export const ShipperDashboard = () => {
                 <button className="shipper-user-trigger" onClick={() => setUserDropdownOpen(!userDropdownOpen)}>
                   <div className="shipper-user-avatar"><span className="shipper-user-avatar-text">JM</span></div>
                   <div className="shipper-user-info">
-                    <p className="shipper-user-name">John Moyo</p>
+                    <p className="shipper-user-name">{currentUser.fullName || currentUser.email || ''}</p>
                     <p className="shipper-user-role">Premium Shipper</p>
                   </div>
                   <ChevronDown className="shipper-dropdown-arrow" size={16} />
@@ -140,7 +141,7 @@ export const ShipperDashboard = () => {
                     <div className="shipper-dropdown-user">
                       <div className="shipper-dropdown-avatar"><span className="shipper-dropdown-avatar-text">JM</span></div>
                       <div className="shipper-dropdown-user-info">
-                        <p className="shipper-dropdown-user-name">John Moyo</p>
+                        <p className="shipper-dropdown-user-name">{currentUser.fullName || currentUser.email || ''}</p>
                         <p className="shipper-dropdown-user-email">john.moyo@example.com</p>
                       </div>
                     </div>
@@ -221,12 +222,13 @@ const OverviewTab = ({ setActiveNav }) => {
           amount: b.pricing?.total || 0
         })));
 
-        // Mock recent activity for now
-        setRecentActivity([
-          { time: '2 mins ago', event: 'Shipment picked up', user: active[0]?.bookingId || 'PT-001', type: 'pickup' },
-          { time: '1 hour ago', event: 'Payment received', user: completed[0]?.bookingId || 'PT-002', type: 'payment' },
-          { time: '3 hours ago', event: 'New booking confirmed', user: bookings[0]?.bookingId || 'PT-003', type: 'booking' }
-        ]);
+        const activityRes = await shipperAPI.getRecentActivity();
+        setRecentActivity((activityRes.data || []).map(item => ({
+          time: item.date || '',
+          event: item.title || item.status || 'Activity',
+          user: item.amount || '',
+          type: item.status || 'activity'
+        })));
 
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
@@ -328,7 +330,7 @@ const NewBookingTab = ({ setActiveNav }) => {
     cargoType: '', cargoWeight: '', cargoDescription: '',
     vehicleType: '', pickupDate: '', pickupTime: '',
     insurance: false, insuranceValue: '',
-    paymentMethod: 'ecocash'
+    paymentMethod: 'openapi_africa'
   });
   const [quote, setQuote] = useState(null);
 
@@ -635,10 +637,10 @@ const NewBookingTab = ({ setActiveNav }) => {
             <div className="payment-section">
               <h3>Payment Method</h3>
               <div className="payment-options">
-                {['ecocash', 'innbucks', 'card', 'bank'].map(method => (
+                {['openapi_africa', 'card', 'bank_transfer', 'ecocash', 'onemoney'].map(method => (
                   <button key={method} className={`payment-option ${bookingData.paymentMethod === method ? 'selected' : ''}`} onClick={() => handleInputChange('paymentMethod', method)}>
                     <CreditCard className="icon" />
-                    <span>{method === 'ecocash' ? 'EcoCash' : method === 'innbucks' ? 'InnBucks' : method === 'card' ? 'Card' : 'Bank Transfer'}</span>
+                    <span>{method === 'openapi_africa' ? 'ClicknPay' : method === 'ecocash' ? 'EcoCash' : method === 'onemoney' ? 'OneMoney' : method === 'card' ? 'Card' : 'Bank Transfer'}</span>
                   </button>
                 ))}
               </div>
@@ -672,7 +674,7 @@ const NewBookingTab = ({ setActiveNav }) => {
                 deliveryAddress: '', deliveryCity: '', deliveryPhone: '',
                 cargoType: '', cargoWeight: '', cargoDescription: '',
                 vehicleType: '', pickupDate: '', pickupTime: '',
-                insurance: false, insuranceValue: '', paymentMethod: 'ecocash'
+                insurance: false, insuranceValue: '', paymentMethod: 'openapi_africa'
               }); }}>Create Another Booking</button>
             </div>
           </div>
@@ -974,30 +976,40 @@ const PaymentsTab = () => {
 
 // ============ Favorites Tab ============
 const FavoritesTab = () => {
-  const favorites = [
-    { id: 1, name: 'Trust Ncube', rating: 4.9, trips: 15, vehicle: 'Medium Truck', phone: '+263 77 123 4567' },
-    { id: 2, name: 'Peter Ndlovu', rating: 4.8, trips: 8, vehicle: 'Large Truck', phone: '+263 77 234 5678' },
-    { id: 3, name: 'Mike Chikwanha', rating: 4.7, trips: 12, vehicle: 'Flatbed', phone: '+263 77 345 6789' }
-  ];
+  const [favorites, setFavorites] = useState([]);
+
+  useEffect(() => {
+    const loadFavorites = async () => {
+      try {
+        const response = await shipperAPI.getFavoriteTransporters();
+        setFavorites(response.data || []);
+      } catch (error) {
+        console.error('Failed to load favorites:', error);
+        setFavorites([]);
+      }
+    };
+    loadFavorites();
+  }, []);
 
   return (
     <div className="favorites-container">
       <div className="favorites-grid">
         {favorites.map(driver => (
-          <div key={driver.id} className="favorite-card">
+          <div key={driver._id || driver.id} className="favorite-card">
             <div className="favorite-header">
-              <div className="favorite-avatar">{driver.name.charAt(0)}</div>
+              <div className="favorite-avatar">{(driver.fullName || driver.name || 'T').charAt(0)}</div>
               <button className="favorite-btn active"><Heart className="icon" /></button>
             </div>
-            <h3>{driver.name}</h3>
-            <div className="favorite-rating"><Star className="icon" /> {driver.rating} ({driver.trips} trips)</div>
-            <p className="favorite-vehicle">{driver.vehicle}</p>
+            <h3>{driver.fullName || driver.name || 'Transporter'}</h3>
+            <div className="favorite-rating"><Star className="icon" /> {driver.rating?.average || 0} ({driver.rating?.count || 0} trips)</div>
+            <p className="favorite-vehicle">{driver.vehicle || driver.verification?.status || ''}</p>
             <div className="favorite-actions">
               <button className="btn-primary">Book Now</button>
-              <a href={`tel:${driver.phone}`} className="btn-secondary"><Phone className="icon" /></a>
+              <a href={`tel:${driver.phone || ''}`} className="btn-secondary"><Phone className="icon" /></a>
             </div>
           </div>
         ))}
+        {!favorites.length && <div className="empty-state">No favorite transporters yet.</div>}
       </div>
     </div>
   );
@@ -1005,24 +1017,35 @@ const FavoritesTab = () => {
 
 // ============ Reviews Tab ============
 const ReviewsTab = () => {
-  const reviews = [
-    { id: 1, driver: 'Trust Ncube', booking: 'PT-2025-001230', rating: 5, comment: 'Excellent service! Delivered on time and handled cargo with care.', date: '2025-01-08' },
-    { id: 2, driver: 'Peter Ndlovu', booking: 'PT-2025-001220', rating: 4, comment: 'Good service, slight delay but communicated well.', date: '2025-01-03' }
-  ];
+  const [reviews, setReviews] = useState([]);
+
+  useEffect(() => {
+    const loadReviews = async () => {
+      try {
+        const response = await ratingsAPI.getAll?.() || await ratingsAPI.getForUser(authAPI.getCurrentUser()?._id);
+        setReviews(response.data || response.ratings || []);
+      } catch (error) {
+        console.error('Failed to load reviews:', error);
+        setReviews([]);
+      }
+    };
+    loadReviews();
+  }, []);
 
   return (
     <div className="reviews-container">
       <div className="reviews-list">
         {reviews.map(review => (
-          <div key={review.id} className="review-card">
+          <div key={review._id || review.id} className="review-card">
             <div className="review-header">
-              <div className="review-driver"><div className="driver-avatar">{review.driver.charAt(0)}</div><div><strong>{review.driver}</strong><span>{review.booking}</span></div></div>
-              <div className="review-rating">{[...Array(5)].map((_, i) => <Star key={i} className={`icon ${i < review.rating ? 'filled' : ''}`} />)}</div>
+              <div className="review-driver"><div className="driver-avatar">{(review.ratee?.user?.fullName || review.driver || 'R').charAt(0)}</div><div><strong>{review.ratee?.user?.fullName || review.driver || 'Review'}</strong><span>{review.booking?.bookingReference || review.booking || ''}</span></div></div>
+              <div className="review-rating">{[...Array(5)].map((_, i) => <Star key={i} className={`icon ${i < (review.overallRating || review.rating || 0) ? 'filled' : ''}`} />)}</div>
             </div>
-            <p className="review-comment">{review.comment}</p>
-            <span className="review-date">{new Date(review.date).toLocaleDateString()}</span>
+            <p className="review-comment">{review.review?.text || review.comment || ''}</p>
+            <span className="review-date">{review.createdAt || review.date ? new Date(review.createdAt || review.date).toLocaleDateString() : ''}</span>
           </div>
         ))}
+        {!reviews.length && <div className="empty-state">No reviews yet.</div>}
       </div>
     </div>
   );

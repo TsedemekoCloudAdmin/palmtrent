@@ -1,6 +1,150 @@
 // controllers/claimsController.js
 const InsuranceClaim = require('../models/InsuranceClaim');
 const Booking = require('../models/Booking');
+const { recordAudit } = require('../services/auditService');
+const { assertBookingTransition } = require('../services/flowControlService');
+
+function mapDisputeCategoryToIncident(category) {
+  const map = {
+    payment_issue: 'other',
+    service_quality: 'other',
+    unprofessional_conduct: 'other',
+    late_delivery: 'delay',
+    cargo_damage: 'damage',
+    cargo_missing: 'loss',
+    wrong_delivery: 'partial_loss',
+    booking_issue: 'other',
+    other: 'other'
+  };
+  return map[category] || 'other';
+}
+
+function canAccessBooking(booking, userId) {
+  return booking.user?._id?.toString() === userId ||
+    booking.user?.toString?.() === userId ||
+    booking.shipper?._id?.toString() === userId ||
+    booking.shipper?.toString?.() === userId ||
+    booking.transporter?._id?.toString() === userId ||
+    booking.transporter?.toString?.() === userId;
+}
+
+exports.createDispute = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const {
+      bookingId,
+      category,
+      description,
+      desiredOutcome,
+      claimedValue
+    } = req.body;
+
+    if (!bookingId || !category || !description) {
+      return res.status(400).json({
+        success: false,
+        message: 'bookingId, category, and description are required'
+      });
+    }
+
+    const booking = await Booking.findById(bookingId)
+      .populate('user')
+      .populate('shipper')
+      .populate('transporter');
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Booking not found'
+      });
+    }
+
+    if (!canAccessBooking(booking, userId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to file a dispute for this booking'
+      });
+    }
+
+    const isTransporter = booking.transporter?._id?.toString() === userId;
+    const uploadedDocuments = (req.files || []).map(file => ({
+      type: file.mimetype === 'application/pdf' ? 'other' : 'photo_damage',
+      name: file.originalname,
+      url: `/uploads/claims/${file.filename}`,
+      uploadedAt: new Date()
+    }));
+
+    const claim = new InsuranceClaim({
+      booking: bookingId,
+      policy: {
+        providerCode: booking.insurance?.provider || 'PLATFORM',
+        providerName: booking.insurance?.provider || 'Palmtrent Dispute Desk',
+        coverageType: booking.insurance?.required ? 'insured_dispute' : 'platform_dispute',
+        premium: booking.insurance?.premium || 0
+      },
+      claimant: {
+        user: userId,
+        name: req.user.fullName,
+        email: req.user.email,
+        phone: req.user.phone,
+        role: isTransporter ? 'transporter' : 'shipper'
+      },
+      incident: {
+        type: mapDisputeCategoryToIncident(category),
+        description,
+        dateOccurred: new Date(),
+        locationDescription: booking.route?.pickup?.address || booking.route?.delivery?.address
+      },
+      cargo: {
+        description: booking.cargoDetails?.description || booking.cargoDetails?.type,
+        declaredValue: booking.cargoDetails?.value || 0,
+        claimedValue: Number(claimedValue || booking.cargoDetails?.value || 0)
+      },
+      documents: uploadedDocuments,
+      status: 'submitted',
+      timeline: {
+        submittedAt: new Date()
+      },
+      metadata: {
+        caseType: 'platform_dispute',
+        category,
+        desiredOutcome
+      }
+    });
+
+    claim.setSLADeadlines();
+    await claim.save();
+
+    assertBookingTransition(booking.status, 'disputed');
+    booking.status = 'disputed';
+    await booking.save();
+
+    await recordAudit({
+      actor: req.user,
+      action: 'dispute.created',
+      entityType: 'InsuranceClaim',
+      entityId: claim._id,
+      entityRef: claim.claimReference,
+      after: { status: claim.status, booking: booking._id, bookingStatus: booking.status, category },
+      req
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Dispute submitted successfully',
+      data: {
+        claimReference: claim.claimReference,
+        status: claim.status,
+        documents: uploadedDocuments.length
+      }
+    });
+  } catch (error) {
+    console.error('Error creating dispute:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to submit dispute'
+    });
+  }
+};
 
 // Create a new insurance claim
 exports.createClaim = async (req, res) => {
@@ -31,7 +175,7 @@ exports.createClaim = async (req, res) => {
     }
 
     // Check if booking has insurance
-    if (!booking.insurance?.selected) {
+    if (!booking.insurance?.required && !booking.insurance?.selected) {
       return res.status(400).json({
         success: false,
         message: 'This booking does not have insurance coverage'
@@ -76,7 +220,7 @@ exports.createClaim = async (req, res) => {
       },
       claimant: {
         user: userId,
-        name: req.user.name,
+        name: req.user.fullName,
         email: req.user.email,
         phone: req.user.phone,
         role: isShipper ? 'shipper' : 'transporter'
@@ -255,7 +399,7 @@ exports.getClaim = async (req, res) => {
 
     // Check access
     const isClaimant = claim.claimant.user._id.toString() === userId;
-    const isAdmin = req.user.role === 'admin';
+    const isAdmin = req.user.userType === 'admin';
 
     if (!isClaimant && !isAdmin) {
       return res.status(403).json({
@@ -334,7 +478,7 @@ exports.addCommunication = async (req, res) => {
     }
 
     const isClaimant = claim.claimant.user.toString() === userId;
-    const isAdmin = req.user.role === 'admin';
+    const isAdmin = req.user.userType === 'admin';
 
     if (!isClaimant && !isAdmin) {
       return res.status(403).json({
@@ -418,7 +562,7 @@ exports.adminUpdateStatus = async (req, res) => {
     const { claimId } = req.params;
     const { status, notes, assessment, settlement, rejection } = req.body;
 
-    if (req.user.role !== 'admin') {
+    if (req.user.userType !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'Admin access required'
@@ -433,6 +577,8 @@ exports.adminUpdateStatus = async (req, res) => {
         message: 'Claim not found'
       });
     }
+
+    const before = { status: claim.status, settlement: claim.settlement };
 
     // Update status
     claim.status = status;
@@ -500,6 +646,18 @@ exports.adminUpdateStatus = async (req, res) => {
 
     await claim.save();
 
+    await recordAudit({
+      actor: req.user,
+      action: 'claim.status_updated',
+      entityType: 'InsuranceClaim',
+      entityId: claim._id,
+      entityRef: claim.claimReference,
+      before,
+      after: { status: claim.status, settlement: claim.settlement },
+      metadata: { notes },
+      req
+    });
+
     res.json({
       success: true,
       data: claim,
@@ -518,7 +676,7 @@ exports.adminUpdateStatus = async (req, res) => {
 // Admin: Get all claims
 exports.adminGetClaims = async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
+    if (req.user.userType !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'Admin access required'

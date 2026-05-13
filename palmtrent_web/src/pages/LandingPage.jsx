@@ -9,6 +9,21 @@ import { authAPI, trackingAPI } from '../services/api';
 import './styles/LandingPage.css';
 import logo from '../assets/logo3.png';
 
+const getRoleHomePath = (user) => {
+  switch (user?.userType) {
+    case 'admin':
+      return '/admin';
+    case 'corporate':
+      return '/corp';
+    case 'trailer_owner':
+    case 'transporter':
+      return '/fleet';
+    case 'shipper':
+    default:
+      return '/shipper';
+  }
+};
+
 const LandingPage = () => {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -49,15 +64,7 @@ const LandingPage = () => {
       const response = await authAPI.login(loginForm.email, loginForm.password);
       if (response.token) {
         setShowLoginModal(false);
-        // Redirect based on user type
-        const user = authAPI.getCurrentUser();
-        if (user?.userType === 'admin') {
-          navigate('/admin');
-        } else if (user?.userType === 'corporate') {
-          navigate('/corporate');
-        } else {
-          navigate('/shipper');
-        }
+        navigate(getRoleHomePath(authAPI.getCurrentUser()));
       }
     } catch (error) {
       setAuthError(error.message || 'Login failed. Please try again.');
@@ -93,10 +100,25 @@ const LandingPage = () => {
 
       if (response.token) {
         setShowRegisterModal(false);
-        navigate('/shipper');
+        navigate(getRoleHomePath(authAPI.getCurrentUser()));
       }
     } catch (error) {
       setAuthError(error.message || 'Registration failed. Please try again.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    const email = window.prompt('Enter your account email address');
+    if (!email) return;
+
+    try {
+      setAuthLoading(true);
+      await authAPI.forgotPassword(email);
+      window.alert('If an account with that email exists, a password reset link has been sent.');
+    } catch (error) {
+      window.alert(error.message || 'Could not send reset link.');
     } finally {
       setAuthLoading(false);
     }
@@ -596,7 +618,7 @@ const LandingPage = () => {
                   <input type="checkbox" />
                   <span>Remember me</span>
                 </label>
-                <a href="#" className="forgot-password">Forgot password?</a>
+                <button type="button" className="forgot-password" onClick={handleForgotPassword}>Forgot password?</button>
               </div>
 
               <button type="submit" className="auth-submit-btn" disabled={authLoading}>

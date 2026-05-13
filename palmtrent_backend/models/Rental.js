@@ -10,7 +10,7 @@ const rentalSchema = new mongoose.Schema({
   // Item type - vehicle or trailer (centralized rental system)
   itemType: {
     type: String,
-    enum: ['vehicle', 'trailer'],
+    enum: ['vehicle', 'trailer', 'tractor_unit', 'truck', 'full_rig'],
     required: true,
     default: 'vehicle'
   },
@@ -185,6 +185,12 @@ const rentalSchema = new mongoose.Schema({
   
   // Payment tracking
   payment: {
+    gatewayPayment: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Payment'
+    },
+    paymentReference: String,
+    gateway: String,
     depositPayment: {
       status: {
         type: String,
@@ -193,7 +199,7 @@ const rentalSchema = new mongoose.Schema({
       },
       method: {
         type: String,
-        enum: ['ecocash', 'onemoney', 'bank_transfer', 'cash', 'corporate']
+        enum: ['ecocash', 'onemoney', 'bank_transfer', 'openapi_africa', 'clicknpay', 'cash', 'corporate']
       },
       reference: String,
       paidAt: Date,
@@ -208,7 +214,7 @@ const rentalSchema = new mongoose.Schema({
       },
       method: {
         type: String,
-        enum: ['ecocash', 'onemoney', 'bank_transfer', 'cash', 'corporate']
+        enum: ['ecocash', 'onemoney', 'bank_transfer', 'openapi_africa', 'clicknpay', 'cash', 'corporate']
       },
       reference: String,
       paidAt: Date,
@@ -230,6 +236,30 @@ const rentalSchema = new mongoose.Schema({
       default: 0
     },
     balance: Number
+  },
+
+  settlement: {
+    platformFeeRate: { type: Number, default: 0.10 },
+    platformFee: { type: Number, default: 0 },
+    ownerEarnings: { type: Number, default: 0 },
+    renterRefund: { type: Number, default: 0 },
+    depositHeld: { type: Number, default: 0 },
+    depositForfeited: { type: Number, default: 0 },
+    settledAt: Date,
+    status: {
+      type: String,
+      enum: ['pending', 'held', 'settled', 'disputed'],
+      default: 'pending'
+    }
+  },
+
+  linkedShipment: {
+    booking: { type: mongoose.Schema.Types.ObjectId, ref: 'Booking' },
+    shipment: { type: mongoose.Schema.Types.ObjectId, ref: 'Shipment' },
+    role: {
+      type: String,
+      enum: ['supporting_trailer', 'supporting_tractor', 'full_rig']
+    }
   },
   
   // Insurance
@@ -440,7 +470,6 @@ rentalSchema.pre('save', function(next) {
 rentalSchema.index({ owner: 1, status: 1 });
 rentalSchema.index({ renter: 1, status: 1 });
 rentalSchema.index({ vehicle: 1 });
-rentalSchema.index({ rentalReference: 1 });
 rentalSchema.index({ 'rentalPeriod.startDate': 1, 'rentalPeriod.endDate': 1 });
 rentalSchema.index({ status: 1, 'rentalPeriod.endDate': 1 });
 rentalSchema.index({ 'payment.rentalPayment.status': 1 });

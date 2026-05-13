@@ -24,9 +24,16 @@ const PickupChecklistScreen = ({ navigation, route }) => {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const jobData = job || {
-    id: 'PT-2025-001234'
-  };
+  const jobData = job || {};
+  const cargoDetails = jobData.cargoDetails || {};
+  const cargoLabel = cargoDetails.description ||
+    `${cargoDetails.weight || jobData.weight || 0} kg ${cargoDetails.type || jobData.cargoType || 'cargo'}`;
+  const quantityLabel = cargoDetails.quantity
+    ? `Count: ${cargoDetails.quantity}`
+    : 'Count: verify against booking details';
+  const conditionLabel = cargoDetails.condition || cargoDetails.handlingInstructions
+    ? `Condition: ${cargoDetails.condition || cargoDetails.handlingInstructions}`
+    : 'Condition: record visible damage before loading';
 
   const handleCompletePickup = async () => {
     if (!checklist.signature) return;
@@ -128,9 +135,9 @@ const PickupChecklistScreen = ({ navigation, route }) => {
             locked={!checklist.arrived}
           >
             <View style={styles.inspectionList}>
-              <InspectionItem label="Match description: 5 tonnes maize" />
-              <InspectionItem label="Count: 100 bags x 50kg" />
-              <InspectionItem label="Condition: Bags intact, dry" />
+              <InspectionItem label={`Match description: ${cargoLabel}`} />
+              <InspectionItem label={quantityLabel} />
+              <InspectionItem label={conditionLabel} />
             </View>
             <TouchableOpacity
               style={[styles.actionButton, checklist.inspected && styles.actionButtonCompleted, !checklist.arrived && styles.actionButtonDisabled]}
@@ -196,7 +203,7 @@ const PickupChecklistScreen = ({ navigation, route }) => {
             {checklist.signature && (
               <View style={styles.completedStatus}>
                 <MaterialIcons name="check-circle" size={16} color="#16a34a" />
-                <Text style={styles.completedText}>Signed by John Moyo at 06:15 AM</Text>
+                <Text style={styles.completedText}>Signature captured</Text>
               </View>
             )}
           </ChecklistCard>

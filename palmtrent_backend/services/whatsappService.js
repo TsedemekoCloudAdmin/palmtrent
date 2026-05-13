@@ -2,6 +2,7 @@
 // WhatsApp Business API Integration Service
 
 const axios = require('axios');
+const { getIntegrationConfig } = require('./integrationSettingsService');
 
 class WhatsAppService {
   constructor() {
@@ -15,6 +16,13 @@ class WhatsAppService {
 
     // Session timeout (30 minutes)
     this.sessionTimeout = 30 * 60 * 1000;
+  }
+
+  async refreshConfig() {
+    const config = await getIntegrationConfig('whatsapp');
+    this.phoneNumberId = config.phoneNumberId || this.phoneNumberId;
+    this.accessToken = config.accessToken || this.accessToken;
+    this.verifyToken = config.verifyToken || this.verifyToken;
   }
 
   // Get or create session for a user
@@ -58,6 +66,7 @@ class WhatsAppService {
   // Send text message
   async sendTextMessage(to, text) {
     try {
+      await this.refreshConfig();
       const response = await axios.post(
         `${this.baseUrl}/${this.phoneNumberId}/messages`,
         {
@@ -84,6 +93,7 @@ class WhatsAppService {
   // Send interactive buttons message
   async sendButtonsMessage(to, bodyText, buttons) {
     try {
+      await this.refreshConfig();
       const response = await axios.post(
         `${this.baseUrl}/${this.phoneNumberId}/messages`,
         {
@@ -122,6 +132,7 @@ class WhatsAppService {
   // Send interactive list message
   async sendListMessage(to, bodyText, buttonText, sections) {
     try {
+      await this.refreshConfig();
       const response = await axios.post(
         `${this.baseUrl}/${this.phoneNumberId}/messages`,
         {
@@ -162,6 +173,7 @@ class WhatsAppService {
   // Send location request message
   async sendLocationRequest(to, bodyText) {
     try {
+      await this.refreshConfig();
       const response = await axios.post(
         `${this.baseUrl}/${this.phoneNumberId}/messages`,
         {
@@ -192,6 +204,7 @@ class WhatsAppService {
   // Send template message
   async sendTemplateMessage(to, templateName, languageCode = 'en', components = []) {
     try {
+      await this.refreshConfig();
       const response = await axios.post(
         `${this.baseUrl}/${this.phoneNumberId}/messages`,
         {
@@ -222,6 +235,7 @@ class WhatsAppService {
   // Send image message
   async sendImageMessage(to, imageUrl, caption = '') {
     try {
+      await this.refreshConfig();
       const response = await axios.post(
         `${this.baseUrl}/${this.phoneNumberId}/messages`,
         {
@@ -251,6 +265,7 @@ class WhatsAppService {
   // Send document message
   async sendDocumentMessage(to, documentUrl, filename, caption = '') {
     try {
+      await this.refreshConfig();
       const response = await axios.post(
         `${this.baseUrl}/${this.phoneNumberId}/messages`,
         {
@@ -281,6 +296,7 @@ class WhatsAppService {
   // Send location message
   async sendLocationMessage(to, latitude, longitude, name, address) {
     try {
+      await this.refreshConfig();
       const response = await axios.post(
         `${this.baseUrl}/${this.phoneNumberId}/messages`,
         {
@@ -312,6 +328,7 @@ class WhatsAppService {
   // Mark message as read
   async markAsRead(messageId) {
     try {
+      await this.refreshConfig();
       await axios.post(
         `${this.baseUrl}/${this.phoneNumberId}/messages`,
         {
@@ -336,6 +353,7 @@ class WhatsAppService {
   // Download media from WhatsApp
   async downloadMedia(mediaId) {
     try {
+      await this.refreshConfig();
       // First get the media URL
       const mediaResponse = await axios.get(
         `${this.baseUrl}/${mediaId}`,
@@ -459,8 +477,35 @@ class WhatsAppService {
 
   // ============ NOTIFICATION TEMPLATES ============
 
+  getBookingReference(booking) {
+    return booking.bookingReference || booking.bookingNumber || booking._id?.toString();
+  }
+
+  getCargoDetails(booking) {
+    return booking.cargoDetails || booking.cargo || {};
+  }
+
+  getBookingTotal(booking) {
+    return booking.pricing?.totals?.total || booking.pricing?.total || booking.totalAmount || 0;
+  }
+
+  getTransporterEarnings(booking) {
+    return booking.pricing?.feeAllocation?.transporter?.amount ||
+      booking.pricing?.totals?.transporterTotal ||
+      this.getBookingTotal(booking) * 0.85;
+  }
+
+  getPickupDate(booking) {
+    return booking.route?.pickup?.date || booking.route?.pickup?.scheduledDate || booking.pickupDate || booking.createdAt;
+  }
+
   // Send booking confirmation to shipper
   async sendBookingConfirmation(to, booking) {
+    const cargo = this.getCargoDetails(booking);
+    const total = this.getBookingTotal(booking);
+    booking.bookingNumber = this.getBookingReference(booking);
+    booking.cargo = cargo;
+    booking.pricing = { ...(booking.pricing?.toObject?.() || booking.pricing || {}), total };
     const message = `*Booking Confirmed!* ✅
 
 📦 *Booking ID:* ${booking.bookingNumber}
@@ -478,6 +523,14 @@ Track your shipment anytime by visiting our app.`;
 
   // Send new job alert to transporter
   async sendNewJobAlert(to, booking) {
+    const cargo = this.getCargoDetails(booking);
+    const total = this.getBookingTotal(booking);
+    const pickupDate = this.getPickupDate(booking);
+    booking.bookingNumber = this.getBookingReference(booking);
+    booking.cargo = cargo;
+    booking.pricing = { ...(booking.pricing?.toObject?.() || booking.pricing || {}), total };
+    booking.route.pickup.scheduledDate = pickupDate;
+
     const bodyText = `*New Job Available!* 🚚
 
 📍 *Pickup:* ${booking.route.pickup.address}
@@ -499,6 +552,11 @@ Are you interested in this job?`;
 
   // Send transporter assigned notification to shipper
   async sendTransporterAssigned(to, booking, transporter) {
+    booking.bookingNumber = this.getBookingReference(booking);
+    booking.route.pickup.scheduledDate = this.getPickupDate(booking);
+    transporter = transporter || {};
+    booking.assignedVehicle = booking.assignedVehicle || {};
+
     const message = `*Transporter Assigned!* 🚚
 
 Your booking *${booking.bookingNumber}* has been matched with a transporter.
@@ -517,6 +575,8 @@ You can track your shipment in real-time through our app.`;
 
   // Send pickup started notification
   async sendPickupStarted(to, booking) {
+    booking.bookingNumber = this.getBookingReference(booking);
+
     const message = `*Pickup Started!* 📦
 
 Your shipment *${booking.bookingNumber}* has been picked up.
@@ -532,6 +592,8 @@ Track your shipment in real-time through our app.`;
 
   // Send delivery completed notification
   async sendDeliveryCompleted(to, booking) {
+    booking.bookingNumber = this.getBookingReference(booking);
+
     const message = `*Delivery Completed!* ✅
 
 Your shipment *${booking.bookingNumber}* has been successfully delivered.
@@ -553,6 +615,9 @@ Thank you for using Palmtrent! Please rate your experience in the app.
 
   // Send payment released notification to transporter
   async sendPaymentReleased(to, booking, amount) {
+    booking.bookingNumber = this.getBookingReference(booking);
+    amount = Number(amount || this.getTransporterEarnings(booking) || 0);
+
     const message = `*Payment Released!* 💰
 
 Your payment for booking *${booking.bookingNumber}* has been released.
@@ -569,6 +634,12 @@ Thank you for delivering with Palmtrent! 🚚`;
 
   // Send SOS alert
   async sendSOSAlert(to, emergency) {
+    emergency.bookingNumber = emergency.bookingNumber ||
+      emergency.bookingReference ||
+      emergency.booking?._id?.toString() ||
+      emergency.booking?.bookingReference ||
+      'Unknown';
+
     const message = `⚠️ *EMERGENCY ALERT* ⚠️
 
 An SOS has been triggered for booking *${emergency.bookingNumber}*.

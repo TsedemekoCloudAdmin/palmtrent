@@ -18,9 +18,14 @@ class PaymentService {
       // Determine gateway based on payment method
       const gateway = this.getGatewayForMethod(paymentMethod);
       
-      // Set expiry date (24 hours for pending payments)
+      // Agent/cash references should expire quickly to avoid stale unpaid bookings.
       const expiresAt = new Date();
-      expiresAt.setHours(expiresAt.getHours() + 24);
+      const shortExpiryMethods = ['cash_agent', 'cashViaAgent'];
+      if (shortExpiryMethods.includes(paymentMethod)) {
+        expiresAt.setHours(expiresAt.getHours() + 2);
+      } else {
+        expiresAt.setHours(expiresAt.getHours() + 24);
+      }
 
       const timestamp = Date.now().toString(36);
       const random = Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -56,13 +61,18 @@ class PaymentService {
   getGatewayForMethod(paymentMethod) {
     const gatewayMap = {
       'ecocash': 'paynow',
-      'card': 'paynow', 
-      'bank_transfer': 'paynow',
+      'onemoney': 'paynow',
+      'digital': 'openapi_africa',
+      'card': 'openapi_africa',
+      'bank_transfer': 'openapi_africa',
+      'openapi_africa': 'openapi_africa',
+      'clicknpay': 'openapi_africa',
+      'corporate': 'none',
       'cash_agent': 'cash',
       'cash_on_pickup': 'cash',
       'cash_on_delivery': 'cash'
     };
-    return gatewayMap[paymentMethod] || 'none';
+    return gatewayMap[paymentMethod] || 'openapi_africa';
   }
 
   /**
@@ -91,6 +101,8 @@ class PaymentService {
       await Booking.findByIdAndUpdate(payment.booking, {
         'payment.status': 'confirmed',
         'payment.paidAt': new Date(),
+        paymentStatus: 'confirmed',
+        paymentConfirmedAt: new Date(),
         status: 'finding_transporter'
       });
 
@@ -142,6 +154,8 @@ class PaymentService {
         await Booking.findByIdAndUpdate(payment.booking, {
           'payment.status': 'confirmed',
           'payment.paidAt': new Date(),
+          paymentStatus: 'confirmed',
+          paymentConfirmedAt: new Date(),
           status: 'finding_transporter'
         });
 

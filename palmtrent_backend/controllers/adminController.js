@@ -2,8 +2,17 @@ const User = require('../models/User');
 const Booking = require('../models/Booking');
 const Vehicle = require('../models/Vehicle');
 const Payment = require('../models/Payment');
+const Rental = require('../models/Rental');
 const Rating = require('../models/Rating');
 const InsuranceClaim = require('../models/InsuranceClaim');
+const CorporateAccount = require('../models/CorporateAccount');
+const AuditLog = require('../models/AuditLog');
+const { recordAudit } = require('../services/auditService');
+const {
+  listIntegrationSettings,
+  updateIntegrationSetting,
+  testIntegrationSetting
+} = require('../services/integrationSettingsService');
 
 // @desc    Get admin dashboard statistics
 // @route   GET /api/v1/admin/dashboard
@@ -259,15 +268,39 @@ exports.verifyUser = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
+    const approved = ['verified', 'approved'].includes(status);
     user.verification = {
       ...user.verification,
-      status,
-      verifiedAt: status === 'verified' ? new Date() : null,
+      status: approved ? 'approved' : status,
+      isVerified: approved,
+      verifiedAt: approved ? new Date() : null,
       verifiedBy: req.user._id,
       notes
     };
+    user.isVerified = approved;
 
     await user.save();
+
+    if (user.userType === 'corporate' && approved) {
+      await CorporateAccount.findOneAndUpdate(
+        { $or: [{ user: user._id }, { _id: user.corporateAccount }] },
+        {
+          status: 'active',
+          'verification.verifiedAt': new Date(),
+          'verification.verifiedBy': req.user._id
+        }
+      );
+    }
+
+    await recordAudit({
+      actor: req.user,
+      action: 'user.verification_updated',
+      entityType: 'User',
+      entityId: user._id,
+      after: { verification: user.verification, isVerified: user.isVerified },
+      metadata: { notes },
+      req
+    });
 
     res.status(200).json({
       success: true,
@@ -277,6 +310,148 @@ exports.verifyUser = async (req, res) => {
   } catch (error) {
     console.error('Verify user error:', error);
     res.status(500).json({ success: false, message: 'Error verifying user' });
+  }
+};
+
+exports.verifyCorporateAccount = async (req, res) => {
+  try {
+    const { status = 'active', notes, creditLimit, paymentTerms, maxBookingValue } = req.body;
+
+    const account = await CorporateAccount.findById(req.params.id);
+    if (!account) {
+      return res.status(404).json({ success: false, message: 'Corporate account not found' });
+    }
+
+    const before = {
+      status: account.status,
+      creditLimit: account.creditLimit,
+      paymentTerms: account.paymentTerms,
+      maxBookingValue: account.settings?.maxBookingValue
+    };
+
+    account.status = status;
+    if (creditLimit !== undefined) account.creditLimit = Number(creditLimit);
+    if (paymentTerms) account.paymentTerms = paymentTerms;
+    if (maxBookingValue !== undefined) {
+      account.settings = {
+        ...account.settings,
+        maxBookingValue: Number(maxBookingValue)
+      };
+    }
+    account.verification = {
+      ...account.verification,
+      verifiedAt: status === 'active' ? new Date() : account.verification?.verifiedAt,
+      verifiedBy: status === 'active' ? req.user._id : account.verification?.verifiedBy
+    };
+
+    await account.save();
+
+    await User.findByIdAndUpdate(account.user, {
+      corporateAccount: account._id,
+      isVerified: status === 'active',
+      'verification.status': status === 'active' ? 'approved' : 'pending',
+      'verification.isVerified': status === 'active'
+    });
+
+    await recordAudit({
+      actor: req.user,
+      action: 'corporate.verification_updated',
+      entityType: 'CorporateAccount',
+      entityId: account._id,
+      entityRef: account.companyName,
+      before,
+      after: {
+        status: account.status,
+        creditLimit: account.creditLimit,
+        paymentTerms: account.paymentTerms,
+        maxBookingValue: account.settings?.maxBookingValue
+      },
+      metadata: { notes },
+      req
+    });
+
+    res.json({
+      success: true,
+      message: 'Corporate account updated successfully',
+      data: account
+    });
+  } catch (error) {
+    console.error('Verify corporate account error:', error);
+    res.status(500).json({ success: false, message: 'Error updating corporate account', error: error.message });
+  }
+};
+
+exports.verifyVehicle = async (req, res) => {
+  try {
+    const { status = 'approved', notes } = req.body;
+    const vehicle = await Vehicle.findById(req.params.id);
+
+    if (!vehicle) {
+      return res.status(404).json({ success: false, message: 'Vehicle not found' });
+    }
+
+    const before = { verification: vehicle.verification, status: vehicle.status };
+    vehicle.verification = {
+      ...vehicle.verification,
+      status,
+      notes,
+      verifiedAt: status === 'approved' ? new Date() : vehicle.verification?.verifiedAt,
+      verifiedBy: status === 'approved' ? req.user._id : vehicle.verification?.verifiedBy
+    };
+    await vehicle.save();
+
+    await recordAudit({
+      actor: req.user,
+      action: 'vehicle.verification_updated',
+      entityType: 'Vehicle',
+      entityId: vehicle._id,
+      entityRef: vehicle.registrationNumber,
+      before,
+      after: { verification: vehicle.verification, status: vehicle.status },
+      req
+    });
+
+    res.json({
+      success: true,
+      message: 'Vehicle verification updated successfully',
+      data: vehicle
+    });
+  } catch (error) {
+    console.error('Verify vehicle error:', error);
+    res.status(500).json({ success: false, message: 'Error verifying vehicle', error: error.message });
+  }
+};
+
+exports.getAuditLogs = async (req, res) => {
+  try {
+    const { entityType, entityId, action, page = 1, limit = 50 } = req.query;
+    const query = {};
+    if (entityType) query.entityType = entityType;
+    if (entityId) query.entityId = entityId;
+    if (action) query.action = action;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const logs = await AuditLog.find(query)
+      .populate('actor', 'fullName email phone userType')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+    const total = await AuditLog.countDocuments(query);
+
+    res.json({
+      success: true,
+      count: logs.length,
+      data: logs,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+  } catch (error) {
+    console.error('Get audit logs error:', error);
+    res.status(500).json({ success: false, message: 'Error fetching audit logs', error: error.message });
   }
 };
 
@@ -443,7 +618,8 @@ exports.getPayments = async (req, res) => {
 
     const payments = await Payment.find(query)
       .populate('user', 'name email')
-      .populate('booking', 'bookingId')
+      .populate('booking', 'bookingId bookingReference')
+      .populate('rental', 'rentalReference')
       .sort('-createdAt')
       .skip(skip)
       .limit(parseInt(limit));
@@ -474,6 +650,87 @@ exports.getPayments = async (req, res) => {
   } catch (error) {
     console.error('Get admin payments error:', error);
     res.status(500).json({ success: false, message: 'Error fetching payments' });
+  }
+};
+
+// @desc    Get fleet rentals for admin operations
+// @route   GET /api/v1/admin/rentals
+// @access  Private/Admin
+exports.getRentals = async (req, res) => {
+  try {
+    const { status, itemType, page = 1, limit = 20 } = req.query;
+    const query = {};
+
+    if (status && status !== 'all') query.status = status;
+    if (itemType && itemType !== 'all') query.itemType = itemType;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const rentals = await Rental.find(query)
+      .populate('owner', 'fullName email phone')
+      .populate('renter', 'fullName email phone')
+      .populate('trailer', 'registrationNumber assetName assetType')
+      .populate('vehicle', 'registrationNumber')
+      .populate('linkedShipment.booking', 'bookingReference status')
+      .sort('-createdAt')
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await Rental.countDocuments(query);
+    const totals = await Rental.aggregate([
+      { $match: query },
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 },
+          value: { $sum: '$pricing.total' },
+          ownerEarnings: { $sum: '$settlement.ownerEarnings' }
+        }
+      }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: rentals,
+      totals,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+  } catch (error) {
+    console.error('Get admin rentals error:', error);
+    res.status(500).json({ success: false, message: 'Error fetching rentals' });
+  }
+};
+
+exports.getRatings = async (req, res) => {
+  try {
+    const { page = 1, limit = 20 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const ratings = await Rating.find({})
+      .populate('booking', 'bookingReference bookingId')
+      .populate('rater.user', 'fullName email userType')
+      .populate('ratee.user', 'fullName email userType')
+      .sort('-createdAt')
+      .skip(skip)
+      .limit(parseInt(limit));
+    const total = await Rating.countDocuments({});
+
+    res.json({
+      success: true,
+      data: ratings,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+  } catch (error) {
+    console.error('Get admin ratings error:', error);
+    res.status(500).json({ success: false, message: 'Error fetching ratings' });
   }
 };
 
@@ -567,6 +824,77 @@ exports.getReports = async (req, res) => {
   } catch (error) {
     console.error('Get reports error:', error);
     res.status(500).json({ success: false, message: 'Error generating report' });
+  }
+};
+
+// @desc    Get integration settings
+// @route   GET /api/v1/admin/integrations
+// @access  Private/Admin
+exports.getIntegrationSettings = async (req, res) => {
+  try {
+    const integrations = await listIntegrationSettings();
+    res.status(200).json({ success: true, data: integrations });
+  } catch (error) {
+    console.error('Get integration settings error:', error);
+    res.status(500).json({ success: false, message: 'Error fetching integration settings' });
+  }
+};
+
+// @desc    Update integration setting
+// @route   PUT /api/v1/admin/integrations/:provider
+// @access  Private/Admin
+exports.updateIntegrationSetting = async (req, res) => {
+  try {
+    const updated = await updateIntegrationSetting(req.params.provider, req.body, req.user?._id);
+
+    await recordAudit({
+      actor: req.user,
+      action: 'integration_setting_updated',
+      entityType: 'IntegrationSetting',
+      entityId: updated.id,
+      entityRef: updated.provider,
+      after: {
+        provider: updated.provider,
+        enabled: updated.enabled,
+        status: updated.status,
+        configuredFields: updated.configuredFields
+      },
+      req
+    });
+
+    res.status(200).json({ success: true, data: updated });
+  } catch (error) {
+    console.error('Update integration setting error:', error);
+    res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.statusCode ? error.message : 'Error updating integration setting'
+    });
+  }
+};
+
+// @desc    Validate integration setting requirements
+// @route   POST /api/v1/admin/integrations/:provider/test
+// @access  Private/Admin
+exports.testIntegrationSetting = async (req, res) => {
+  try {
+    const result = await testIntegrationSetting(req.params.provider);
+
+    await recordAudit({
+      actor: req.user,
+      action: 'integration_setting_tested',
+      entityType: 'IntegrationSetting',
+      entityRef: req.params.provider,
+      metadata: result,
+      req
+    });
+
+    res.status(result.passed ? 200 : 400).json({ success: result.passed, data: result, message: result.message });
+  } catch (error) {
+    console.error('Test integration setting error:', error);
+    res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.statusCode ? error.message : 'Error testing integration setting'
+    });
   }
 };
 

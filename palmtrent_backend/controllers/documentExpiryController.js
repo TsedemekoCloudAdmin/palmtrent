@@ -7,7 +7,7 @@ const documentExpiryService = require('../services/documentExpiryService');
 exports.runExpiryCheck = async (req, res) => {
   try {
     // Only allow admin or internal calls
-    if (req.user?.role !== 'admin' && !req.headers['x-internal-key']) {
+    if (req.user?.userType !== 'admin' && !req.headers['x-internal-key']) {
       return res.status(403).json({
         success: false,
         message: 'Admin access required'
@@ -73,7 +73,7 @@ exports.getUserDocumentSummary = async (req, res) => {
     const { userId } = req.params;
 
     // Only allow admin
-    if (req.user?.role !== 'admin') {
+    if (req.user?.userType !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'Admin access required'
@@ -110,7 +110,7 @@ exports.getUserDocumentSummary = async (req, res) => {
 exports.getExpiringDocumentsDashboard = async (req, res) => {
   try {
     // Only allow admin
-    if (req.user?.role !== 'admin') {
+    if (req.user?.userType !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'Admin access required'

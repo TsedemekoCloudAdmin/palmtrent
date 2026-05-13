@@ -26,6 +26,10 @@ const notificationSchema = new mongoose.Schema({
       'claim_update',
       'document_expiry',
       'emergency_alert',
+      'new_job',
+      'corporate_invoice',
+      'cross_border_document',
+      'safety_alert',
       'system_message'
     ],
     required: true
@@ -381,6 +385,22 @@ class NotificationService {
         title: 'Claim Update',
         body: `Your insurance claim ${data.claimReference} has been updated to: ${data.status}.`
       },
+      new_job: {
+        title: 'New Job Available',
+        body: `${data.origin || 'Pickup'} to ${data.destination || 'delivery'} is ready for review.`
+      },
+      corporate_invoice: {
+        title: 'Corporate Invoice Update',
+        body: `Invoice ${data.invoiceNumber || ''} is now ${data.status || 'updated'}.`
+      },
+      cross_border_document: {
+        title: 'Cross-border Document Update',
+        body: `Document ${data.documentName || ''} is ${data.status || 'updated'}.`
+      },
+      safety_alert: {
+        title: 'Safety Alert',
+        body: data.message || 'A safety issue requires attention.'
+      },
       system_message: {
         title: data.title || 'Palmtrent Update',
         body: data.message || 'You have a new message from Palmtrent.'
@@ -453,6 +473,31 @@ class NotificationService {
       template.body,
       { amount, bookingReference }
     );
+  }
+
+  async notifyRole(userType, type, title, body, data = {}) {
+    const User = require('../models/User');
+    const users = await User.find({ userType, status: 'active' }).select('_id');
+    return Promise.allSettled(users.map(user => this.notify(user._id, type, title, body, data)));
+  }
+
+  async notifyBookingEvent(booking, eventType, extraData = {}) {
+    const recipients = [booking.user, booking.shipper, booking.transporter].filter(Boolean);
+    const uniqueRecipients = [...new Set(recipients.map(id => id.toString()))];
+    const template = this.getTemplate(eventType, {
+      bookingReference: booking.bookingReference,
+      origin: booking.origin || booking.route?.pickup?.address,
+      destination: booking.destination || booking.route?.delivery?.address,
+      ...extraData
+    });
+
+    return Promise.allSettled(uniqueRecipients.map(userId =>
+      this.notify(userId, eventType, template.title, template.body, {
+        bookingId: booking._id.toString(),
+        bookingReference: booking.bookingReference,
+        ...extraData
+      })
+    ));
   }
 
   /**
