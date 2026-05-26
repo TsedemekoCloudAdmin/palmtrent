@@ -9,6 +9,8 @@ import { authAPI, trackingAPI } from '../services/api';
 import './styles/LandingPage.css';
 import logo from '../assets/logo3.png';
 
+const PHONE_VERIFICATION_DISABLED = import.meta.env.VITE_DISABLE_PHONE_VERIFICATION === 'true';
+
 const getRoleHomePath = (user) => {
   switch (user?.userType) {
     case 'admin':
@@ -187,6 +189,18 @@ const LandingPage = () => {
     setAuthError('');
 
     if (!validateRegisterForm()) return;
+
+    if (PHONE_VERIFICATION_DISABLED) {
+      setAuthLoading(true);
+      try {
+        await submitRegistration();
+      } catch (error) {
+        setAuthError(error.message || 'Registration failed. Please try again.');
+      } finally {
+        setAuthLoading(false);
+      }
+      return;
+    }
 
     if (!verificationSent || verificationPhone !== normalizeZimbabwePhone(registerForm.phone)) {
       await sendRegistrationCode();
@@ -906,7 +920,7 @@ const LandingPage = () => {
                 </div>
               </div>
 
-              {verificationSent && (
+              {!PHONE_VERIFICATION_DISABLED && verificationSent && (
                 <div className="form-group">
                   <label>Phone Verification Code</label>
                   <div className="input-with-icon">
@@ -937,7 +951,15 @@ const LandingPage = () => {
               </div>
 
               <button type="submit" className="auth-submit-btn" disabled={authLoading}>
-                {authLoading ? <Loader className="icon spinning" /> : verificationSent && !verificationVerified ? 'Verify & Create Account' : 'Send Verification Code'}
+                {authLoading ? (
+                  <Loader className="icon spinning" />
+                ) : PHONE_VERIFICATION_DISABLED ? (
+                  'Create Account'
+                ) : verificationSent && !verificationVerified ? (
+                  'Verify & Create Account'
+                ) : (
+                  'Send Verification Code'
+                )}
               </button>
             </form>
 

@@ -22,6 +22,7 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
+    phone,
     password: '',
     confirmPassword: '',
     agreeTerms: false
@@ -35,6 +36,7 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
   const isFormValid = formData.agreeTerms && 
                      formData.fullName.trim().length >= 2 && 
                      /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/.test(formData.email) && 
+                     /^\d{9}$/.test(formData.phone) &&
                      formData.password.length >= 8 && 
                      formData.confirmPassword === formData.password;
 
@@ -57,11 +59,16 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
       return;
     }
 
+    if (!/^\d{9}$/.test(formData.phone)) {
+      Alert.alert('Error', 'Please enter a valid 9-digit Zimbabwean phone number');
+      return;
+    }
+
     try {
       const userData = {
         fullName: formData.fullName.trim(),
         email: formData.email.toLowerCase(),
-        phone: `+263${phone}`,
+        phone: `+263${formData.phone}`,
         password: formData.password,
         userType: userType
       };
@@ -112,6 +119,24 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
                 autoComplete="email"
                 editable={!isLoading}
               />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Phone Number *</Text>
+              <View style={styles.phoneRow}>
+                <View style={styles.countryCode}>
+                  <Text style={styles.countryCodeText}>+263</Text>
+                </View>
+                <TextInput
+                  style={styles.phoneInput}
+                  value={formData.phone}
+                  onChangeText={(value) => updateField('phone', value.replace(/\D/g, '').slice(0, 9))}
+                  placeholder="771234567"
+                  keyboardType="phone-pad"
+                  maxLength={9}
+                  editable={!isLoading}
+                />
+              </View>
             </View>
 
             <View style={styles.inputContainer}>
@@ -232,6 +257,33 @@ const styles = StyleSheet.create({
     color: '#374151',
   },
   input: {
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    fontSize: 16,
+    backgroundColor: 'white',
+  },
+  phoneRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  countryCode: {
+    width: 80,
+    padding: 12,
+    backgroundColor: '#f3f4f6',
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  countryCodeText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#374151',
+  },
+  phoneInput: {
+    flex: 1,
     padding: 12,
     borderWidth: 1,
     borderColor: '#d1d5db',

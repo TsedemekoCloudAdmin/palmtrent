@@ -8,14 +8,16 @@ import {
   SafeAreaView
 } from 'react-native';
 
+const PHONE_VERIFICATION_DISABLED = process.env.EXPO_PUBLIC_DISABLE_PHONE_VERIFICATION === 'true';
+
 const UserTypeScreen = ({ navigation }) => {
   const [selectedType, setSelectedType] = useState(null);
 
   const handleContinue = () => {
     if (!selectedType) return;
     
-    navigation.navigate('PhoneVerify', { 
-      userType: selectedType 
+    navigation.navigate(PHONE_VERIFICATION_DISABLED ? 'RegisterDetails' : 'PhoneVerify', {
+      userType: selectedType
     });
   };
 
