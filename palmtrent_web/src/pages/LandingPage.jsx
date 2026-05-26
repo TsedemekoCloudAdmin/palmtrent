@@ -1,15 +1,20 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Truck, Package, Shield, MapPin, Star, Clock, DollarSign, Users,
   ArrowRight, Check, Menu, X, Eye, EyeOff, Search, Loader, AlertCircle,
   Mail, Lock, User, Phone, Building
 } from 'lucide-react';
-import { authAPI, trackingAPI } from '../services/api';
+import { authAPI, publicAPI, trackingAPI } from '../services/api';
 import './styles/LandingPage.css';
 import logo from '../assets/logo3.png';
 
 const PHONE_VERIFICATION_DISABLED = import.meta.env.VITE_DISABLE_PHONE_VERIFICATION === 'true';
+const FALLBACK_STATS = {
+  activeTransporters: '2,000+',
+  completedDeliveries: '10,000+',
+  averageRating: '4.8/5'
+};
 
 const getRoleHomePath = (user) => {
   switch (user?.userType) {
@@ -57,12 +62,59 @@ const LandingPage = () => {
   const [authSuccess, setAuthSuccess] = useState('');
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
+  const [landingStats, setLandingStats] = useState({});
+  const [landingPlans, setLandingPlans] = useState([]);
+  const [selectedPlanCode, setSelectedPlanCode] = useState('');
+  const [subscriptionMessage, setSubscriptionMessage] = useState('');
 
   // Tracking states
   const [trackingId, setTrackingId] = useState('');
   const [trackingResult, setTrackingResult] = useState(null);
   const [trackingLoading, setTrackingLoading] = useState(false);
   const [trackingError, setTrackingError] = useState('');
+
+  useEffect(() => {
+    let mounted = true;
+
+    publicAPI.getLanding()
+      .then((response) => {
+        if (!mounted) return;
+        setLandingStats(response.data?.stats || {});
+        setLandingPlans(response.data?.plans || []);
+      })
+      .catch((error) => {
+        console.warn('Could not load landing page data:', error.message);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const displayStats = useMemo(() => {
+    const formatCount = (value, fallback) => {
+      const number = Number(value || 0);
+      if (number <= 500) return fallback;
+      return `${new Intl.NumberFormat('en-US').format(number)}+`;
+    };
+
+    const ratingCount = Number(landingStats.ratingCount || 0);
+    const averageRating = Number(landingStats.averageRating || 0);
+
+    return {
+      activeTransporters: formatCount(landingStats.activeTransporters, FALLBACK_STATS.activeTransporters),
+      completedDeliveries: formatCount(landingStats.completedDeliveries, FALLBACK_STATS.completedDeliveries),
+      averageRating: ratingCount > 500 && averageRating > 0
+        ? `${averageRating.toFixed(1)}/5`
+        : FALLBACK_STATS.averageRating
+    };
+  }, [landingStats]);
+
+  const visiblePlans = useMemo(() => {
+    const preferredCycle = isYearly ? 'annual' : 'monthly';
+    const preferred = landingPlans.filter((plan) => plan.billingCycle === preferredCycle);
+    return preferred.length ? preferred : landingPlans;
+  }, [isYearly, landingPlans]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -176,10 +228,19 @@ const LandingPage = () => {
     });
 
     if (response.token || response.data?.token) {
+      if (selectedPlanCode) {
+        try {
+          const subscription = await publicAPI.createSubscription(selectedPlanCode);
+          setSubscriptionMessage(subscription.message || 'Subscription selected.');
+        } catch (error) {
+          setSubscriptionMessage(error.message || 'Account created. Subscription selection still needs to be completed.');
+        }
+      }
       setShowRegisterModal(false);
       setVerificationSent(false);
       setVerificationVerified(false);
       setVerificationCode('');
+      setSelectedPlanCode('');
       navigate(getRoleHomePath(authAPI.getCurrentUser()));
     }
   };
@@ -268,8 +329,9 @@ const LandingPage = () => {
     }
   };
 
-  const openRegisterWithType = (type) => {
+  const openRegisterWithType = (type, planCode = '') => {
     setRegisterForm(prev => ({ ...prev, userType: type }));
+    setSelectedPlanCode(planCode);
     setVerificationSent(false);
     setVerificationVerified(false);
     setVerificationCode('');
@@ -282,6 +344,7 @@ const LandingPage = () => {
     setAuthError('');
     setAuthSuccess('');
     setShowForgotPassword(false);
+    setSelectedPlanCode('');
     setVerificationSent(false);
     setVerificationVerified(false);
     setVerificationCode('');
@@ -292,7 +355,53 @@ const LandingPage = () => {
     setShowRegisterModal(false);
     setAuthError('');
     setAuthSuccess('');
+    setSelectedPlanCode('');
     setShowLoginModal(true);
+  };
+
+  const formatPlanPrice = (plan) => {
+    if (!plan) return '';
+    if (Number(plan.price || 0) === 0) return 'Contact Sales';
+    return `${plan.currency || 'USD'} ${new Intl.NumberFormat('en-US', {
+      maximumFractionDigits: Number.isInteger(plan.price) ? 0 : 2
+    }).format(plan.price)}`;
+  };
+
+  const formatPlanPeriod = (plan) => {
+    if (!plan || Number(plan.price || 0) === 0) return '';
+    const periods = {
+      monthly: '/month',
+      quarterly: '/quarter',
+      annual: '/year'
+    };
+    return periods[plan.billingCycle] || `/${plan.billingCycle}`;
+  };
+
+  const handlePlanSignup = async (plan) => {
+    setAuthError('');
+    setSubscriptionMessage('');
+    const currentUser = authAPI.getCurrentUser();
+
+    if (!currentUser) {
+      openRegisterWithType(plan.audience, plan.code);
+      return;
+    }
+
+    if (currentUser.userType !== plan.audience) {
+      setSubscriptionMessage(`This plan is for ${plan.audience.replace('_', ' ')} accounts. Sign in with the matching account type or create a new account.`);
+      return;
+    }
+
+    try {
+      setAuthLoading(true);
+      const response = await publicAPI.createSubscription(plan.code);
+      setSubscriptionMessage(response.message || 'Subscription selected.');
+      navigate(getRoleHomePath(currentUser));
+    } catch (error) {
+      setSubscriptionMessage(error.message || 'Could not select this subscription.');
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   return (
@@ -439,17 +548,17 @@ const LandingPage = () => {
             <div className="stats-grid">
               <StatCard
                 icon={<Users className="icon primary" />}
-                value="2,000+"
+                value={displayStats.activeTransporters}
                 label="Active Transporters"
               />
               <StatCard
                 icon={<Package className="icon success" />}
-                value="10,000+"
+                value={displayStats.completedDeliveries}
                 label="Deliveries Completed"
               />
               <StatCard
                 icon={<Star className="icon warning" />}
-                value="4.8/5"
+                value={displayStats.averageRating}
                 label="Average Rating"
               />
               <StatCard
@@ -538,7 +647,7 @@ const LandingPage = () => {
         <div className="container">
           <div className="section-header">
             <h2>Transparent Pricing</h2>
-            <p>Choose the plan that works best for your business</p>
+            <p>Choose a subscription plan managed by Palmtrent administrators</p>
           </div>
 
           {/* Pricing Toggle */}
@@ -554,63 +663,28 @@ const LandingPage = () => {
             </label>
             <span className="toggle-label">
               Yearly
-              <span className="save-badge">Save 20%</span>
             </span>
           </div>
 
+          {subscriptionMessage && (
+            <div className="auth-success pricing-message">{subscriptionMessage}</div>
+          )}
+
           <div className="pricing-grid">
-            <PricingCard
-              title="Starter"
-              price={isYearly ? "ZWL 9,600" : "ZWL 1,000"}
-              period={isYearly ? "/year" : "/month"}
-              features={[
-                "Up to 10 shipments/month",
-                "Basic tracking",
-                "Email support",
-                "Verified transporters",
-                "Payment protection"
-              ]}
-              buttonText="Get Started"
-              featured={false}
-              onButtonClick={() => openRegisterWithType('shipper')}
-            />
-
-            <PricingCard
-              title="Professional"
-              price={isYearly ? "ZWL 24,000" : "ZWL 2,500"}
-              period={isYearly ? "/year" : "/month"}
-              features={[
-                "Up to 50 shipments/month",
-                "Advanced tracking",
-                "Priority support",
-                "Dedicated account manager",
-                "Insurance options",
-                "Analytics dashboard",
-                "Custom reporting"
-              ]}
-              buttonText="Start Free Trial"
-              featured={true}
-              onButtonClick={() => openRegisterWithType('shipper')}
-            />
-
-            <PricingCard
-              title="Enterprise"
-              price="Custom"
-              period=""
-              features={[
-                "Unlimited shipments",
-                "Real-time API access",
-                "24/7 phone support",
-                "Custom integrations",
-                "White-label solutions",
-                "Advanced analytics",
-                "SLA guarantees",
-                "Dedicated support team"
-              ]}
-              buttonText="Contact Sales"
-              featured={false}
-              onButtonClick={() => openRegisterWithType('corporate')}
-            />
+            {visiblePlans.map((plan, index) => (
+              <PricingCard
+                key={plan.code || plan.id}
+                title={plan.name}
+                audience={plan.audience}
+                description={plan.description}
+                price={formatPlanPrice(plan)}
+                period={formatPlanPeriod(plan)}
+                features={plan.features?.length ? plan.features : ['Subscription benefits configured by admin']}
+                buttonText={Number(plan.price || 0) > 0 ? 'Select Subscription' : 'Contact Sales'}
+                featured={index === 1 || plan.limits?.priorityMatching}
+                onButtonClick={() => handlePlanSignup(plan)}
+              />
+            ))}
           </div>
         </div>
       </section>
@@ -1083,13 +1157,15 @@ const StepCard = ({ number, title, description }) => (
   </div>
 );
 
-const PricingCard = ({ title, price, period, features, buttonText, featured, onButtonClick }) => (
+const PricingCard = ({ title, audience, description, price, period, features, buttonText, featured, onButtonClick }) => (
   <div className={`pricing-card ${featured ? 'featured' : ''}`}>
     {featured && <div className="pricing-badge">Most Popular</div>}
     <div className="pricing-header">
       <h3 className="pricing-title">{title}</h3>
+      {audience && <div className="pricing-audience">{audience.replace('_', ' ')}</div>}
       <div className="pricing-price">{price}</div>
       <div className="pricing-period">{period}</div>
+      {description && <p className="pricing-description">{description}</p>}
     </div>
 
     <ul className="pricing-features">

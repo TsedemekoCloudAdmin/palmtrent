@@ -104,6 +104,28 @@ describe('tracking routes', () => {
     }));
   });
 
+  test('public tracking accepts compact booking references pasted without the first dash', async () => {
+    mockPopulate(Booking, null);
+    mockPopulate(Shipment, {
+      bookingReference: 'PT-2025-00123456',
+      status: 'in_transit',
+      tracking: []
+    });
+
+    const response = await request(createApp(), 'GET', '/tracking/public/PT2025-00123456');
+
+    expect(Shipment.findOne).toHaveBeenCalledWith({
+      $or: [
+        { bookingReference: { $in: ['PT2025-00123456', 'PT202500123456', 'PT-2025-00123456'] } },
+        { shipmentId: { $in: ['PT2025-00123456', 'PT202500123456', 'PT-2025-00123456'] } }
+      ]
+    });
+    expect(response.status).toBe(200);
+    expect(response.body.data).toEqual(expect.objectContaining({
+      reference: 'PT-2025-00123456'
+    }));
+  });
+
   test('authenticated tracking allows the booking shipper', async () => {
     mockPopulate(Booking, {
       bookingReference: 'PT-2026-000002',

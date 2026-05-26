@@ -43,6 +43,7 @@ const ops = require('./routes/ops');
 const insurance = require('./routes/insurance');
 const chat = require('./routes/chat');
 const support = require('./routes/support');
+const publicRoutes = require('./routes/public');
 const path = require('path');
 
 validateEnv();
@@ -130,6 +131,7 @@ app.use('/api/v1/ops', ops);
 app.use('/api/v1/insurance', insurance);
 app.use('/api/v1/chat', chat);
 app.use('/api/v1/support', support);
+app.use('/api/v1/public', publicRoutes);
 
 // Health check route
 app.get('/api/v1/health', opsController.health);

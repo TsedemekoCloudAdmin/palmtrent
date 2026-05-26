@@ -4,19 +4,46 @@ const Booking = require('../models/Booking');
 const Shipment = require('../models/Shipment');
 const { protect } = require('../middleware/auth');
 
+const getIdentifierCandidates = (identifier) => {
+  const raw = String(identifier || '').trim();
+  const upper = raw.toUpperCase();
+  const compact = upper.replace(/[^A-Z0-9]/g, '');
+  const candidates = new Set([raw, upper]);
+  if (compact && compact !== upper) candidates.add(compact);
+
+  const yearMatch = compact.match(/^PT(\d{4})([A-Z0-9]+)$/);
+  if (yearMatch) {
+    candidates.add(`PT-${yearMatch[1]}-${yearMatch[2]}`);
+  }
+
+  const timestampMatch = compact.match(/^PT([A-Z0-9]{8,})([A-Z0-9]{6})$/);
+  if (timestampMatch) {
+    candidates.add(`PT-${timestampMatch[1]}-${timestampMatch[2]}`);
+  }
+
+  return [...candidates].filter(Boolean);
+};
+
 const buildTrackingPayload = async (identifier) => {
+  const identifierCandidates = getIdentifierCandidates(identifier);
+  const objectIdCandidate = String(identifier || '').match(/^[a-f\d]{24}$/i);
   const booking = await Booking.findOne({
     $or: [
-      { bookingReference: identifier },
-      ...(identifier.match(/^[a-f\d]{24}$/i) ? [{ _id: identifier }] : [])
+      { bookingReference: { $in: identifierCandidates } },
+      ...(objectIdCandidate ? [{ _id: identifier }] : [])
     ]
   }).populate('transporter', 'fullName phone rating');
 
   const shipmentQuery = booking
     ? { bookingReference: booking.bookingReference }
-    : identifier.match(/^[a-f\d]{24}$/i)
+    : objectIdCandidate
       ? { _id: identifier }
-      : { bookingReference: identifier };
+      : {
+          $or: [
+            { bookingReference: { $in: identifierCandidates } },
+            { shipmentId: { $in: identifierCandidates } }
+          ]
+        };
 
   const shipment = await Shipment.findOne(shipmentQuery)
     .populate('transporter', 'fullName phone rating');

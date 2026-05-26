@@ -758,7 +758,21 @@ html, body {
   font-size: 1.5rem;
   font-weight: 700;
   color: #0C2D48;
+  margin-bottom: 0.5rem;
+}
+
+.pricing-audience {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.75rem;
   margin-bottom: 1rem;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #075985;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: capitalize;
 }
 
 .pricing-price {
@@ -771,6 +785,13 @@ html, body {
 .pricing-period {
   color: #666;
   font-size: 0.9rem;
+}
+
+.pricing-description {
+  margin: 0.75rem 0 0;
+  color: #4b5563;
+  font-size: 0.95rem;
+  line-height: 1.45;
 }
 
 .pricing-features {
@@ -808,6 +829,11 @@ html, body {
 .pricing-button {
   width: 100%;
   margin-top: 1rem;
+}
+
+.pricing-message {
+  max-width: 720px;
+  margin: 0 auto 1.5rem;
 }
 
 /* Toggle Switch for Monthly/Yearly */

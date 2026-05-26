@@ -168,6 +168,15 @@ export const authAPI = {
   getCurrentUser: getUser,
 };
 
+export const publicAPI = {
+  getLanding: () => apiFetch('/public/landing'),
+  getPlans: () => apiFetch('/public/plans'),
+  createSubscription: (planCode) => apiFetch('/public/subscriptions', {
+    method: 'POST',
+    body: JSON.stringify({ planCode }),
+  }),
+};
+
 // Bookings API
 export const bookingsAPI = {
   getAll: (params = {}) => {
@@ -638,5 +647,6 @@ export default {
   corporate: corporateAPI,
   shipper: shipperAPI,
   admin: adminAPI,
+  public: publicAPI,
   notifications: notificationsAPI,
 };
