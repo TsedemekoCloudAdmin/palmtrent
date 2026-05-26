@@ -52,6 +52,8 @@ validateEnv();
 connectDB();
 
 const app = express();
+const trustProxy = process.env.TRUST_PROXY || (process.env.NODE_ENV === 'production' ? '1' : '0');
+app.set('trust proxy', trustProxy === 'false' || trustProxy === '0' ? false : Number(trustProxy) || trustProxy);
 app.use(requestContext);
 
 // Security middleware

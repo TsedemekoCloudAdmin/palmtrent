@@ -82,7 +82,7 @@ test('login validation rejects missing identifiers', async () => {
 test('registration validation accepts corporate users from web signup', async () => {
   const response = await request(createApp(), {
     fullName: 'Corporate Shipper',
-    email: 'ops@example.com',
+    email: 'ops@example.cloud',
     phone: '+263771234567',
     password: 'password123',
     userType: 'corporate'

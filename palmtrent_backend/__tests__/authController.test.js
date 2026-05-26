@@ -83,6 +83,42 @@ test('register bypasses phone verification when SMS delivery is disabled for tes
   }));
 });
 
+test('register returns a validation response for invalid model data', async () => {
+  process.env.DISABLE_SMS_DELIVERY = 'true';
+  User.findOne.mockResolvedValue(null);
+  const validationError = new Error('User validation failed');
+  validationError.name = 'ValidationError';
+  validationError.errors = {
+    email: {
+      path: 'email',
+      message: 'Please enter a valid email'
+    }
+  };
+  User.create.mockRejectedValue(validationError);
+
+  const res = createRes();
+
+  await register({
+    body: {
+      fullName: 'Test Shipper',
+      email: 'not-an-email',
+      phone: '+263771234567',
+      password: 'password123',
+      userType: 'shipper'
+    }
+  }, res);
+
+  expect(res.status).toHaveBeenCalledWith(400);
+  expect(res.json).toHaveBeenCalledWith({
+    success: false,
+    message: 'Please enter a valid email',
+    errors: [{
+      field: 'email',
+      message: 'Please enter a valid email'
+    }]
+  });
+});
+
 test('login accepts email credentials and returns top-level auth fields for web clients', async () => {
   const user = {
     _id: 'user-1',

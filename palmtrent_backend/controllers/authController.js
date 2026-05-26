@@ -29,7 +29,8 @@ function normalizeZimbabwePhone(phone) {
 // Register new user
 const register = async (req, res) => {
   try {
-    const { fullName, email, phone, password, userType } = req.body;
+    const { fullName, phone, password, userType } = req.body;
+    const email = String(req.body.email || '').trim().toLowerCase();
 
     // Check if user already exists
     const existingUser = await User.findOne({
@@ -86,7 +87,26 @@ const register = async (req, res) => {
       }
     });
   } catch (error) {
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        message: Object.values(error.errors || {})[0]?.message || 'Validation errors',
+        errors: Object.values(error.errors || {}).map(err => ({
+          field: err.path,
+          message: err.message
+        }))
+      });
+    }
+
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'User with this email or phone already exists'
+      });
+    }
+
     console.error('Registration error:', error);
+
     res.status(500).json({
       success: false,
       message: 'Error registering user',
