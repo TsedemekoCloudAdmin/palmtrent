@@ -9,12 +9,14 @@ import { authAPI, publicAPI, trackingAPI } from '../services/api';
 import './styles/LandingPage.css';
 import logo from '../assets/logo3.png';
 
-const PHONE_VERIFICATION_DISABLED = import.meta.env.VITE_DISABLE_PHONE_VERIFICATION === 'true';
+const PHONE_VERIFICATION_DISABLED = import.meta.env.VITE_DISABLE_PHONE_VERIFICATION !== 'false';
 const FALLBACK_STATS = {
   activeTransporters: '2,000+',
   completedDeliveries: '10,000+',
   averageRating: '4.8/5'
 };
+
+const getTrackingAddress = (point) => point?.address || point?.city || point?.name || 'N/A';
 
 const getRoleHomePath = (user) => {
   switch (user?.userType) {
@@ -227,22 +229,25 @@ const LandingPage = () => {
       userType: registerForm.userType
     });
 
-    if (response.token || response.data?.token) {
-      if (selectedPlanCode) {
-        try {
-          const subscription = await publicAPI.createSubscription(selectedPlanCode);
-          setSubscriptionMessage(subscription.message || 'Subscription selected.');
-        } catch (error) {
-          setSubscriptionMessage(error.message || 'Account created. Subscription selection still needs to be completed.');
-        }
-      }
-      setShowRegisterModal(false);
-      setVerificationSent(false);
-      setVerificationVerified(false);
-      setVerificationCode('');
-      setSelectedPlanCode('');
-      navigate(getRoleHomePath(authAPI.getCurrentUser()));
+    if (!(response.token || response.data?.token)) {
+      throw new Error(response.message || 'Account created, but sign-in did not complete. Please try signing in.');
     }
+
+    if (selectedPlanCode) {
+      try {
+        const subscription = await publicAPI.createSubscription(selectedPlanCode);
+        setSubscriptionMessage(subscription.message || 'Subscription selected.');
+      } catch (error) {
+        setSubscriptionMessage(error.message || 'Account created. Subscription selection still needs to be completed.');
+      }
+    }
+
+    setShowRegisterModal(false);
+    setVerificationSent(false);
+    setVerificationVerified(false);
+    setVerificationCode('');
+    setSelectedPlanCode('');
+    navigate(getRoleHomePath(authAPI.getCurrentUser()));
   };
 
   const handleRegister = async (e) => {
@@ -307,12 +312,13 @@ const LandingPage = () => {
     }
   };
 
-  const handleTrackShipment = async (e) => {
+  const handleTrackShipment = async (e, options = {}) => {
     e.preventDefault();
+    const normalizedTrackingId = trackingId.trim();
     setTrackingError('');
     setTrackingResult(null);
 
-    if (!trackingId.trim()) {
+    if (!normalizedTrackingId) {
       setTrackingError('Please enter a tracking ID');
       return;
     }
@@ -320,7 +326,11 @@ const LandingPage = () => {
     setTrackingLoading(true);
 
     try {
-      const result = await trackingAPI.trackPublic(trackingId.trim());
+      const result = await trackingAPI.trackPublic(normalizedTrackingId);
+      if (options.navigateOnSuccess) {
+        navigate(`/tracking/${encodeURIComponent(normalizedTrackingId)}`);
+        return;
+      }
       setTrackingResult(result.data || result);
     } catch (error) {
       setTrackingError(error.message || 'Tracking ID not found. Please check and try again.');
@@ -492,7 +502,7 @@ const LandingPage = () => {
 
             {/* Quick Track Widget */}
             <div className="quick-track-widget">
-              <form onSubmit={handleTrackShipment} className="quick-track-form">
+              <form onSubmit={(event) => handleTrackShipment(event, { navigateOnSuccess: true })} className="quick-track-form">
                 <div className="track-input-wrapper">
                   <Search className="icon" />
                   <input
@@ -1085,7 +1095,7 @@ const LandingPage = () => {
                 <div className="tracking-status-header">
                   <div className={`status-indicator ${trackingResult.status}`}></div>
                   <div>
-                    <h3>{trackingResult.bookingReference || trackingId}</h3>
+                    <h3>{trackingResult.reference || trackingResult.bookingReference || trackingId}</h3>
                     <span className="status-text">{trackingResult.status?.replace('_', ' ') || 'Unknown'}</span>
                   </div>
                 </div>
@@ -1095,7 +1105,7 @@ const LandingPage = () => {
                     <div className="point-dot"></div>
                     <div className="point-info">
                       <span className="point-label">Pickup</span>
-                      <span className="point-address">{trackingResult.pickupLocation?.address || 'N/A'}</span>
+                      <span className="point-address">{getTrackingAddress(trackingResult.pickupLocation || trackingResult.route?.pickup || trackingResult.origin)}</span>
                     </div>
                   </div>
                   <div className="route-line"></div>
@@ -1103,7 +1113,7 @@ const LandingPage = () => {
                     <div className="point-dot"></div>
                     <div className="point-info">
                       <span className="point-label">Delivery</span>
-                      <span className="point-address">{trackingResult.deliveryLocation?.address || 'N/A'}</span>
+                      <span className="point-address">{getTrackingAddress(trackingResult.deliveryLocation || trackingResult.route?.delivery || trackingResult.destination)}</span>
                     </div>
                   </div>
                 </div>
@@ -1119,7 +1129,7 @@ const LandingPage = () => {
                   className="view-full-tracking"
                   onClick={() => {
                     setShowTrackingModal(false);
-                    navigate(`/tracking/${trackingId}`);
+                    navigate(`/tracking/${encodeURIComponent(trackingId.trim())}`);
                   }}
                 >
                   View Full Tracking <ArrowRight className="icon" />

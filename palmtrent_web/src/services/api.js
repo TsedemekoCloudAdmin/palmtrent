@@ -1,5 +1,6 @@
 // API Service for Palmtrent Web
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+const DEFAULT_REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 20000);
 
 export const resolveApiUrl = (url) => {
   if (!url) return '';
@@ -52,20 +53,34 @@ export const downloadAuthorizedBlob = async (url) => {
 // Base fetch wrapper
 const apiFetch = async (endpoint, options = {}) => {
   const token = getToken();
+  const { timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, ...fetchOptions } = options;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   const headers = {
     'Content-Type': 'application/json',
-    ...options.headers,
+    ...fetchOptions.headers,
   };
 
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...fetchOptions,
+      headers,
+      signal: fetchOptions.signal || controller.signal,
+    });
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error('The request timed out. Please check your connection and try again.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   // Handle 401 - unauthorized
   if (response.status === 401) {
@@ -75,7 +90,7 @@ const apiFetch = async (endpoint, options = {}) => {
     throw new Error('Session expired. Please login again.');
   }
 
-  const data = await response.json();
+  const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
     throw new Error(data.message || 'An error occurred');
@@ -216,7 +231,8 @@ export const bookingsAPI = {
 export const trackingAPI = {
   // Public tracking - no auth required
   trackPublic: async (trackingId) => {
-    const response = await fetch(`${API_BASE_URL}/tracking/public/${trackingId}`);
+    const normalizedTrackingId = String(trackingId || '').trim();
+    const response = await fetch(`${API_BASE_URL}/tracking/public/${encodeURIComponent(normalizedTrackingId)}`);
     const data = await response.json();
 
     if (!response.ok) {

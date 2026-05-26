@@ -58,7 +58,7 @@ const PublicTrackingPage = () => {
         <div className="public-tracking-header">
           <div>
             <p className="eyebrow">Shipment Tracking</p>
-            <h1>{tracking?.bookingReference || trackingId}</h1>
+            <h1>{tracking?.reference || tracking?.bookingReference || trackingId}</h1>
           </div>
           {tracking?.status && (
             <span className="public-tracking-status">

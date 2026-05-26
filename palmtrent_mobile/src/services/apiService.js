@@ -2,7 +2,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 
-export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://10.0.2.2:5000/api/v1';
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://palmtrent-api.onrender.com/api/v1';
 
 class ApiService {
   constructor() {
