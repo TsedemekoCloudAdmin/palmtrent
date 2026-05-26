@@ -1,12 +1,12 @@
 const VerificationCode = require('../models/VerificationCode');
 const { generateVerificationCode } = require('../utils/generateCode');
 const { sendVerificationSMS } = require('../utils/sendSMS');
+const { isSmsDeliveryDisabled } = require('../utils/smsSettings');
 
 // Send verification code
 const sendVerificationCode = async (req, res) => {
   try {
     const { phone } = req.body;
-console.log(phone);
     // Generate 6-digit code
     const code = generateVerificationCode(6);
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
@@ -37,7 +37,10 @@ console.log(phone);
 
     res.json({
       success: true,
-      message: 'Verification code sent successfully'
+      message: isSmsDeliveryDisabled()
+        ? 'Verification code generated for testing'
+        : 'Verification code sent successfully',
+      ...(isSmsDeliveryDisabled() ? { data: { code } } : {})
     });
   } catch (error) {
     console.error('Send verification code error:', error);
@@ -160,7 +163,10 @@ const resendVerificationCode = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Verification code sent successfully'
+      message: isSmsDeliveryDisabled()
+        ? 'Verification code generated for testing'
+        : 'Verification code sent successfully',
+      ...(isSmsDeliveryDisabled() ? { data: { code } } : {})
     });
   } catch (error) {
     console.error('Resend verification code error:', error);

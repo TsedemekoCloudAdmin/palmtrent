@@ -1,5 +1,12 @@
+const { isSmsDeliveryDisabled } = require('./smsSettings');
+
 const sendSMS = async (phone, body) => {
   try {
+    if (isSmsDeliveryDisabled()) {
+      console.log(`SMS delivery disabled. SMS for ${phone}: ${body}`);
+      return true;
+    }
+
     const {
       TWILIO_ACCOUNT_SID,
       TWILIO_AUTH_TOKEN,

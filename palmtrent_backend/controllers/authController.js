@@ -5,6 +5,7 @@ const { generateToken } = require('../middleware/auth');
 const { generateVerificationCode, generateRandomToken } = require('../utils/generateCode');
 const { sendVerificationSMS } = require('../utils/sendSMS');
 const { sendPasswordResetEmail } = require('../utils/sendEmail');
+const { isSmsDeliveryDisabled } = require('../utils/smsSettings');
 
 function normalizeZimbabwePhone(phone) {
   if (phone === undefined || phone === null || phone === '') return undefined;
@@ -42,15 +43,19 @@ const register = async (req, res) => {
       });
     }
 
-    // Check if phone is verified
-    const verifiedCode = await VerificationCode.findOne({
-      phone,
-      type: 'phone_verification',
-      used: true,
-      expiresAt: { $gt: new Date() }
-    });
+    const skipPhoneVerification = isSmsDeliveryDisabled();
+    let verifiedCode = null;
 
-    if (!verifiedCode) {
+    if (!skipPhoneVerification) {
+      verifiedCode = await VerificationCode.findOne({
+        phone,
+        type: 'phone_verification',
+        used: true,
+        expiresAt: { $gt: new Date() }
+      });
+    }
+
+    if (!skipPhoneVerification && !verifiedCode) {
       return res.status(400).json({
         success: false,
         message: 'Phone number not verified. Please verify your phone first.'
@@ -64,7 +69,7 @@ const register = async (req, res) => {
       phone,
       password,
       userType,
-      isPhoneVerified: true
+      isPhoneVerified: skipPhoneVerification || Boolean(verifiedCode)
     });
 
     // Generate JWT token

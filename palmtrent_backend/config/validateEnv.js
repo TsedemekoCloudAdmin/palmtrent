@@ -37,6 +37,8 @@ const storageRequiredByDriver = {
   r2: ['STORAGE_BUCKET', 'STORAGE_REGION', 'STORAGE_ACCESS_KEY_ID', 'STORAGE_SECRET_ACCESS_KEY', 'STORAGE_ENDPOINT']
 };
 
+const smsProviderRequired = ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE_NUMBER'];
+
 function hasValue(key) {
   return Boolean(process.env[key] && String(process.env[key]).trim());
 }
@@ -65,6 +67,13 @@ function getMissingEnv({ production = process.env.NODE_ENV === 'production' } = 
 
   if (production) {
     required.push(...requiredInProduction);
+    if (process.env.DISABLE_SMS_DELIVERY === 'true') {
+      smsProviderRequired.forEach(key => {
+        const index = required.indexOf(key);
+        if (index >= 0) required.splice(index, 1);
+      });
+    }
+
     if (process.env.ENABLE_PAYNOW_DIRECT_RAIL === 'true') {
       required.push(...paynowDirectRailRequired);
     }
@@ -86,6 +95,13 @@ function getPlaceholderEnv({ production = process.env.NODE_ENV === 'production' 
       ]
     : requiredAlways;
 
+  if (production && process.env.DISABLE_SMS_DELIVERY === 'true') {
+    smsProviderRequired.forEach(key => {
+      const index = keys.indexOf(key);
+      if (index >= 0) keys.splice(index, 1);
+    });
+  }
+
   return [...new Set(keys)].filter(isPlaceholderValue);
 }
 
@@ -93,6 +109,10 @@ function getConfigurationWarnings({ production = process.env.NODE_ENV === 'produ
   const warnings = [];
 
   if (production) {
+    if (process.env.DISABLE_SMS_DELIVERY === 'true') {
+      warnings.push('DISABLE_SMS_DELIVERY=true. SMS delivery and phone verification are bypassed for testing only.');
+    }
+
     const storageDriver = (process.env.STORAGE_DRIVER || process.env.STORAGE_PROVIDER || 'local').toLowerCase();
     if (storageDriver === 'local' && process.env.ALLOW_LOCAL_STORAGE_IN_PRODUCTION !== 'true') {
       warnings.push('STORAGE_DRIVER is local. Use object storage for production uploads or set ALLOW_LOCAL_STORAGE_IN_PRODUCTION=true after accepting the operational risk.');

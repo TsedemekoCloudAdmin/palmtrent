@@ -55,3 +55,5 @@ Upload, routing, and geocoding code paths also fail closed at runtime in product
 8. Put the API behind TLS and configure production CORS domains.
 
 ClicknPay/OpenAPI Africa, Mapbox, WhatsApp, Firebase, SMTP email, upload scanning, and object storage require real provider credentials before production traffic. Paynow direct EcoCash/OneMoney credentials are required only when `ENABLE_PAYNOW_DIRECT_RAIL=true`.
+
+For temporary staging smoke tests only, set `DISABLE_SMS_DELIVERY=true` to bypass Twilio delivery and phone-verification blocking during registration. Do not leave this enabled for production traffic.

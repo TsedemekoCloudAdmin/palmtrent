@@ -1,6 +1,7 @@
 jest.mock('../models/User', () => ({
   findOne: jest.fn(),
-  findByIdAndUpdate: jest.fn()
+  findByIdAndUpdate: jest.fn(),
+  create: jest.fn()
 }));
 
 jest.mock('../models/VerificationCode', () => ({
@@ -30,7 +31,7 @@ jest.mock('../utils/sendEmail', () => ({
 }));
 
 const User = require('../models/User');
-const { login, updateProfile } = require('../controllers/authController');
+const { register, login, updateProfile } = require('../controllers/authController');
 
 const createRes = () => ({
   status: jest.fn().mockReturnThis(),
@@ -39,6 +40,47 @@ const createRes = () => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
+  delete process.env.DISABLE_SMS_DELIVERY;
+});
+
+test('register bypasses phone verification when SMS delivery is disabled for testing', async () => {
+  process.env.DISABLE_SMS_DELIVERY = 'true';
+  User.findOne.mockResolvedValue(null);
+  const user = {
+    _id: 'user-1',
+    fullName: 'Test Shipper',
+    email: 'shipper@example.com',
+    phone: '+263771234567',
+    userType: 'shipper',
+    isPhoneVerified: true
+  };
+  User.create.mockResolvedValue(user);
+
+  const res = createRes();
+
+  await register({
+    body: {
+      fullName: 'Test Shipper',
+      email: 'shipper@example.com',
+      phone: '+263771234567',
+      password: 'password123',
+      userType: 'shipper'
+    }
+  }, res);
+
+  expect(User.create).toHaveBeenCalledWith({
+    fullName: 'Test Shipper',
+    email: 'shipper@example.com',
+    phone: '+263771234567',
+    password: 'password123',
+    userType: 'shipper',
+    isPhoneVerified: true
+  });
+  expect(res.status).toHaveBeenCalledWith(201);
+  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+    success: true,
+    token: 'jwt-token'
+  }));
 });
 
 test('login accepts email credentials and returns top-level auth fields for web clients', async () => {
