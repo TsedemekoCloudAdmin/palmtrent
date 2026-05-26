@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle, Clock, DollarSign, Package, Plus, RefreshCw,
-  Settings, Truck, Wrench, XCircle
+  Settings, Truck, Wrench, X, User, LogOut, CreditCard, Trash2
 } from 'lucide-react';
-import { fleetAPI } from '../services/api';
+import { authAPI, driversAPI, fleetAPI, publicAPI } from '../services/api';
 import './styles/TrailerOwnerDashboard.css';
 
 const ASSET_TYPES = [
@@ -31,14 +31,40 @@ const emptyForm = {
   description: ''
 };
 
+const emptyDriverForm = {
+  fullName: '',
+  phone: '',
+  email: '',
+  licenseNumber: '',
+  licenseClass: '',
+  licenseExpiry: '',
+  experience: '',
+  employmentType: 'full_time',
+  notes: ''
+};
+
+const formatDate = (value) => {
+  if (!value) return 'Not set';
+  return new Date(value).toLocaleDateString();
+};
+
 const TrailerOwnerDashboard = () => {
+  const currentUser = authAPI.getCurrentUser() || {};
   const [activeTab, setActiveTab] = useState('fleet');
   const [stats, setStats] = useState({});
   const [fleet, setFleet] = useState([]);
   const [listings, setListings] = useState([]);
   const [rentals, setRentals] = useState([]);
   const [market, setMarket] = useState([]);
+  const [drivers, setDrivers] = useState([]);
+  const [subscription, setSubscription] = useState(null);
   const [form, setForm] = useState(emptyForm);
+  const [driverForm, setDriverForm] = useState(emptyDriverForm);
+  const [profileForm, setProfileForm] = useState({
+    fullName: currentUser.fullName || '',
+    email: currentUser.email || '',
+    phone: currentUser.phone || ''
+  });
   const [requestForm, setRequestForm] = useState({
     startDate: '',
     endDate: '',
@@ -48,20 +74,27 @@ const TrailerOwnerDashboard = () => {
   const [assetFilter, setAssetFilter] = useState('all');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [showAddFleetDialog, setShowAddFleetDialog] = useState(false);
+  const [showDriverDialog, setShowDriverDialog] = useState(false);
+  const [editingDriverId, setEditingDriverId] = useState('');
 
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [dashboard, fleetResponse, listingResponse, rentalResponse] = await Promise.all([
+      const [dashboard, fleetResponse, listingResponse, rentalResponse, driversResponse, subscriptionResponse] = await Promise.all([
         fleetAPI.getDashboard(),
         fleetAPI.getFleet(assetFilter === 'all' ? {} : { assetType: assetFilter }),
         fleetAPI.getMyListings(),
-        fleetAPI.getMyRentals()
+        fleetAPI.getMyRentals(),
+        driversAPI.getAll({ limit: 100 }),
+        publicAPI.getMySubscription()
       ]);
       setStats(dashboard.data || {});
       setFleet(fleetResponse.data || []);
       setListings(listingResponse.data || []);
       setRentals(rentalResponse.data || []);
+      setDrivers(driversResponse.data || []);
+      setSubscription(subscriptionResponse.data || null);
       if (activeTab === 'market') {
         const marketResponse = await fleetAPI.getAvailableRentals(assetFilter === 'all' ? {} : { itemType: assetFilter });
         setMarket(marketResponse.data || []);
@@ -82,6 +115,8 @@ const TrailerOwnerDashboard = () => {
   ), [listings]);
 
   const updateForm = (field, value) => setForm((current) => ({ ...current, [field]: value }));
+  const updateDriverForm = (field, value) => setDriverForm((current) => ({ ...current, [field]: value }));
+  const updateProfileForm = (field, value) => setProfileForm((current) => ({ ...current, [field]: value }));
 
   const createAsset = async (event) => {
     event.preventDefault();
@@ -121,8 +156,103 @@ const TrailerOwnerDashboard = () => {
       setForm(emptyForm);
       setMessage('Fleet asset added');
       await loadData();
+      setShowAddFleetDialog(false);
     } catch (error) {
       setMessage(error.message || 'Could not add fleet asset');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openDriverDialog = (driver = null) => {
+    if (driver) {
+      setEditingDriverId(driver._id);
+      setDriverForm({
+        fullName: driver.fullName || '',
+        phone: driver.phone || '',
+        email: driver.email || '',
+        licenseNumber: driver.licenseNumber || '',
+        licenseClass: driver.licenseClass || '',
+        licenseExpiry: driver.licenseExpiry ? String(driver.licenseExpiry).slice(0, 10) : '',
+        experience: driver.experience || '',
+        employmentType: driver.employmentType || 'full_time',
+        notes: driver.notes || ''
+      });
+    } else {
+      setEditingDriverId('');
+      setDriverForm(emptyDriverForm);
+    }
+    setShowDriverDialog(true);
+  };
+
+  const saveDriver = async (event) => {
+    event.preventDefault();
+    try {
+      setLoading(true);
+      setMessage('');
+      const payload = {
+        ...driverForm,
+        experience: Number(driverForm.experience) || 0
+      };
+      if (editingDriverId) {
+        await driversAPI.update(editingDriverId, payload);
+        setMessage('Driver updated');
+      } else {
+        await driversAPI.create(payload);
+        setMessage('Driver added');
+      }
+      setShowDriverDialog(false);
+      setEditingDriverId('');
+      setDriverForm(emptyDriverForm);
+      await loadData();
+    } catch (error) {
+      setMessage(error.message || 'Could not save driver');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateDriverStatus = async (driver, status) => {
+    try {
+      setLoading(true);
+      await driversAPI.updateStatus(driver._id, status);
+      setMessage(`${driver.fullName} moved to ${status.replace('_', ' ')}`);
+      await loadData();
+    } catch (error) {
+      setMessage(error.message || 'Could not update driver status');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteDriver = async (driver) => {
+    if (!window.confirm(`Delete ${driver.fullName}?`)) return;
+    try {
+      setLoading(true);
+      await driversAPI.delete(driver._id);
+      setMessage('Driver deleted');
+      await loadData();
+    } catch (error) {
+      setMessage(error.message || 'Could not delete driver');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveProfile = async (event) => {
+    event.preventDefault();
+    try {
+      setLoading(true);
+      const response = await authAPI.updateProfile(profileForm);
+      const user = response.data?.user || response.user || authAPI.getCurrentUser() || {};
+      setProfileForm({
+        fullName: user.fullName || '',
+        email: user.email || '',
+        phone: user.phone || ''
+      });
+      setMessage('Profile updated');
+    } catch (error) {
+      setMessage(error.message || 'Could not update profile');
     } finally {
       setLoading(false);
     }
@@ -191,9 +321,10 @@ const TrailerOwnerDashboard = () => {
           <span>Fleet Supplier</span>
         </div>
         <button className={activeTab === 'fleet' ? 'active' : ''} onClick={() => setActiveTab('fleet')}><Truck className="icon" /> Fleet</button>
+        <button className={activeTab === 'drivers' ? 'active' : ''} onClick={() => setActiveTab('drivers')}><User className="icon" /> Drivers</button>
         <button className={activeTab === 'market' ? 'active' : ''} onClick={() => setActiveTab('market')}><DollarSign className="icon" /> Market</button>
         <button className={activeTab === 'rentals' ? 'active' : ''} onClick={() => setActiveTab('rentals')}><Package className="icon" /> Rentals</button>
-        <button className={activeTab === 'settings' ? 'active' : ''} onClick={() => setActiveTab('settings')}><Settings className="icon" /> Settings</button>
+        <button className={activeTab === 'account' ? 'active' : ''} onClick={() => setActiveTab('account')}><Settings className="icon" /> Account</button>
       </aside>
 
       <main className="fleet-main">
@@ -202,10 +333,16 @@ const TrailerOwnerDashboard = () => {
             <h1>Trailer And Truck Fleet</h1>
             <p>Manage trailers, tractor units, trucks, full rigs, and rental handovers.</p>
           </div>
-          <button className="fleet-secondary" onClick={loadData} disabled={loading}>
-            <RefreshCw className="icon" />
-            Refresh
-          </button>
+          <div className="fleet-header-actions">
+            <button className="fleet-secondary" onClick={loadData} disabled={loading}>
+              <RefreshCw className="icon" />
+              Refresh
+            </button>
+            <button className="fleet-secondary danger" onClick={authAPI.logout}>
+              <LogOut className="icon" />
+              Sign Out
+            </button>
+          </div>
         </header>
 
         {message && <div className="fleet-message">{message}</div>}
@@ -219,74 +356,20 @@ const TrailerOwnerDashboard = () => {
         </section>
 
         {activeTab === 'fleet' && (
-          <div className="fleet-grid-layout">
-            <section className="fleet-panel">
-              <div className="panel-title">
-                <h2>Add Fleet Asset</h2>
-                <Plus className="icon" />
-              </div>
-              <form className="fleet-form" onSubmit={createAsset}>
-                <label>Asset Type
-                  <select value={form.assetType} onChange={(e) => updateForm('assetType', e.target.value)}>
-                    {ASSET_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}
-                  </select>
-                </label>
-                <label>Registration Number
-                  <input value={form.registrationNumber} onChange={(e) => updateForm('registrationNumber', e.target.value)} required />
-                </label>
-                <label>Display Name
-                  <input value={form.assetName} onChange={(e) => updateForm('assetName', e.target.value)} placeholder="Volvo FH + Flatbed" />
-                </label>
-                <div className="form-row">
-                  <label>Make
-                    <input value={form.make} onChange={(e) => updateForm('make', e.target.value)} />
-                  </label>
-                  <label>Model
-                    <input value={form.model} onChange={(e) => updateForm('model', e.target.value)} />
-                  </label>
-                </div>
-                <div className="form-row">
-                  <label>Year
-                    <input type="number" value={form.year} onChange={(e) => updateForm('year', e.target.value)} />
-                  </label>
-                  <label>Capacity KG
-                    <input type="number" value={form.capacityWeight} onChange={(e) => updateForm('capacityWeight', e.target.value)} />
-                  </label>
-                </div>
-                <div className="form-row">
-                  <label>Daily Rate
-                    <input type="number" value={form.dailyRate} onChange={(e) => updateForm('dailyRate', e.target.value)} />
-                  </label>
-                  <label>Deposit
-                    <input type="number" value={form.deposit} onChange={(e) => updateForm('deposit', e.target.value)} />
-                  </label>
-                </div>
-                <label>City
-                  <input value={form.city} onChange={(e) => updateForm('city', e.target.value)} />
-                </label>
-                <label>Rental Mode
-                  <select value={form.rentalMode} onChange={(e) => updateForm('rentalMode', e.target.value)}>
-                    <option value="dry_rental">Dry rental</option>
-                    <option value="operated_rental">Operated rental</option>
-                    <option value="per_trip">Per trip</option>
-                    <option value="per_km">Per kilometer</option>
-                  </select>
-                </label>
-                <div className="toggle-row">
-                  <label><input type="checkbox" checked={form.availableForRental} onChange={(e) => updateForm('availableForRental', e.target.checked)} /> Rent out</label>
-                  <label><input type="checkbox" checked={form.availableForShipmentWork} onChange={(e) => updateForm('availableForShipmentWork', e.target.checked)} /> Shipment work</label>
-                </div>
-                <button className="fleet-primary" disabled={loading}>Add Asset</button>
-              </form>
-            </section>
-
+          <>
             <section className="fleet-panel wide">
               <div className="panel-title">
                 <h2>My Fleet</h2>
-                <select value={assetFilter} onChange={(e) => setAssetFilter(e.target.value)}>
-                  <option value="all">All assets</option>
-                  {ASSET_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}
-                </select>
+                <div className="panel-actions">
+                  <select value={assetFilter} onChange={(e) => setAssetFilter(e.target.value)}>
+                    <option value="all">All assets</option>
+                    {ASSET_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}
+                  </select>
+                  <button className="fleet-primary" onClick={() => setShowAddFleetDialog(true)}>
+                    <Plus className="icon" />
+                    Add Fleet
+                  </button>
+                </div>
               </div>
               <div className="asset-list">
                 {fleet.map(asset => (
@@ -309,7 +392,88 @@ const TrailerOwnerDashboard = () => {
                 {!fleet.length && <div className="empty-state">No fleet assets yet.</div>}
               </div>
             </section>
-          </div>
+
+            {showAddFleetDialog && (
+              <div className="fleet-dialog-backdrop" role="presentation" onMouseDown={() => setShowAddFleetDialog(false)}>
+                <section
+                  className="fleet-dialog"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="add-fleet-title"
+                  onMouseDown={(event) => event.stopPropagation()}
+                >
+                  <div className="fleet-dialog-header">
+                    <div>
+                      <h2 id="add-fleet-title">Add Fleet Asset</h2>
+                      <p>Register a trailer, tractor unit, truck, or full rig.</p>
+                    </div>
+                    <button
+                      className="dialog-close"
+                      type="button"
+                      aria-label="Close add fleet dialog"
+                      onClick={() => setShowAddFleetDialog(false)}
+                    >
+                      <X className="icon" />
+                    </button>
+                  </div>
+
+                  <form className="fleet-form" onSubmit={createAsset}>
+                    <label>Asset Type
+                      <select value={form.assetType} onChange={(e) => updateForm('assetType', e.target.value)}>
+                        {ASSET_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}
+                      </select>
+                    </label>
+                    <label>Registration Number
+                      <input value={form.registrationNumber} onChange={(e) => updateForm('registrationNumber', e.target.value)} required />
+                    </label>
+                    <label>Display Name
+                      <input value={form.assetName} onChange={(e) => updateForm('assetName', e.target.value)} placeholder="Volvo FH + Flatbed" />
+                    </label>
+                    <div className="form-row">
+                      <label>Make
+                        <input value={form.make} onChange={(e) => updateForm('make', e.target.value)} />
+                      </label>
+                      <label>Model
+                        <input value={form.model} onChange={(e) => updateForm('model', e.target.value)} />
+                      </label>
+                    </div>
+                    <div className="form-row">
+                      <label>Year
+                        <input type="number" value={form.year} onChange={(e) => updateForm('year', e.target.value)} />
+                      </label>
+                      <label>Capacity KG
+                        <input type="number" value={form.capacityWeight} onChange={(e) => updateForm('capacityWeight', e.target.value)} />
+                      </label>
+                    </div>
+                    <div className="form-row">
+                      <label>Daily Rate
+                        <input type="number" value={form.dailyRate} onChange={(e) => updateForm('dailyRate', e.target.value)} />
+                      </label>
+                      <label>Deposit
+                        <input type="number" value={form.deposit} onChange={(e) => updateForm('deposit', e.target.value)} />
+                      </label>
+                    </div>
+                    <label>City
+                      <input value={form.city} onChange={(e) => updateForm('city', e.target.value)} />
+                    </label>
+                    <label>Rental Mode
+                      <select value={form.rentalMode} onChange={(e) => updateForm('rentalMode', e.target.value)}>
+                        <option value="dry_rental">Dry rental</option>
+                        <option value="operated_rental">Operated rental</option>
+                        <option value="per_trip">Per trip</option>
+                        <option value="per_km">Per kilometer</option>
+                      </select>
+                    </label>
+                    <div className="toggle-row">
+                      <label><input type="checkbox" checked={form.availableForRental} onChange={(e) => updateForm('availableForRental', e.target.checked)} /> Rent out</label>
+                      <label><input type="checkbox" checked={form.availableForShipmentWork} onChange={(e) => updateForm('availableForShipmentWork', e.target.checked)} /> Shipment work</label>
+                    </div>
+                    <button className="fleet-primary" disabled={loading}>Add Asset</button>
+                  </form>
+                </section>
+              </div>
+            )}
+          </>
         )}
 
         {activeTab === 'rentals' && (
@@ -354,6 +518,107 @@ const TrailerOwnerDashboard = () => {
               {!listings.length && !rentals.length && <div className="empty-state">No rental requests yet.</div>}
             </div>
           </section>
+        )}
+
+        {activeTab === 'drivers' && (
+          <>
+            <section className="fleet-panel wide">
+              <div className="panel-title">
+                <h2>Drivers</h2>
+                <button className="fleet-primary" onClick={() => openDriverDialog()}>
+                  <Plus className="icon" />
+                  Add Driver
+                </button>
+              </div>
+              <div className="asset-list">
+                {drivers.map(driver => (
+                  <article className="asset-card driver-card" key={driver._id}>
+                    <div>
+                      <h3>{driver.fullName}</h3>
+                      <p>{driver.phone} - License {driver.licenseNumber}</p>
+                      <span className={`status ${driver.status}`}>{String(driver.status || 'available').replace('_', ' ')}</span>
+                    </div>
+                    <div className="asset-meta">
+                      <span>Class {driver.licenseClass}</span>
+                      <span>Expires {formatDate(driver.licenseExpiry)}</span>
+                      <span>{driver.assignedVehicle?.registrationNumber || 'Unassigned'}</span>
+                    </div>
+                    <div className="asset-actions">
+                      <button onClick={() => openDriverDialog(driver)}>Edit</button>
+                      <button onClick={() => updateDriverStatus(driver, 'available')}>Available</button>
+                      <button onClick={() => updateDriverStatus(driver, 'on_leave')}>On Leave</button>
+                      <button onClick={() => deleteDriver(driver)}><Trash2 className="icon" /> Delete</button>
+                    </div>
+                  </article>
+                ))}
+                {!drivers.length && <div className="empty-state">No drivers yet. Add your first driver to assign them to vehicles.</div>}
+              </div>
+            </section>
+
+            {showDriverDialog && (
+              <div className="fleet-dialog-backdrop" role="presentation" onMouseDown={() => setShowDriverDialog(false)}>
+                <section
+                  className="fleet-dialog"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="driver-dialog-title"
+                  onMouseDown={(event) => event.stopPropagation()}
+                >
+                  <div className="fleet-dialog-header">
+                    <div>
+                      <h2 id="driver-dialog-title">{editingDriverId ? 'Edit Driver' : 'Add Driver'}</h2>
+                      <p>Manage driver details, license records, and availability.</p>
+                    </div>
+                    <button className="dialog-close" type="button" aria-label="Close driver dialog" onClick={() => setShowDriverDialog(false)}>
+                      <X className="icon" />
+                    </button>
+                  </div>
+
+                  <form className="fleet-form" onSubmit={saveDriver}>
+                    <label>Full Name
+                      <input value={driverForm.fullName} onChange={(e) => updateDriverForm('fullName', e.target.value)} required />
+                    </label>
+                    <div className="form-row">
+                      <label>Phone
+                        <input value={driverForm.phone} onChange={(e) => updateDriverForm('phone', e.target.value)} required />
+                      </label>
+                      <label>Email
+                        <input type="email" value={driverForm.email} onChange={(e) => updateDriverForm('email', e.target.value)} />
+                      </label>
+                    </div>
+                    <div className="form-row">
+                      <label>License Number
+                        <input value={driverForm.licenseNumber} onChange={(e) => updateDriverForm('licenseNumber', e.target.value)} required />
+                      </label>
+                      <label>License Class
+                        <input value={driverForm.licenseClass} onChange={(e) => updateDriverForm('licenseClass', e.target.value)} required />
+                      </label>
+                    </div>
+                    <div className="form-row">
+                      <label>License Expiry
+                        <input type="date" value={driverForm.licenseExpiry} onChange={(e) => updateDriverForm('licenseExpiry', e.target.value)} required />
+                      </label>
+                      <label>Experience Years
+                        <input type="number" min="0" value={driverForm.experience} onChange={(e) => updateDriverForm('experience', e.target.value)} />
+                      </label>
+                    </div>
+                    <label>Employment Type
+                      <select value={driverForm.employmentType} onChange={(e) => updateDriverForm('employmentType', e.target.value)}>
+                        <option value="full_time">Full time</option>
+                        <option value="part_time">Part time</option>
+                        <option value="contract">Contract</option>
+                        <option value="freelance">Freelance</option>
+                      </select>
+                    </label>
+                    <label>Notes
+                      <input value={driverForm.notes} onChange={(e) => updateDriverForm('notes', e.target.value)} />
+                    </label>
+                    <button className="fleet-primary" disabled={loading}>{editingDriverId ? 'Save Driver' : 'Add Driver'}</button>
+                  </form>
+                </section>
+              </div>
+            )}
+          </>
         )}
 
         {activeTab === 'market' && (
@@ -401,14 +666,60 @@ const TrailerOwnerDashboard = () => {
           </section>
         )}
 
-        {activeTab === 'settings' && (
-          <section className="fleet-panel">
-            <h2>How Fleet Supply Works</h2>
-            <div className="settings-copy">
-              <p>Trailer owners can list trailer-only assets, tractor units, trucks, or full rigs. Dry rental means the renter operates the asset. Operated rental means the owner supplies the asset with a driver or operating service.</p>
-              <p>Rental requests appear in the Rentals tab. Approving a request reserves the asset, pickup starts the rental, and return makes it available again.</p>
-            </div>
-          </section>
+        {activeTab === 'account' && (
+          <div className="fleet-account-grid">
+            <section className="fleet-panel">
+              <div className="panel-title">
+                <h2>Profile</h2>
+                <User className="icon" />
+              </div>
+              <form className="fleet-form" onSubmit={saveProfile}>
+                <label>Full Name
+                  <input value={profileForm.fullName} onChange={(e) => updateProfileForm('fullName', e.target.value)} required />
+                </label>
+                <label>Email
+                  <input type="email" value={profileForm.email} onChange={(e) => updateProfileForm('email', e.target.value)} required />
+                </label>
+                <label>Phone
+                  <input value={profileForm.phone} onChange={(e) => updateProfileForm('phone', e.target.value)} required />
+                </label>
+                <button className="fleet-primary" disabled={loading}>Save Profile</button>
+              </form>
+            </section>
+
+            <section className="fleet-panel">
+              <div className="panel-title">
+                <h2>Subscription</h2>
+                <CreditCard className="icon" />
+              </div>
+              {subscription ? (
+                <div className="subscription-card">
+                  <h3>{subscription.plan?.name || 'Current Plan'}</h3>
+                  <p>{subscription.currency || 'USD'} {subscription.amount || 0} / {subscription.billingCycle}</p>
+                  <span className={`status ${subscription.status}`}>{subscription.status}</span>
+                  <dl>
+                    <div><dt>Payment</dt><dd>{subscription.payment?.status || 'pending'}</dd></div>
+                    <div><dt>Renews</dt><dd>{formatDate(subscription.nextBillingAt || subscription.currentPeriodEnd)}</dd></div>
+                    <div><dt>Fleet assets</dt><dd>{subscription.usage?.fleetAssets || 0} used</dd></div>
+                  </dl>
+                </div>
+              ) : (
+                <div className="empty-state">No active subscription found. Select a plan from the public pricing section.</div>
+              )}
+            </section>
+
+            <section className="fleet-panel wide">
+              <h2>How Fleet Supply Works</h2>
+              <div className="settings-copy">
+                <p>Trailer owners and truck owners can list trailer-only assets, tractor units, trucks, or full rigs. Dry rental means the renter operates the asset. Operated rental means the owner supplies the asset with a driver or operating service.</p>
+                <p>Rental requests appear in the Rentals tab. Drivers are managed from the Drivers tab and can be assigned to vehicles from the mobile fleet screens.</p>
+              </div>
+              <button className="fleet-secondary danger" onClick={authAPI.logout}>
+                <LogOut className="icon" />
+                Sign Out
+              </button>
+            </section>
+          </div>
         )}
       </main>
     </div>

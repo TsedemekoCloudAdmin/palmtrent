@@ -52,6 +52,14 @@
   margin-bottom: 1.25rem;
 }
 
+.fleet-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
 .fleet-header h1 {
   margin: 0 0 0.25rem 0;
   font-size: 1.6rem;
@@ -91,6 +99,20 @@
   background: #fff;
   border: 1px solid #d1d5db;
   color: #172033;
+}
+
+.fleet-secondary,
+.fleet-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+}
+
+.fleet-secondary.danger,
+.asset-actions button:last-child {
+  color: #b91c1c;
+  border-color: #fecaca;
 }
 
 .fleet-message {
@@ -160,6 +182,20 @@
 .panel-title h2 {
   margin: 0;
   font-size: 1.1rem;
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.panel-actions .fleet-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
 }
 
 .fleet-form,
@@ -276,12 +312,122 @@
   color: #92400e;
 }
 
+.status.on_leave,
+.status.inactive,
+.status.suspended {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .empty-state {
   padding: 1.5rem;
   text-align: center;
   color: #64748b;
   background: #f8fafc;
   border-radius: 8px;
+}
+
+.fleet-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  background: rgba(15, 23, 42, 0.58);
+}
+
+.fleet-dialog {
+  width: min(720px, 100%);
+  max-height: min(88vh, 860px);
+  overflow: auto;
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.28);
+  padding: 1.25rem;
+}
+
+.fleet-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.fleet-dialog-header h2 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1.2rem;
+}
+
+.fleet-dialog-header p {
+  margin: 0;
+  color: #64748b;
+}
+
+.dialog-close {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #172033;
+  cursor: pointer;
+}
+
+.fleet-account-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr);
+  gap: 1rem;
+}
+
+.fleet-account-grid .wide {
+  grid-column: 1 / -1;
+}
+
+.subscription-card h3 {
+  margin: 0 0 0.25rem 0;
+}
+
+.subscription-card p {
+  margin: 0 0 0.75rem 0;
+  color: #64748b;
+}
+
+.subscription-card dl {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0 0 0;
+}
+
+.subscription-card dl div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.subscription-card dt {
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.subscription-card dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+.driver-card {
+  grid-template-columns: 1.3fr 1fr auto;
 }
 
 @media (max-width: 900px) {
@@ -305,6 +451,46 @@
 
   .asset-card,
   .rental-row {
+    grid-template-columns: 1fr;
+  }
+
+  .fleet-header,
+  .fleet-header-actions,
+  .fleet-account-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .fleet-header {
+    flex-direction: column;
+  }
+
+  .fleet-header-actions,
+  .fleet-header-actions button {
+    width: 100%;
+  }
+
+  .panel-title,
+  .panel-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .panel-actions select,
+  .panel-actions button {
+    width: 100%;
+  }
+
+  .fleet-dialog-backdrop {
+    align-items: flex-end;
+    padding: 0.75rem;
+  }
+
+  .fleet-dialog {
+    max-height: 92vh;
+  }
+
+  .form-row,
+  .toggle-row {
     grid-template-columns: 1fr;
   }
 }

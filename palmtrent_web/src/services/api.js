@@ -186,6 +186,7 @@ export const authAPI = {
 export const publicAPI = {
   getLanding: () => apiFetch('/public/landing'),
   getPlans: () => apiFetch('/public/plans'),
+  getMySubscription: () => apiFetch('/public/subscriptions/me'),
   createSubscription: (planCode) => apiFetch('/public/subscriptions', {
     method: 'POST',
     body: JSON.stringify({ planCode }),
@@ -364,6 +365,32 @@ export const fleetAPI = {
   confirmReturn: (id, data = {}) => apiFetch(`/rentals/${id}/confirm-return`, {
     method: 'POST',
     body: JSON.stringify(data),
+  }),
+};
+
+export const driversAPI = {
+  getAll: (params = {}) => {
+    const queryString = typeof params === 'string' ? params : new URLSearchParams(params).toString();
+    return apiFetch(`/drivers${queryString ? `?${queryString}` : ''}`);
+  },
+
+  create: (data) => apiFetch('/drivers', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  update: (id, data) => apiFetch(`/drivers/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
+  delete: (id) => apiFetch(`/drivers/${id}`, {
+    method: 'DELETE',
+  }),
+
+  updateStatus: (id, status) => apiFetch(`/drivers/${id}/status`, {
+    method: 'PUT',
+    body: JSON.stringify({ status }),
   }),
 };
 
@@ -659,6 +686,7 @@ export default {
   ratings: ratingsAPI,
   vehicles: vehiclesAPI,
   fleet: fleetAPI,
+  drivers: driversAPI,
   reference: referenceAPI,
   corporate: corporateAPI,
   shipper: shipperAPI,

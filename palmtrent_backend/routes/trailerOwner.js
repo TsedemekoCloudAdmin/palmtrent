@@ -10,7 +10,7 @@ const { authorize } = require('../middleware/auth');
 
 // All routes require authentication
 router.use(protect);
-router.use(authorize('trailer_owner', 'admin'));
+router.use(authorize('trailer_owner', 'transporter', 'admin'));
 
 router.get('/recent-activity', getRecentActivity);
 

@@ -133,10 +133,12 @@ export const ShipperDashboard = () => {
     { id: 'payments', label: 'Payments', icon: <DollarSign className="icon" /> },
     { id: 'favorites', label: 'Favorites', icon: <Heart className="icon" /> },
     { id: 'reviews', label: 'Reviews', icon: <Star className="icon" /> },
+    { id: 'account', label: 'Account', icon: <Settings className="icon" /> },
   ];
 
   const userMenuItems = [
     { id: 'overview', label: 'Dashboard', icon: <Home className="shipper-dropdown-icon" /> },
+    { id: 'account', label: 'Profile', icon: <User className="shipper-dropdown-icon" /> },
     { id: 'bookings', label: 'My Bookings', icon: <FileText className="shipper-dropdown-icon" /> },
     { id: 'payments', label: 'Payments', icon: <CreditCard className="shipper-dropdown-icon" /> },
     { id: 'track', label: 'Track Shipments', icon: <MapPin className="shipper-dropdown-icon" /> },
@@ -168,6 +170,8 @@ export const ShipperDashboard = () => {
         return <FavoritesTab setActiveNav={setActiveNav} />;
       case 'reviews':
         return <ReviewsTab />;
+      case 'account':
+        return <AccountTab currentUser={currentUser} />;
       default:
         return <OverviewTab setActiveNav={setActiveNav} />;
     }
@@ -216,6 +220,7 @@ export const ShipperDashboard = () => {
                 {activeNav === 'payments' && 'Payments'}
                 {activeNav === 'favorites' && 'Favorite Transporters'}
                 {activeNav === 'reviews' && 'My Reviews'}
+                {activeNav === 'account' && 'Account'}
               </h1>
               <p className="shipper-page-subtitle">Welcome back, {getUserFirstName(currentUser)}</p>
             </div>
@@ -442,6 +447,70 @@ const OverviewTab = ({ setActiveNav }) => {
         </table>
       </div>
     </>
+  );
+};
+
+const AccountTab = ({ currentUser }) => {
+  const [form, setForm] = useState({
+    fullName: currentUser.fullName || '',
+    email: currentUser.email || '',
+    phone: currentUser.phone || ''
+  });
+  const [status, setStatus] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const update = (field, value) => setForm((current) => ({ ...current, [field]: value }));
+
+  const saveProfile = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    setStatus('');
+    try {
+      const response = await authAPI.updateProfile(form);
+      const user = response.data?.user || response.user || authAPI.getCurrentUser() || {};
+      setForm({
+        fullName: user.fullName || '',
+        email: user.email || '',
+        phone: user.phone || ''
+      });
+      setStatus('Profile updated.');
+    } catch (error) {
+      setStatus(error.message || 'Could not update profile.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="shipper-account-grid">
+      <section className="shipper-account-card">
+        <h2>Profile</h2>
+        {status && <div className="shipper-account-message">{status}</div>}
+        <form className="shipper-account-form" onSubmit={saveProfile}>
+          <label>Full Name
+            <input value={form.fullName} onChange={(event) => update('fullName', event.target.value)} required />
+          </label>
+          <label>Email
+            <input type="email" value={form.email} onChange={(event) => update('email', event.target.value)} required />
+          </label>
+          <label>Phone
+            <input value={form.phone} onChange={(event) => update('phone', event.target.value)} required />
+          </label>
+          <button type="submit" className="shipper-account-primary" disabled={saving}>
+            {saving ? 'Saving...' : 'Save Profile'}
+          </button>
+        </form>
+      </section>
+
+      <section className="shipper-account-card">
+        <h2>Session</h2>
+        <p>Signed in as {currentUser.email || currentUser.phone || currentUser.fullName || 'Palmtrent user'}.</p>
+        <button type="button" className="shipper-account-secondary" onClick={authAPI.logout}>
+          <LogOut className="icon" />
+          Sign Out
+        </button>
+      </section>
+    </div>
   );
 };
 

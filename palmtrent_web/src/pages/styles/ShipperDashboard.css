@@ -481,6 +481,86 @@
   min-height: calc(100vh - 80px); /* Adjust based on topbar height */
 }
 
+.shipper-account-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr);
+  gap: 1.5rem;
+}
+
+.shipper-account-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+}
+
+.shipper-account-card h2 {
+  margin: 0 0 1rem 0;
+  color: var(--text);
+}
+
+.shipper-account-card p {
+  color: var(--text-light);
+  line-height: 1.5;
+}
+
+.shipper-account-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.shipper-account-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  color: var(--text-light);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.shipper-account-form input {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 0.8rem;
+  font: inherit;
+  color: var(--text);
+}
+
+.shipper-account-primary,
+.shipper-account-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: none;
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.shipper-account-primary {
+  background: var(--primary);
+  color: #fff;
+}
+
+.shipper-account-secondary {
+  background: #fff;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.shipper-account-message {
+  background: #ecfeff;
+  border: 1px solid #a5f3fc;
+  color: #155e75;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
 /* Rest of your existing styles for stats, cards, etc. remain the same */
 .shipper-stats-grid {
   display: grid;
@@ -1620,6 +1700,10 @@
 }
 
 @media (max-width: 768px) {
+  .shipper-account-grid {
+    grid-template-columns: 1fr;
+  }
+
   .shipper-sidebar-open {
     width: 240px;
   }

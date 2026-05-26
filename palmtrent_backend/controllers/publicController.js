@@ -32,6 +32,11 @@ function serializePlan(plan) {
   };
 }
 
+function isPlanCompatibleWithUser(planAudience, userType) {
+  if (planAudience === userType) return true;
+  return planAudience === 'trailer_owner' && userType === 'transporter';
+}
+
 async function getPublicPlans(req, res) {
   try {
     await monetizationService.seedDefaults();
@@ -99,7 +104,7 @@ async function createMySubscription(req, res) {
       return res.status(404).json({ success: false, message: 'Subscription plan not found' });
     }
 
-    if (plan.audience !== req.user.userType) {
+    if (!isPlanCompatibleWithUser(plan.audience, req.user.userType)) {
       return res.status(409).json({
         success: false,
         message: `This plan is for ${plan.audience.replace('_', ' ')} accounts.`
@@ -112,7 +117,7 @@ async function createMySubscription(req, res) {
       user: req.user._id,
       corporateAccount: req.user.corporateAccount,
       plan: plan._id,
-      audience: plan.audience,
+      audience: req.user.userType,
       status: 'active',
       billingCycle: plan.billingCycle,
       amount: plan.price,
@@ -158,8 +163,30 @@ async function createMySubscription(req, res) {
   }
 }
 
+async function getMySubscription(req, res) {
+  try {
+    const subscription = await Subscription.findOne({
+      user: req.user._id,
+      status: { $in: ACTIVE_SUBSCRIPTION_STATUSES }
+    }).populate('plan');
+
+    res.json({
+      success: true,
+      data: subscription || null
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to load subscription',
+      error: error.message
+    });
+  }
+}
+
 module.exports = {
   getLandingSummary,
   getPublicPlans,
-  createMySubscription
+  createMySubscription,
+  getMySubscription,
+  isPlanCompatibleWithUser
 };

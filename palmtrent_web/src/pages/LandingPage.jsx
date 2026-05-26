@@ -18,6 +18,14 @@ const FALLBACK_STATS = {
 
 const getTrackingAddress = (point) => point?.address || point?.city || point?.name || 'N/A';
 
+const isPlanCompatibleWithUser = (planAudience, userType) => (
+  planAudience === userType || (planAudience === 'trailer_owner' && userType === 'transporter')
+);
+
+const getSignupTypeForPlan = (plan) => (
+  plan?.audience === 'trailer_owner' ? 'transporter' : plan?.audience
+);
+
 const getRoleHomePath = (user) => {
   switch (user?.userType) {
     case 'admin':
@@ -393,11 +401,11 @@ const LandingPage = () => {
     const currentUser = authAPI.getCurrentUser();
 
     if (!currentUser) {
-      openRegisterWithType(plan.audience, plan.code);
+      openRegisterWithType(getSignupTypeForPlan(plan), plan.code);
       return;
     }
 
-    if (currentUser.userType !== plan.audience) {
+    if (!isPlanCompatibleWithUser(plan.audience, currentUser.userType)) {
       setSubscriptionMessage(`This plan is for ${plan.audience.replace('_', ' ')} accounts. Sign in with the matching account type or create a new account.`);
       return;
     }
