@@ -10,7 +10,8 @@ import {
   Dimensions,
   Alert,
   ActivityIndicator,
-  RefreshControl
+  RefreshControl,
+  Linking
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../hook/useAuth';
@@ -332,7 +333,7 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
   const handleCallDriver = () => {
     Alert.alert('Call Driver', `Call ${jobDetails.driver.phone}?`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Call', onPress: () => console.log('Calling driver...') }
+      { text: 'Call', onPress: () => Linking.openURL(`tel:${jobDetails.driver.phone}`) }
     ]);
   };
 
@@ -346,6 +347,13 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
 
   const handleReportIssue = () => {
     navigateTo('ReportIssue', { jobId: jobDetails.id });
+  };
+
+  const handleViewFullMap = () => {
+    Alert.alert(
+      'Route Map',
+      `${jobDetails.route.from}\n\nCurrent: ${jobDetails.currentLocation}\n\n${jobDetails.route.to}`
+    );
   };
 
   const getStatusColor = (status) => {
@@ -626,7 +634,7 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
               <Text style={styles.locationLabel}>Current Location</Text>
             </View>
             <Text style={styles.locationText}>{jobDetails.currentLocation}</Text>
-            <TouchableOpacity style={styles.viewMapButton}>
+            <TouchableOpacity style={styles.viewMapButton} onPress={handleViewFullMap}>
               <Text style={styles.viewMapText}>View Full Map</Text>
             </TouchableOpacity>
           </View>

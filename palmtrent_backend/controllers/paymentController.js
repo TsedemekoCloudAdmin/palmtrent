@@ -2,15 +2,117 @@
 const { Paynow } = require("paynow");
 const Booking = require('../models/Booking');
 const Payment = require('../models/Payment');
+const Rental = require('../models/Rental');
 const paymentService = require('../services/paymentService');
 const escrowService = require('../services/escrowService');
 const openApiAfricaService = require('../services/openApiAfricaService');
+const payoutService = require('../services/payoutService');
 const { getIntegrationConfig } = require('../services/integrationSettingsService');
+const {
+  canCancelEscrow,
+  canConfirmEscrowDelivery,
+  canManageBookingPayment,
+  canManagePayment,
+  canReadEscrow,
+  canReadPayment,
+  canRecordEscrowCashCollection,
+  isAdmin
+} = require('../services/resourceAccessService');
+
+const notAuthorized = (res, message = 'Not authorized to access this resource') => {
+  return res.status(403).json({ success: false, message });
+};
+
+const loadPaymentWithAccessContext = (paymentReference) => {
+  return Payment.findOne({ paymentReference })
+    .populate('booking')
+    .populate('rental');
+};
+
+const getCurrentUserId = (user) => user?._id || user?.id;
+
+// List payments visible to the current user.
+exports.getPayments = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 20,
+      status,
+      paymentMethod,
+      gateway
+    } = req.query;
+
+    const currentPage = Math.max(parseInt(page, 10) || 1, 1);
+    const pageSize = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
+    const query = {};
+
+    if (status) query.status = status;
+    if (paymentMethod) query.paymentMethod = paymentMethod;
+    if (gateway) query.gateway = gateway;
+
+    if (!isAdmin(req.user)) {
+      const userId = getCurrentUserId(req.user);
+
+      const [bookings, rentals] = await Promise.all([
+        Booking.find({
+          $or: [
+            { user: userId },
+            { shipper: userId },
+            { transporter: userId }
+          ]
+        }).select('_id'),
+        Rental.find({
+          $or: [
+            { owner: userId },
+            { renter: userId }
+          ]
+        }).select('_id')
+      ]);
+
+      query.$or = [
+        { booking: { $in: bookings.map(item => item._id) } },
+        { rental: { $in: rentals.map(item => item._id) } }
+      ];
+    }
+
+    const [payments, total] = await Promise.all([
+      Payment.find(query)
+        .populate('booking', 'bookingId bookingReference status route')
+        .populate('rental', 'rentalReference status itemType')
+        .sort({ createdAt: -1 })
+        .skip((currentPage - 1) * pageSize)
+        .limit(pageSize)
+        .lean(),
+      Payment.countDocuments(query)
+    ]);
+
+    res.json({
+      success: true,
+      count: payments.length,
+      data: payments.map(payment => ({
+        ...payment,
+        method: payment.paymentMethod
+      })),
+      pagination: {
+        page: currentPage,
+        limit: pageSize,
+        total,
+        pages: Math.ceil(total / pageSize)
+      }
+    });
+  } catch (error) {
+    console.error('Error listing payments:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching payments'
+    });
+  }
+};
 
 const getPaynowClient = async () => {
   const config = await getIntegrationConfig('paynow');
   if (!config.integrationId || !config.integrationKey) {
-    throw new Error('Paynow is not configured. Add credentials in the admin integration settings.');
+    throw new Error('Paynow mobile-money rail is not configured. Add credentials before using Paynow-backed EcoCash/OneMoney flows.');
   }
 
   const client = new Paynow(config.integrationId, config.integrationKey);
@@ -44,6 +146,15 @@ exports.createPayment = async (req, res) => {
       });
     }
 
+    const booking = await Booking.findById(bookingId);
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
+
+    if (!canManageBookingPayment(req.user, booking)) {
+      return notAuthorized(res, 'Only the booking shipper can create this payment');
+    }
+
     const payment = await paymentService.createPayment(bookingId, amount, paymentMethod, customer);
 
     res.status(201).json({
@@ -66,23 +177,27 @@ exports.createPayment = async (req, res) => {
   }
 };
 
-// UPDATED: Initiate Paynow payment (only for gateway methods)
-exports.initiatePaynowPayment = async (req, res) => {
+// Initiate the configured hosted checkout for a payment.
+const initiatePayment = async (req, res) => {
   try {
     const { 
       paymentReference,
       customer 
     } = req.body;
 
-    console.log('Initiating Paynow payment for:', paymentReference);
+    console.log('Initiating hosted payment for:', paymentReference);
 
     // Find payment record
-    const payment = await Payment.findOne({ paymentReference });
+    const payment = await loadPaymentWithAccessContext(paymentReference);
     if (!payment) {
       return res.status(404).json({
         success: false,
         message: 'Payment not found'
       });
+    }
+
+    if (!canManagePayment(req.user, payment)) {
+      return notAuthorized(res, 'Only the payer can initiate this payment');
     }
 
     // Update payment status to initiated
@@ -103,6 +218,14 @@ exports.initiatePaynowPayment = async (req, res) => {
       });
     }
 
+    if (payment.gateway !== 'paynow') {
+      return res.status(400).json({
+        success: false,
+        message: 'This payment method does not use a hosted payment gateway'
+      });
+    }
+
+    // Existing Paynow payment records can still be completed while checkout moves to ClicknPay.
     const paynow = await getPaynowClient();
 
     // Create Paynow payment
@@ -162,7 +285,7 @@ exports.initiatePaynowPayment = async (req, res) => {
     }
 
   } catch (error) {
-    console.error('Paynow initiation error:', error);
+    console.error('Hosted payment initiation error:', error);
     res.status(500).json({
       success: false,
       message: error.message || 'Payment initiation failed'
@@ -170,12 +293,19 @@ exports.initiatePaynowPayment = async (req, res) => {
   }
 };
 
+exports.initiatePayment = initiatePayment;
+exports.initiatePaynowPayment = initiatePayment;
+
 // NEW: Confirm cash payment (for agent, pickup, delivery)
 exports.confirmCashPayment = async (req, res) => {
   try {
     const { paymentReference } = req.body;
 
     console.log('Confirming cash payment for:', paymentReference);
+
+    if (!isAdmin(req.user)) {
+      return notAuthorized(res, 'Only an admin can manually confirm cash payments');
+    }
 
     const payment = await paymentService.confirmPayment(paymentReference, {
       gateway: 'cash',
@@ -207,12 +337,16 @@ exports.checkPaymentStatus = async (req, res) => {
   try {
     const { paymentReference } = req.params;
 
-    const payment = await paymentService.getPaymentByReference(paymentReference);
+    const payment = await loadPaymentWithAccessContext(paymentReference);
     if (!payment) {
       return res.status(404).json({
         success: false,
         message: 'Payment not found'
       });
+    }
+
+    if (!canReadPayment(req.user, payment)) {
+      return notAuthorized(res);
     }
 
     // For Paynow payments, poll status if available
@@ -251,7 +385,7 @@ exports.checkPaymentStatus = async (req, res) => {
     }
 
     // Get updated payment
-    const updatedPayment = await paymentService.getPaymentByReference(paymentReference);
+    const updatedPayment = await loadPaymentWithAccessContext(paymentReference);
 
     res.json({
       success: true,
@@ -298,6 +432,12 @@ exports.handlePaynowWebhook = async (req, res) => {
       return res.status(404).send('Payment not found');
     }
 
+    const webhookAmount = Number(amount);
+    if (amount !== undefined && (!Number.isFinite(webhookAmount) || Math.abs(webhookAmount - Number(payment.amount)) > 0.01)) {
+      console.error('Paynow webhook amount mismatch:', { reference, expected: payment.amount, received: amount });
+      return res.status(409).send('Payment amount mismatch');
+    }
+
     // Update payment status based on webhook
     if (status.toLowerCase() === 'paid' && payment.status !== 'confirmed') {
       await paymentService.confirmPayment(reference, {
@@ -330,12 +470,16 @@ exports.getPaymentByReference = async (req, res) => {
   try {
     const { reference } = req.params;
 
-    const payment = await paymentService.getPaymentByReference(reference);
+    const payment = await loadPaymentWithAccessContext(reference);
     if (!payment) {
       return res.status(404).json({
         success: false,
         message: 'Payment not found'
       });
+    }
+
+    if (!canReadPayment(req.user, payment)) {
+      return notAuthorized(res);
     }
 
     res.json({
@@ -356,6 +500,15 @@ exports.getPaymentByReference = async (req, res) => {
 exports.checkPaymentExpiry = async (req, res) => {
   try {
     const { paymentReference } = req.params;
+
+    const payment = await loadPaymentWithAccessContext(paymentReference);
+    if (!payment) {
+      return res.status(404).json({ success: false, message: 'Payment not found' });
+    }
+
+    if (!canManagePayment(req.user, payment)) {
+      return notAuthorized(res, 'Only the payer can check payment expiry');
+    }
 
     const result = await paymentService.checkPaymentExpiry(paymentReference);
 
@@ -381,6 +534,15 @@ exports.initiateAgentPayment = async (req, res) => {
     console.log('Initiating Agent payment for booking:', bookingId);
 
     // Create payment with cash_agent method
+    const booking = await Booking.findById(bookingId);
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
+
+    if (!canManageBookingPayment(req.user, booking)) {
+      return notAuthorized(res, 'Only the booking shipper can initiate an agent payment');
+    }
+
     const payment = await paymentService.createPayment(bookingId, amount, 'cash_agent', customer);
 
     // Generate a shorter, agent-friendly reference (6 digits)
@@ -443,6 +605,10 @@ function generateAgentCode() {
 exports.verifyAgentPayment = async (req, res) => {
   try {
     const { agentCode, confirmedAmount } = req.body;
+
+    if (!isAdmin(req.user)) {
+      return notAuthorized(res, 'Only an admin can manually verify agent payments');
+    }
 
     if (!agentCode) {
       return res.status(400).json({
@@ -534,8 +700,15 @@ exports.handleEcocashAgentWebhook = async (req, res) => {
       timestamp
     });
 
-    // Step 1: Verify webhook signature (if provided)
-    if (process.env.ECOCASH_WEBHOOK_SECRET && signature) {
+    // Step 1: Verify webhook signature whenever an EcoCash secret is configured.
+    if (process.env.ECOCASH_WEBHOOK_SECRET) {
+      if (!signature) {
+        console.error('Missing EcoCash webhook signature');
+        return res.status(401).json({
+          success: false,
+          message: 'Missing signature'
+        });
+      }
       const crypto = require('crypto');
       const payload = `${reference}${amount}${transactionId}${timestamp}`;
       const expectedSignature = crypto
@@ -697,6 +870,10 @@ exports.getEscrowStatus = async (req, res) => {
       });
     }
 
+    if (!canReadEscrow(req.user, escrow)) {
+      return notAuthorized(res);
+    }
+
     res.json({
       success: true,
       data: {
@@ -727,6 +904,15 @@ exports.getEscrowStatus = async (req, res) => {
 exports.confirmDeliveryForEscrow = async (req, res) => {
   try {
     const { bookingId } = req.params;
+
+    const escrowToConfirm = await escrowService.getEscrowByBooking(bookingId);
+    if (!escrowToConfirm) {
+      return res.status(404).json({ success: false, message: 'Escrow not found for this booking' });
+    }
+
+    if (!canConfirmEscrowDelivery(req.user, escrowToConfirm)) {
+      return notAuthorized(res, 'Only the shipper can confirm escrow delivery');
+    }
 
     const escrow = await escrowService.confirmDelivery(bookingId);
 
@@ -764,6 +950,15 @@ exports.raiseEscrowDispute = async (req, res) => {
       });
     }
 
+    const escrowToDispute = await escrowService.getEscrowByBooking(bookingId);
+    if (!escrowToDispute) {
+      return res.status(404).json({ success: false, message: 'Escrow not found for this booking' });
+    }
+
+    if (!canReadEscrow(req.user, escrowToDispute)) {
+      return notAuthorized(res, 'Only shipment parties can dispute this escrow');
+    }
+
     const escrow = await escrowService.raiseDispute(bookingId, userId, reason, description);
 
     res.json({
@@ -789,6 +984,15 @@ exports.raiseEscrowDispute = async (req, res) => {
 exports.cancelAndRefund = async (req, res) => {
   try {
     const { bookingId } = req.params;
+
+    const escrowToCancel = await escrowService.getEscrowByBooking(bookingId);
+    if (!escrowToCancel) {
+      return res.status(404).json({ success: false, message: 'Escrow not found for this booking' });
+    }
+
+    if (!canCancelEscrow(req.user, escrowToCancel)) {
+      return notAuthorized(res, 'Only the shipper can cancel this escrow');
+    }
 
     const escrow = await escrowService.cancelBeforeMatch(bookingId);
 
@@ -822,6 +1026,15 @@ exports.recordCashCollection = async (req, res) => {
         success: false,
         message: 'Collected amount and collection type are required'
       });
+    }
+
+    const escrowToRecord = await escrowService.getEscrowByBooking(bookingId);
+    if (!escrowToRecord) {
+      return res.status(404).json({ success: false, message: 'Escrow not found for this booking' });
+    }
+
+    if (!canRecordEscrowCashCollection(req.user, escrowToRecord)) {
+      return notAuthorized(res, 'Only the assigned transporter can record cash collection');
     }
 
     const escrow = await escrowService.recordCashCollection(bookingId, collectedAmount, collectionType);
@@ -875,6 +1088,37 @@ exports.adminReleaseFunds = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message || 'Error releasing funds'
+    });
+  }
+};
+
+// Admin: Process all escrow releases whose grace periods have elapsed
+exports.adminProcessScheduledReleases = async (req, res) => {
+  try {
+    if (req.user.userType !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const results = await escrowService.processScheduledReleases();
+    const releasedCount = results.filter(result => result.status === 'released').length;
+
+    res.json({
+      success: true,
+      data: {
+        processed: results.length,
+        released: releasedCount,
+        results
+      },
+      message: `Processed ${results.length} scheduled escrow release(s)`
+    });
+  } catch (error) {
+    console.error('Error processing scheduled escrow releases:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error processing scheduled escrow releases'
     });
   }
 };
@@ -958,6 +1202,7 @@ exports.adminGetEscrowSummary = async (req, res) => {
 // ============ TRANSPORTER WITHDRAWAL ENDPOINTS ============
 
 const Escrow = require('../models/Escrow');
+const Payout = require('../models/Payout');
 const User = require('../models/User');
 
 // Get transporter's available balance (funds ready for withdrawal)
@@ -965,45 +1210,41 @@ exports.getTransporterBalance = async (req, res) => {
   try {
     const transporterId = req.user.id;
 
-    // Get all released escrows for this transporter
-    const releasedEscrows = await Escrow.find({
-      transporter: transporterId,
-      status: 'released',
-      'payoutDetails.processedAt': { $exists: false }
-    });
+    const [availablePayouts, withdrawalPayouts, paidPayouts, pendingEscrows] = await Promise.all([
+      payoutService.listWithdrawablePayouts(transporterId),
+      Payout.find({
+        recipient: transporterId,
+        status: { $in: payoutService.WITHDRAWAL_STATUSES },
+        'metadata.withdrawalReference': { $exists: true }
+      }),
+      Payout.find({ recipient: transporterId, status: 'paid' }),
+      Escrow.find({
+        transporter: transporterId,
+        status: { $in: ['held', 'pending_release'] },
+        'releaseConditions.deliveryConfirmed': true,
+        'releaseConditions.noActiveDispute': true
+      })
+    ]);
 
-    // Get pending release escrows
-    const pendingEscrows = await Escrow.find({
-      transporter: transporterId,
-      status: 'held',
-      'releaseConditions.deliveryConfirmed': true,
-      'releaseConditions.noActiveDispute': true
-    });
-
-    // Calculate available balance
-    const availableBalance = releasedEscrows.reduce((sum, e) => sum + e.transporterPayout, 0);
-    const pendingBalance = pendingEscrows.reduce((sum, e) => sum + e.transporterPayout, 0);
-
-    // Get total withdrawn
-    const withdrawnEscrows = await Escrow.find({
-      transporter: transporterId,
-      status: 'released',
-      'payoutDetails.processedAt': { $exists: true }
-    });
-    const totalWithdrawn = withdrawnEscrows.reduce((sum, e) => sum + e.transporterPayout, 0);
+    const availableBalance = payoutService.amountTotal(availablePayouts);
+    const pendingBalance = pendingEscrows.reduce((sum, escrow) => sum + Number(escrow.transporterPayout || 0), 0);
+    const pendingWithdrawalBalance = payoutService.amountTotal(withdrawalPayouts);
+    const totalWithdrawn = payoutService.amountTotal(paidPayouts);
 
     res.json({
       success: true,
       data: {
         availableBalance,
         pendingBalance,
+        pendingWithdrawalBalance,
         totalWithdrawn,
-        releasedCount: releasedEscrows.length,
+        releasedCount: availablePayouts.length,
         pendingCount: pendingEscrows.length,
-        recentReleased: releasedEscrows.slice(0, 5).map(e => ({
-          escrowReference: e.escrowReference,
-          amount: e.transporterPayout,
-          releasedAt: e.releasedAt
+        recentReleased: availablePayouts.slice(0, 5).map(payout => ({
+          payoutReference: payout.payoutReference,
+          amount: payout.amount,
+          sourceType: payout.sourceType,
+          createdAt: payout.createdAt
         }))
       }
     });
@@ -1038,74 +1279,32 @@ exports.requestWithdrawal = async (req, res) => {
       });
     }
 
-    // Get available escrows
-    const availableEscrows = await Escrow.find({
-      transporter: transporterId,
-      status: 'released',
-      'payoutDetails.processedAt': { $exists: false }
-    }).sort({ releasedAt: 1 });
-
-    const totalAvailable = availableEscrows.reduce((sum, e) => sum + e.transporterPayout, 0);
-
-    // Default to full amount if not specified
-    const withdrawalAmount = amount || totalAvailable;
-
-    if (withdrawalAmount > totalAvailable) {
-      return res.status(400).json({
-        success: false,
-        message: `Insufficient balance. Available: $${totalAvailable.toFixed(2)}`
-      });
-    }
-
-    if (withdrawalAmount < 5) {
-      return res.status(400).json({
-        success: false,
-        message: 'Minimum withdrawal amount is $5.00'
-      });
-    }
-
-    // Generate withdrawal reference
-    const withdrawalReference = `WTH-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-
-    // Process withdrawal - mark escrows as paid out
-    let processedAmount = 0;
-    const processedEscrows = [];
-
-    for (const escrow of availableEscrows) {
-      if (processedAmount >= withdrawalAmount) break;
-
-      escrow.payoutDetails = {
-        method: payoutMethod,
-        accountNumber,
-        reference: withdrawalReference,
-        processedAt: new Date()
-      };
-      await escrow.save();
-
-      processedAmount += escrow.transporterPayout;
-      processedEscrows.push(escrow.escrowReference);
-    }
-
-    // In production, this would trigger actual payout via Paynow or bank API
-    // For now, we mark as processed and would manually handle payout
+    const withdrawal = await payoutService.reserveWithdrawal({
+      recipient: transporterId,
+      amount,
+      payoutMethod,
+      accountNumber,
+      accountName: req.body.accountName,
+      bankName: req.body.bankName
+    });
 
     res.json({
       success: true,
       data: {
-        withdrawalReference,
-        amount: processedAmount,
+        withdrawalReference: withdrawal.withdrawalReference,
+        amount: withdrawal.amount,
         payoutMethod,
-        accountNumber: accountNumber.substring(0, 4) + '****' + accountNumber.slice(-4),
-        processedEscrows: processedEscrows.length,
-        status: 'processing',
+        accountNumber: payoutService.maskAccountNumber(accountNumber),
+        payoutCount: withdrawal.payoutCount,
+        status: 'pending',
         estimatedArrival: payoutMethod === 'bank_transfer' ? '1-3 business days' : 'Within 24 hours'
       },
-      message: `Withdrawal of $${processedAmount.toFixed(2)} has been initiated`
+      message: `Withdrawal request for $${withdrawal.amount.toFixed(2)} has been queued`
     });
 
   } catch (error) {
     console.error('Error processing withdrawal:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
       message: error.message || 'Error processing withdrawal'
     });
@@ -1118,37 +1317,44 @@ exports.getWithdrawalHistory = async (req, res) => {
     const transporterId = req.user.id;
     const { page = 1, limit = 20 } = req.query;
 
-    // Get processed escrows (grouped by withdrawal reference)
-    const processedEscrows = await Escrow.find({
-      transporter: transporterId,
-      status: 'released',
-      'payoutDetails.processedAt': { $exists: true }
+    // Withdrawal references live on payout reservations and are updated through admin payout status.
+    const reservedPayouts = await Payout.find({
+      recipient: transporterId,
+      'metadata.withdrawalReference': { $exists: true }
     })
-      .sort({ 'payoutDetails.processedAt': -1 })
+      .sort({ 'metadata.withdrawalRequestedAt': -1 })
       .skip((page - 1) * limit)
       .limit(parseInt(limit));
 
     // Group by withdrawal reference
     const withdrawalMap = new Map();
 
-    for (const escrow of processedEscrows) {
-      const ref = escrow.payoutDetails.reference;
+    for (const payout of reservedPayouts) {
+      const ref = payout.metadata.withdrawalReference;
       if (!withdrawalMap.has(ref)) {
         withdrawalMap.set(ref, {
           reference: ref,
-          payoutMethod: escrow.payoutDetails.method,
-          accountNumber: escrow.payoutDetails.accountNumber,
-          processedAt: escrow.payoutDetails.processedAt,
+          payoutMethod: payout.method,
+          accountNumber: payoutService.maskAccountNumber(payout.destination?.accountNumber),
+          requestedAt: payout.metadata.withdrawalRequestedAt,
           amount: 0,
-          escrowCount: 0
+          payoutCount: 0,
+          statuses: new Set()
         });
       }
       const withdrawal = withdrawalMap.get(ref);
-      withdrawal.amount += escrow.transporterPayout;
-      withdrawal.escrowCount += 1;
+      withdrawal.amount += Number(payout.amount || 0);
+      withdrawal.payoutCount += 1;
+      withdrawal.statuses.add(payout.status);
     }
 
-    const withdrawals = Array.from(withdrawalMap.values());
+    const withdrawals = Array.from(withdrawalMap.values()).map((withdrawal) => ({
+      ...withdrawal,
+      status: withdrawal.statuses.size === 1
+        ? Array.from(withdrawal.statuses)[0]
+        : 'mixed',
+      statuses: Array.from(withdrawal.statuses)
+    }));
 
     res.json({
       success: true,
@@ -1182,11 +1388,18 @@ exports.updatePayoutPreferences = async (req, res) => {
       });
     }
 
+    if (!['ecocash', 'onemoney', 'bank_transfer'].includes(payoutMethod)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid payout method. Use ecocash, onemoney, or bank_transfer'
+      });
+    }
+
     const updateData = {
       'payoutPreferences.method': payoutMethod,
-      'payoutPreferences.accountNumber': accountNumber,
-      'payoutPreferences.accountName': accountName,
-      'payoutPreferences.bankName': bankName,
+      'payoutPreferences.accountNumber': String(accountNumber).trim(),
+      'payoutPreferences.accountName': accountName ? String(accountName).trim() : undefined,
+      'payoutPreferences.bankName': bankName ? String(bankName).trim() : undefined,
       'payoutPreferences.updatedAt': new Date()
     };
 

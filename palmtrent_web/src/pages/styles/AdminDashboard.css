@@ -1428,6 +1428,23 @@
   margin: 0;
 }
 
+.admin-job-detail-panel {
+  margin-bottom: 1.5rem;
+}
+
+.admin-tracking-panel {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.admin-tracking-panel h4 {
+  margin: 0 0 1rem;
+  color: var(--text-dark);
+}
+
 .resolution-form h3 {
   font-size: 1rem;
   margin: 0 0 1rem 0;

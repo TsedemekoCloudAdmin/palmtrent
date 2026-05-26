@@ -9,6 +9,8 @@ const fs = require('fs');
 const { protect } = require('../middleware/auth');
 const storageService = require('../services/storageService');
 const { recordAudit } = require('../services/auditService');
+const { isUploadOwnedByUser } = require('../services/resourceAccessService');
+const { canAccessPrivateUpload } = require('../services/privateUploadAccessService');
 const { execFile } = require('child_process');
 
 const MAGIC_BYTES = {
@@ -28,6 +30,7 @@ const uploadDirs = [
   'uploads/claims',
   'uploads/verification',
   'uploads/pod',
+  'uploads/pod-documents',
   'uploads/temp'
 ];
 
@@ -75,14 +78,72 @@ const verifyMagicBytes = (file) => {
   return allowed.some(prefix => signature.startsWith(prefix));
 };
 
+const isProduction = () => process.env.NODE_ENV === 'production';
+const allowLocalStorageInProduction = () => process.env.ALLOW_LOCAL_STORAGE_IN_PRODUCTION === 'true';
+
+const cleanupFile = (filePath) => {
+  if (filePath && fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+  }
+};
+
 const scanFile = (filePath) => new Promise((resolve, reject) => {
   const command = process.env.UPLOAD_SCAN_COMMAND;
-  if (!command) return resolve({ scanned: false });
+  if (!command) {
+    if (isProduction()) {
+      return reject(new Error('Upload scanning is required in production'));
+    }
+    return resolve({ scanned: false, reason: 'UPLOAD_SCAN_COMMAND not configured' });
+  }
   execFile(command, [filePath], { timeout: 30000 }, (error, stdout, stderr) => {
     if (error) return reject(new Error(stderr || stdout || error.message));
     resolve({ scanned: true, stdout });
   });
 });
+
+const persistUpload = async (file, uploadType) => {
+  await storageService.refreshConfig();
+  const provider = storageService.provider || 'local';
+  const key = `${uploadType}/${file.filename}`;
+
+  if (provider === 'local') {
+    if (isProduction() && !allowLocalStorageInProduction()) {
+      throw new Error('Local upload storage is disabled in production');
+    }
+    return {
+      provider: 'local',
+      key,
+      retainedLocalFile: true
+    };
+  }
+
+  const buffer = fs.readFileSync(file.path);
+  const uploaded = await storageService.uploadFile(buffer, file.filename, file.mimetype, uploadType);
+  cleanupFile(file.path);
+  return {
+    provider: uploaded.provider,
+    key: uploaded.key || key,
+    storageUrl: uploaded.url,
+    retainedLocalFile: false
+  };
+};
+
+const buildResponseFile = ({ file, uploadType, baseUrl, storage }) => {
+  const downloadPath = buildDownloadPath(uploadType, file.filename);
+  const canonicalUrl = `${baseUrl}${downloadPath}`;
+  return {
+    filename: file.filename,
+    originalName: file.originalname,
+    mimetype: file.mimetype,
+    size: file.size,
+    url: publicUploadTypes.has(uploadType) && storage.storageUrl ? storage.storageUrl : canonicalUrl,
+    path: downloadPath,
+    storage: {
+      provider: storage.provider,
+      key: storage.key
+    }
+  };
+};
 
 // Upload presets
 const uploadPresets = {
@@ -94,6 +155,48 @@ const uploadPresets = {
   claims: createMulterConfig('claims', 15 * 1024 * 1024),
   verification: createMulterConfig('verification', 10 * 1024 * 1024),
   pod: createMulterConfig('pod', 10 * 1024 * 1024)
+};
+
+const publicUploadTypes = new Set(['cargo', 'profiles', 'vehicles']);
+const supportedUploadTypes = new Set([...Object.keys(uploadPresets), 'corporate', 'pod-documents']);
+
+const buildDownloadPath = (uploadType, filename) => {
+  if (publicUploadTypes.has(uploadType)) {
+    return `/uploads/${uploadType}/${filename}`;
+  }
+  return `/api/v1/uploads/${uploadType}/${filename}`;
+};
+
+const getUploadTarget = (type, filename) => {
+  const safeType = path.basename(type);
+  const safeFilename = path.basename(filename);
+  if (!supportedUploadTypes.has(safeType)) return null;
+
+  const basePath = path.resolve(process.cwd(), 'uploads', safeType);
+  const filePath = path.resolve(basePath, safeFilename);
+  if (!filePath.startsWith(`${basePath}${path.sep}`)) return null;
+
+  return { type: safeType, filename: safeFilename, basePath, filePath };
+};
+
+const requireUploadOwner = (req, res, filename) => {
+  if (isUploadOwnedByUser(filename, req.user)) return true;
+  res.status(403).json({
+    success: false,
+    message: 'Not authorized to access this upload'
+  });
+  return false;
+};
+
+const requireUploadAccess = async (req, res, target) => {
+  if (publicUploadTypes.has(target.type)) return true;
+  if (await canAccessPrivateUpload(req.user, target.type, target.filename)) return true;
+
+  res.status(403).json({
+    success: false,
+    message: 'Not authorized to access this upload'
+  });
+  return false;
 };
 
 // Generic upload handler
@@ -108,25 +211,45 @@ const handleUpload = (uploadType) => {
       }
 
       const baseUrl = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
-      const fileUrl = `${baseUrl}/uploads/${uploadType}/${req.file.filename}`;
-
       if (!verifyMagicBytes(req.file)) {
-        fs.unlinkSync(req.file.path);
+        cleanupFile(req.file.path);
         return res.status(400).json({ success: false, message: 'File content does not match its declared type' });
       }
+      let scanResult;
       try {
-        await scanFile(req.file.path);
+        scanResult = await scanFile(req.file.path);
       } catch (scanError) {
-        fs.unlinkSync(req.file.path);
+        cleanupFile(req.file.path);
         return res.status(400).json({ success: false, message: `File failed security scan: ${scanError.message}` });
       }
+
+      let storage;
+      try {
+        storage = await persistUpload(req.file, uploadType);
+      } catch (storageError) {
+        cleanupFile(req.file.path);
+        return res.status(500).json({ success: false, message: `File storage failed: ${storageError.message}` });
+      }
+
+      const uploadedFile = buildResponseFile({
+        file: req.file,
+        uploadType,
+        baseUrl,
+        storage
+      });
 
       await recordAudit({
         actor: req.user,
         action: 'file.uploaded',
         entityType: 'Upload',
         entityRef: req.file.filename,
-        after: { uploadType, mimetype: req.file.mimetype, size: req.file.size },
+        after: {
+          uploadType,
+          mimetype: req.file.mimetype,
+          size: req.file.size,
+          scan: scanResult,
+          storage: uploadedFile.storage
+        },
         req
       });
 
@@ -134,12 +257,8 @@ const handleUpload = (uploadType) => {
         success: true,
         message: 'File uploaded successfully',
         data: {
-          filename: req.file.filename,
-          originalName: req.file.originalname,
-          mimetype: req.file.mimetype,
-          size: req.file.size,
-          url: fileUrl,
-          path: `/uploads/${uploadType}/${req.file.filename}`
+          ...uploadedFile,
+          scan: scanResult
         }
       });
     } catch (error) {
@@ -167,26 +286,34 @@ const handleMultipleUpload = (uploadType) => {
       const baseUrl = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
       const invalidFile = req.files.find(file => !verifyMagicBytes(file));
       if (invalidFile) {
-        req.files.forEach(file => fs.existsSync(file.path) && fs.unlinkSync(file.path));
+        req.files.forEach(file => cleanupFile(file.path));
         return res.status(400).json({ success: false, message: `File content does not match declared type: ${invalidFile.originalname}` });
       }
+      const scanResults = {};
       for (const file of req.files) {
         try {
-          await scanFile(file.path);
+          scanResults[file.filename] = await scanFile(file.path);
         } catch (scanError) {
-          req.files.forEach(uploaded => fs.existsSync(uploaded.path) && fs.unlinkSync(uploaded.path));
+          req.files.forEach(uploaded => cleanupFile(uploaded.path));
           return res.status(400).json({ success: false, message: `File failed security scan: ${file.originalname}` });
         }
       }
 
-      const uploadedFiles = req.files.map(file => ({
-        filename: file.filename,
-        originalName: file.originalname,
-        mimetype: file.mimetype,
-        size: file.size,
-        url: `${baseUrl}/uploads/${uploadType}/${file.filename}`,
-        path: `/uploads/${uploadType}/${file.filename}`
-      }));
+      const uploadedFiles = [];
+      try {
+        for (const file of req.files) {
+          const storage = await persistUpload(file, uploadType);
+          uploadedFiles.push(buildResponseFile({
+            file,
+            uploadType,
+            baseUrl,
+            storage
+          }));
+        }
+      } catch (storageError) {
+        req.files.forEach(uploaded => cleanupFile(uploaded.path));
+        return res.status(500).json({ success: false, message: `File storage failed: ${storageError.message}` });
+      }
 
       res.status(200).json({
         success: true,
@@ -198,7 +325,12 @@ const handleMultipleUpload = (uploadType) => {
         actor: req.user,
         action: 'files.uploaded',
         entityType: 'Upload',
-        after: { uploadType, count: uploadedFiles.length },
+        after: {
+          uploadType,
+          count: uploadedFiles.length,
+          scan: scanResults,
+          storage: uploadedFiles.map(file => file.storage)
+        },
         req
       });
     } catch (error) {
@@ -236,28 +368,61 @@ router.post('/pod/multiple', uploadPresets.pod.array('files', 5), handleMultiple
 router.get('/signed-url/:type/:filename', async (req, res) => {
   try {
     const { type, filename } = req.params;
-    const key = `${type}/${path.basename(filename)}`;
+    const target = getUploadTarget(type, filename);
+    if (!target) {
+      return res.status(400).json({ success: false, message: 'Invalid upload path' });
+    }
+    if (!await requireUploadAccess(req, res, target)) return;
+
+    const key = `${target.type}/${target.filename}`;
     const signed = await storageService.getSignedDownloadUrl(key);
+    if (signed.provider === 'local') {
+      signed.url = buildDownloadPath(target.type, target.filename);
+    }
     res.json({ success: true, data: signed });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to create signed URL', error: error.message });
   }
 });
 
+// Authenticated local-file download route for private uploads.
+router.get('/:type/:filename', async (req, res) => {
+  try {
+    const target = getUploadTarget(req.params.type, req.params.filename);
+    if (!target) {
+      return res.status(400).json({ success: false, message: 'Invalid upload path' });
+    }
+    if (!await requireUploadAccess(req, res, target)) return;
+
+    if (!fs.existsSync(target.filePath)) {
+      const signed = await storageService.getSignedDownloadUrl(`${target.type}/${target.filename}`);
+      if (signed.provider !== 'local' && signed.url) {
+        return res.redirect(signed.url);
+      }
+      return res.status(404).json({ success: false, message: 'File not found' });
+    }
+
+    return res.sendFile(target.filePath);
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to access upload',
+      error: error.message
+    });
+  }
+});
+
 // Delete file route
 router.delete('/:type/:filename', async (req, res) => {
   try {
-    const { type, filename } = req.params;
-    const safeFilename = path.basename(filename);
-    const filePath = path.join(process.cwd(), 'uploads', type, safeFilename);
-    const resolvedBase = path.resolve(process.cwd(), 'uploads', type);
-    const resolvedFile = path.resolve(filePath);
-    if (!resolvedFile.startsWith(resolvedBase)) {
+    const target = getUploadTarget(req.params.type, req.params.filename);
+    if (!target) {
       return res.status(400).json({ success: false, message: 'Invalid file path' });
     }
+    if (!requireUploadOwner(req, res, target.filename)) return;
 
     // Check if file exists
-    if (!fs.existsSync(filePath)) {
+    if (!fs.existsSync(target.filePath)) {
       return res.status(404).json({
         success: false,
         message: 'File not found'
@@ -265,14 +430,14 @@ router.delete('/:type/:filename', async (req, res) => {
     }
 
     // Delete file
-    fs.unlinkSync(filePath);
+    fs.unlinkSync(target.filePath);
 
     await recordAudit({
       actor: req.user,
       action: 'file.deleted',
       entityType: 'Upload',
-      entityRef: safeFilename,
-      metadata: { type },
+      entityRef: target.filename,
+      metadata: { type: target.type },
       req
     });
 

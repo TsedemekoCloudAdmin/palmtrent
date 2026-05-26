@@ -4,6 +4,7 @@ const Rental = require('../models/Rental');
 const Shipment = require('../models/Shipment');
 const { recordAudit } = require('../services/auditService');
 const { assertDriverAssignable, getVehicleComplianceIssues } = require('../services/flowControlService');
+const { finalizeUploadedFile } = require('../services/uploadFinalizationService');
 
 // Get all vehicles for a transporter
 exports.getVehicles = async (req, res) => {
@@ -542,8 +543,8 @@ exports.uploadVehiclePhoto = async (req, res) => {
       });
     }
 
-    // Store photo URL (using local storage path or cloud storage URL)
-    const photoUrl = `/uploads/vehicles/${req.file.filename}`;
+    const finalized = await finalizeUploadedFile(req.file, 'vehicles');
+    const photoUrl = finalized.url;
 
     // Initialize photos array if not exists
     if (!vehicle.photos) {
@@ -558,14 +559,18 @@ exports.uploadVehiclePhoto = async (req, res) => {
       vehicle.photos[existingPhotoIndex] = {
         type: photoType,
         url: photoUrl,
-        uploadedAt: new Date()
+        uploadedAt: new Date(),
+        storageKey: finalized.key,
+        storageProvider: finalized.provider
       };
     } else {
       // Add new photo
       vehicle.photos.push({
         type: photoType,
         url: photoUrl,
-        uploadedAt: new Date()
+        uploadedAt: new Date(),
+        storageKey: finalized.key,
+        storageProvider: finalized.provider
       });
     }
 
@@ -575,7 +580,11 @@ exports.uploadVehiclePhoto = async (req, res) => {
       success: true,
       data: {
         url: photoUrl,
-        type: photoType
+        type: photoType,
+        storage: {
+          key: finalized.key,
+          provider: finalized.provider
+        }
       },
       message: 'Photo uploaded successfully'
     });

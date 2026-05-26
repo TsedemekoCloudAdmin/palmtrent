@@ -3,6 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const {
   registerCorporateAccount,
   uploadDocument,
@@ -20,10 +21,15 @@ const {
   updateBillingInfo,
   getPaymentMethods,
   addPaymentMethod,
+  getApiAccess,
+  regenerateApiKey,
   generateInvoice,
-  updateInvoiceStatus
+  updateInvoiceStatus,
+  getReportSchedules,
+  upsertReportSchedule,
+  updateReportSchedule
 } = require('../controllers/corporateController');
-const { protect, requireCorporateRole } = require('../middleware/auth');
+const { protect, requireCorporateRole, requireCorporatePermission } = require('../middleware/auth');
 
 // Configure multer for document uploads
 const corporateUploadDir = path.join(__dirname, '..', 'uploads', 'corporate');
@@ -34,7 +40,7 @@ const storage = multer.diskStorage({
     cb(null, corporateUploadDir);
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const uniqueSuffix = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
     cb(null, `${req.user._id}-${uniqueSuffix}${path.extname(file.originalname)}`);
   }
 });
@@ -73,27 +79,34 @@ router.get('/profile', getProfile);
 router.put('/profile', requireCorporateRole('admin', 'manager'), updateProfile);
 
 // GET /api/v1/corporate/invoices - Get invoices
-router.get('/invoices', getInvoices);
-router.post('/invoices/generate', requireCorporateRole('admin', 'manager'), generateInvoice);
-router.get('/invoices/:id', getInvoiceById);
-router.get('/invoices/:id/download', getInvoiceById);
+router.get('/invoices', requireCorporatePermission('view_reports'), getInvoices);
+router.post('/invoices/generate', requireCorporatePermission('view_reports'), generateInvoice);
+router.get('/invoices/:id', requireCorporatePermission('view_reports'), getInvoiceById);
+router.get('/invoices/:id/download', requireCorporatePermission('view_reports'), getInvoiceById);
 router.put('/invoices/:id/status', requireCorporateRole('admin', 'manager'), updateInvoiceStatus);
 
 // GET /api/v1/corporate/analytics - Get analytics
-router.get('/analytics', getAnalytics);
+router.get('/analytics', requireCorporatePermission('view_reports'), getAnalytics);
+
+router.get('/report-schedules', requireCorporatePermission('view_reports'), getReportSchedules);
+router.post('/report-schedules', requireCorporatePermission('view_reports'), upsertReportSchedule);
+router.put('/report-schedules/:id', requireCorporatePermission('view_reports'), updateReportSchedule);
 
 // GET /api/v1/corporate/dashboard-stats - Get dashboard stats
 router.get('/dashboard-stats', getDashboardStats);
 
-router.get('/users', getUsers);
-router.post('/users/invite', requireCorporateRole('admin'), inviteUser);
-router.put('/users/:userId', requireCorporateRole('admin'), updateUser);
-router.delete('/users/:userId', requireCorporateRole('admin'), removeUser);
+router.get('/users', requireCorporatePermission('manage_team'), getUsers);
+router.post('/users/invite', requireCorporatePermission('manage_team'), inviteUser);
+router.put('/users/:userId', requireCorporatePermission('manage_team'), updateUser);
+router.delete('/users/:userId', requireCorporatePermission('manage_team'), removeUser);
 
 router.get('/billing', getBillingInfo);
 router.put('/billing', requireCorporateRole('admin'), updateBillingInfo);
 
 router.get('/payment-methods', getPaymentMethods);
 router.post('/payment-methods', requireCorporateRole('admin'), addPaymentMethod);
+
+router.get('/api-access', getApiAccess);
+router.post('/api-access/regenerate', requireCorporateRole('admin'), regenerateApiKey);
 
 module.exports = router;

@@ -41,6 +41,8 @@ const tracking = require('./routes/tracking');
 const safety = require('./routes/safety');
 const ops = require('./routes/ops');
 const insurance = require('./routes/insurance');
+const chat = require('./routes/chat');
+const support = require('./routes/support');
 const path = require('path');
 
 validateEnv();
@@ -65,8 +67,13 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// Body parser middleware
-app.use(express.json({ limit: '10mb' }));
+// Body parser middleware. Keep the raw JSON bytes for webhook signature checks.
+app.use(express.json({
+  limit: '10mb',
+  verify: (req, res, buffer) => {
+    req.rawBody = Buffer.from(buffer);
+  }
+}));
 app.use(express.urlencoded({ extended: true }));
 
 // CORS middleware
@@ -84,8 +91,13 @@ app.use(cors({
   credentials: true
 }));
 
-// Static file serving for uploads
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Only public display assets are served directly. Documents, claims, signatures,
+// verification uploads, and POD evidence go through authenticated upload routes.
+['cargo', 'profiles', 'vehicles'].forEach(folder => {
+  app.use(`/uploads/${folder}`, express.static(path.join(__dirname, 'uploads', folder)));
+});
+// Preserve old private upload URLs while enforcing the authenticated upload router.
+app.use('/uploads', uploads);
 
 // Mount routers
 app.use('/api/v1/auth', auth);
@@ -116,6 +128,8 @@ app.use('/api/v1/tracking', tracking);
 app.use('/api/v1/safety', safety);
 app.use('/api/v1/ops', ops);
 app.use('/api/v1/insurance', insurance);
+app.use('/api/v1/chat', chat);
+app.use('/api/v1/support', support);
 
 // Health check route
 app.get('/api/v1/health', opsController.health);

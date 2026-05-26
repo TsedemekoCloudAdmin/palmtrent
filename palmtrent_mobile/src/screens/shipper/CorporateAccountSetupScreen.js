@@ -14,10 +14,10 @@ import {
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import CustomSelect from '../components/CustomSelect';
 import apiService from '../../services/apiService';
-import { useAuth } from '../../context/AuthContext';
+import useAuth from '../../hook/useAuth';
 
 const CorporateAccountSetupScreen = ({ navigation }) => {
-  const { token, updateUser } = useAuth();
+  const { updateUser } = useAuth();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState('standard');
@@ -121,14 +121,17 @@ const CorporateAccountSetupScreen = ({ navigation }) => {
         }
       };
 
-      const response = await apiService.post('/corporate/register', payload, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await apiService.registerCorporateAccount(payload);
 
-      if (response.data.success) {
+      if (response.success) {
         // Update local user data if updateUser is available
         if (updateUser) {
-          updateUser({ accountType: 'corporate' });
+          updateUser({
+            userType: 'corporate',
+            accountType: 'corporate',
+            corporateAccount: response.data?._id,
+            companyName: response.data?.companyName || formData.companyName
+          });
         }
 
         Alert.alert(
@@ -137,14 +140,14 @@ const CorporateAccountSetupScreen = ({ navigation }) => {
           [
             {
               text: 'OK',
-              onPress: () => navigation.navigate('CorporatePendingApproval')
+              onPress: () => navigation.navigate('Home')
             }
           ]
         );
       }
     } catch (error) {
       console.error('Corporate registration error:', error);
-      const errorMessage = error.response?.data?.message || 'Failed to submit application. Please try again.';
+      const errorMessage = error.message || 'Failed to submit application. Please try again.';
       Alert.alert('Error', errorMessage);
     } finally {
       setLoading(false);

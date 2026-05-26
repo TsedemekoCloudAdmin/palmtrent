@@ -61,33 +61,85 @@ const authorize = (...roles) => {
   };
 };
 
+const CORPORATE_PERMISSIONS = ['create_bookings', 'view_all_bookings', 'manage_team', 'view_reports'];
+const CORPORATE_ROLE_DEFAULT_PERMISSIONS = {
+  admin: CORPORATE_PERMISSIONS,
+  manager: ['create_bookings', 'view_all_bookings', 'view_reports'],
+  viewer: ['view_all_bookings']
+};
+
+function getCorporateMemberAccess(account, user) {
+  const userId = (user._id || user.id).toString();
+  const isOwner = account.user?.toString() === userId;
+  const member = account.settings?.allowedUsers?.find(item => item.user.toString() === userId);
+  const role = isOwner ? 'admin' : member?.role;
+  const permissions = isOwner
+    ? CORPORATE_PERMISSIONS
+    : (Array.isArray(member?.permissions) && member.permissions.length
+      ? member.permissions
+      : CORPORATE_ROLE_DEFAULT_PERMISSIONS[role] || []);
+
+  return { role, permissions };
+}
+
+async function loadCorporateAccount(req, res) {
+  const CorporateAccount = require('../models/CorporateAccount');
+  const userId = req.user._id || req.user.id;
+  const account = await CorporateAccount.findOne({
+    $or: [
+      { user: userId },
+      { 'settings.allowedUsers.user': userId }
+    ]
+  });
+
+  if (!account) {
+    res.status(403).json({ success: false, message: 'Corporate account access required' });
+    return null;
+  }
+
+  const access = getCorporateMemberAccess(account, req.user);
+  req.corporateAccount = account;
+  req.corporateRole = access.role;
+  req.corporatePermissions = access.permissions;
+  return { account, ...access };
+}
+
 const requireCorporateRole = (...allowedRoles) => {
   return async (req, res, next) => {
     try {
       if (req.user.userType === 'admin') return next();
 
-      const CorporateAccount = require('../models/CorporateAccount');
-      const account = await CorporateAccount.findOne({
-        $or: [
-          { user: req.user._id },
-          { 'settings.allowedUsers.user': req.user._id }
-        ]
-      });
-
-      if (!account) {
-        return res.status(403).json({ success: false, message: 'Corporate account access required' });
-      }
-
-      const isOwner = account.user.toString() === req.user._id.toString();
-      const member = account.settings?.allowedUsers?.find(item => item.user.toString() === req.user._id.toString());
-      const role = isOwner ? 'admin' : member?.role;
+      const access = await loadCorporateAccount(req, res);
+      if (!access) return;
+      const { role } = access;
 
       if (!allowedRoles.includes(role)) {
         return res.status(403).json({ success: false, message: `Corporate role ${role || 'none'} is not authorized` });
       }
 
-      req.corporateAccount = account;
-      req.corporateRole = role;
+      next();
+    } catch (error) {
+      res.status(500).json({ success: false, message: 'Corporate authorization failed' });
+    }
+  };
+};
+
+const requireCorporatePermission = (...requiredPermissions) => {
+  return async (req, res, next) => {
+    try {
+      if (req.user.userType === 'admin') return next();
+
+      const access = await loadCorporateAccount(req, res);
+      if (!access) return;
+
+      const hasPermission = requiredPermissions.every(permission => access.permissions.includes(permission));
+      if (!hasPermission) {
+        return res.status(403).json({
+          success: false,
+          message: `Corporate permission ${requiredPermissions.join(', ')} is required`
+        });
+      }
+
       next();
     } catch (error) {
       res.status(500).json({ success: false, message: 'Corporate authorization failed' });
@@ -119,6 +171,7 @@ module.exports = {
   protect,
   authorize,
   requireCorporateRole,
+  requireCorporatePermission,
   requireVerified,
   generateToken
 };

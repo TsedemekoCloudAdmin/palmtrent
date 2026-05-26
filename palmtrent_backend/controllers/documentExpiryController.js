@@ -6,8 +6,15 @@ const documentExpiryService = require('../services/documentExpiryService');
  */
 exports.runExpiryCheck = async (req, res) => {
   try {
-    // Only allow admin or internal calls
-    if (req.user?.userType !== 'admin' && !req.headers['x-internal-key']) {
+    const internalKey = req.headers['x-internal-key'];
+    const isInternalCall = Boolean(
+      process.env.INTERNAL_JOB_KEY &&
+      internalKey &&
+      internalKey === process.env.INTERNAL_JOB_KEY
+    );
+
+    // Only allow admin or authenticated job runners with the configured key.
+    if (req.user?.userType !== 'admin' && !isInternalCall) {
       return res.status(403).json({
         success: false,
         message: 'Admin access required'

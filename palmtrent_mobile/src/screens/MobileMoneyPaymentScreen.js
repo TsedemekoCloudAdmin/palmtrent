@@ -12,12 +12,22 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
-  Animated
+  Animated,
+  Linking
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../services/apiService';
+import useAuth from '../hook/useAuth';
+
+const normalizeLocalPhone = (phone = '') => {
+  const value = String(phone).replace(/\s|-/g, '');
+  if (value.startsWith('+263')) return `0${value.slice(4)}`;
+  if (value.startsWith('263')) return `0${value.slice(3)}`;
+  return value;
+};
 
 const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, updateBookingData, onExit }) => {
+  const { user } = useAuth();
   // Support both navigation patterns:
   // 1. From AppNavigator: route.params contains the data
   // 2. From BookingFlowManager: bookingData prop contains the data
@@ -26,6 +36,7 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
   const bookingReference = routeParams.bookingReference || bookingData?.bookingReference;
   const amount = routeParams.amount || bookingData?.amount || bookingData?.pricing?.totals?.total;
   const paymentMethod = routeParams.paymentMethod || bookingData?.paymentMethod || 'ecocash';
+  const existingPaymentReference = routeParams.paymentReference || bookingData?.paymentReference;
 
   const navigateTo = (screen, params = {}) => {
     if (onNavigate) {
@@ -42,8 +53,8 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
   const [loading, setLoading] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState('idle'); // idle, initiated, polling, success, failed
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [email, setEmail] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState(normalizeLocalPhone(user?.phone));
+  const [email, setEmail] = useState(user?.email || '');
   const [instructions, setInstructions] = useState('');
   const [pollUrl, setPollUrl] = useState('');
   const [paymentReference, setPaymentReference] = useState('');
@@ -81,6 +92,15 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!email && user?.email) {
+      setEmail(user.email);
+    }
+    if (!phoneNumber && user?.phone) {
+      setPhoneNumber(normalizeLocalPhone(user.phone));
+    }
+  }, [email, phoneNumber, user?.email, user?.phone]);
 
   useEffect(() => {
     if (paymentStatus === 'polling') {
@@ -140,26 +160,30 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
     setPaymentStatus('initiated');
 
     try {
-      // Create payment record
-      const createResponse = await apiService.post('/payments/create', {
-        bookingId,
-        amount,
-        paymentMethod,
-        customer: {
-          email: email.trim(),
-          phone: phoneNumber.trim()
-        }
-      });
+      let ref = existingPaymentReference;
 
-      if (!createResponse.success) {
-        throw new Error(createResponse.message || 'Failed to create payment');
+      if (!ref) {
+        const createResponse = await apiService.post('/payments/create', {
+          bookingId,
+          amount,
+          paymentMethod,
+          customer: {
+            email: email.trim(),
+            phone: phoneNumber.trim()
+          }
+        });
+
+        if (!createResponse.success) {
+          throw new Error(createResponse.message || 'Failed to create payment');
+        }
+
+        ref = createResponse.data.paymentReference;
       }
 
-      const { paymentReference: ref } = createResponse.data;
       setPaymentReference(ref);
 
-      // Initiate mobile money payment
-      const initiateResponse = await apiService.post('/payments/initiate-paynow', {
+      // Initiate ClicknPay hosted checkout for mobile money.
+      const initiateResponse = await apiService.post('/payments/initiate', {
         paymentReference: ref,
         customer: {
           email: email.trim(),
@@ -171,9 +195,14 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
         throw new Error(initiateResponse.message || 'Failed to initiate payment');
       }
 
-      const { pollUrl: url, instructions: inst } = initiateResponse.data;
+      const { redirectUrl, pollUrl: url, instructions: inst } = initiateResponse.data;
       setPollUrl(url);
       setInstructions(inst || getDefaultInstructions());
+
+      if (redirectUrl) {
+        await Linking.openURL(redirectUrl);
+      }
+
       setPaymentStatus('polling');
 
       // Start countdown
@@ -191,7 +220,7 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
   };
 
   const getDefaultInstructions = () => {
-    return `Please check your phone for a ${provider.name} prompt and enter your PIN to complete the payment.`;
+    return `Complete the ${provider.name} checkout in ClicknPay, then keep this screen open while confirmation is verified.`;
   };
 
   const startCountdown = () => {
@@ -305,19 +334,19 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
           <View style={[styles.stepNumber, { backgroundColor: provider.color }]}>
             <Text style={styles.stepNumberText}>1</Text>
           </View>
-          <Text style={styles.stepText}>Check your phone for the {provider.name} prompt</Text>
+          <Text style={styles.stepText}>Complete the ClicknPay checkout request</Text>
         </View>
         <View style={styles.step}>
           <View style={[styles.stepNumber, { backgroundColor: provider.color }]}>
             <Text style={styles.stepNumberText}>2</Text>
           </View>
-          <Text style={styles.stepText}>Enter your {provider.name} PIN</Text>
+          <Text style={styles.stepText}>Approve any {provider.name} provider prompt</Text>
         </View>
         <View style={styles.step}>
           <View style={[styles.stepNumber, { backgroundColor: provider.color }]}>
             <Text style={styles.stepNumberText}>3</Text>
           </View>
-          <Text style={styles.stepText}>Wait for confirmation message</Text>
+          <Text style={styles.stepText}>Keep this screen open for confirmation</Text>
         </View>
       </View>
 
@@ -414,7 +443,7 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
           <View style={styles.securityNote}>
             <MaterialIcons name="lock" size={20} color="#059669" />
             <Text style={styles.securityText}>
-              Your payment is secured via Paynow. We never store your PIN.
+              Your payment is secured via ClicknPay. We never store your PIN.
             </Text>
           </View>
 

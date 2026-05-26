@@ -94,6 +94,8 @@ const userSchema = new mongoose.Schema({
       },
       url: String,
       originalName: String,
+      storageKey: String,
+      storageProvider: String,
       uploadedAt: { type: Date, default: Date.now },
       expiryDate: Date,
       verified: { type: Boolean, default: false }
@@ -114,6 +116,8 @@ const userSchema = new mongoose.Schema({
   stats: {
     completedJobs: { type: Number, default: 0 },
     totalJobs: { type: Number, default: 0 },
+    acceptedOffers: { type: Number, default: 0 },
+    declinedOffers: { type: Number, default: 0 },
     acceptanceRate: { type: Number, default: 0 },
     avgResponseTime: { type: Number, default: 0 },
     onTimeRate: { type: Number, default: 0 },

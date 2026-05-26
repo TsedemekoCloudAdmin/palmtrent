@@ -136,7 +136,7 @@ class ApiService {
   // Token management
   async getToken() {
     try {
-      return await AsyncStorage.getItem('userToken');
+      return await AsyncStorage.getItem('userToken') || await AsyncStorage.getItem('token');
     } catch (error) {
       console.error('Error getting token:', error);
       return null;
@@ -155,6 +155,7 @@ class ApiService {
   async removeToken() {
     try {
       await AsyncStorage.removeItem('userToken');
+      await AsyncStorage.removeItem('token');
       await AsyncStorage.removeItem('userData');
     } catch (error) {
       console.error('Error removing token:', error);
@@ -477,6 +478,21 @@ class ApiService {
     return this.request(url);
   }
 
+  async getActivityHistory({ page = 1, limit = 50 } = {}) {
+    return this.request(`/auth/activity-history?page=${page}&limit=${limit}`);
+  }
+
+  async getMyBookings({ page = 1, limit = 50, status = null } = {}) {
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(limit),
+    });
+    if (status) {
+      params.append('status', status);
+    }
+    return this.request(`/bookings/my-bookings?${params.toString()}`);
+  }
+
   async getBookingById(bookingId) {
     return this.request(`/bookings/${bookingId}`);
   }
@@ -531,6 +547,13 @@ class ApiService {
     return this.request('/corporate/profile', {
       method: 'PUT',
       body: JSON.stringify(profileData),
+    });
+  }
+
+  async registerCorporateAccount(accountData) {
+    return this.request('/corporate/register', {
+      method: 'POST',
+      body: JSON.stringify(accountData),
     });
   }
 
@@ -637,6 +660,44 @@ class ApiService {
     return this.request('/notifications/unread-count');
   }
 
+  async registerNotificationDevice(deviceData) {
+    return this.request('/notifications/register-device', {
+      method: 'POST',
+      body: JSON.stringify(deviceData),
+    });
+  }
+
+  async unregisterNotificationDevice(pushToken = null) {
+    return this.request('/notifications/unregister-device', {
+      method: 'POST',
+      body: JSON.stringify(pushToken ? { pushToken } : {}),
+    });
+  }
+
+  // Support tickets
+  async createSupportTicket(ticketData) {
+    return this.request('/support/tickets', {
+      method: 'POST',
+      body: JSON.stringify(ticketData),
+    });
+  }
+
+  async getSupportTickets(params = {}) {
+    const query = typeof params === 'string' ? params : new URLSearchParams(params).toString();
+    return this.request(`/support/tickets${query ? `?${query}` : ''}`);
+  }
+
+  async getSupportTicket(ticketId) {
+    return this.request(`/support/tickets/${ticketId}`);
+  }
+
+  async replyToSupportTicket(ticketId, message) {
+    return this.request(`/support/tickets/${ticketId}/replies`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    });
+  }
+
   // File upload utility
   async uploadFile(fileUri, fileName, fileType) {
     const formData = new FormData();
@@ -719,6 +780,27 @@ class ApiService {
 
   async getShipperRecentActivity(limit = 5) {
     return this.request(`/shipper/recent-activity?limit=${limit}`);
+  }
+
+  async getChatMessages(bookingId, limit = 50, before = null) {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (before) {
+      params.append('before', before);
+    }
+    return this.request(`/chat/bookings/${bookingId}/messages?${params.toString()}`);
+  }
+
+  async sendChatMessage(bookingId, message) {
+    return this.request(`/chat/bookings/${bookingId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    });
+  }
+
+  async markChatRead(bookingId) {
+    return this.request(`/chat/bookings/${bookingId}/read`, {
+      method: 'POST',
+    });
   }
 
   // Trailer Owner endpoints
@@ -819,8 +901,8 @@ async createPayment(paymentData) {
   });
 }
 
-async initiatePaynowPayment(paymentData) {
-  return this.request('/payments/initiate-paynow', {
+async initiatePayment(paymentData) {
+  return this.request('/payments/initiate', {
     method: 'POST',
     body: JSON.stringify(paymentData),
   });
@@ -874,6 +956,33 @@ async recordCashCollection(bookingId, collectionData) {
   return this.request(`/payments/escrow/cash-collection/${bookingId}`, {
     method: 'POST',
     body: JSON.stringify(collectionData),
+  });
+}
+
+// Withdrawal and payout endpoints
+async getTransporterBalance() {
+  return this.request('/payments/withdrawal/balance');
+}
+
+async requestWithdrawal(withdrawalData) {
+  return this.request('/payments/withdrawal/request', {
+    method: 'POST',
+    body: JSON.stringify(withdrawalData),
+  });
+}
+
+async getWithdrawalHistory(page = 1, limit = 20) {
+  return this.request(`/payments/withdrawal/history?page=${page}&limit=${limit}`);
+}
+
+async getPayoutPreferences() {
+  return this.request('/payments/payout-preferences');
+}
+
+async updatePayoutPreferences(preferences) {
+  return this.request('/payments/payout-preferences', {
+    method: 'PUT',
+    body: JSON.stringify(preferences),
   });
 }
 
@@ -957,8 +1066,23 @@ async getMyRentalListings() {
   return this.request('/rentals/my-listings');
 }
 
+async getActiveRentals() {
+  return this.request('/rentals/active');
+}
+
 async getRentalById(rentalId) {
   return this.request(`/rentals/${rentalId}`);
+}
+
+async getRentalTracking(rentalId) {
+  return this.request(`/rentals/${rentalId}/tracking`);
+}
+
+async updateRentalLocation(rentalId, locationData) {
+  return this.request(`/rentals/${rentalId}/location`, {
+    method: 'PUT',
+    body: JSON.stringify(locationData),
+  });
 }
 
 async approveRental(rentalId) {
@@ -1056,6 +1180,10 @@ async getMyCrossBorderBookings() {
 
 async getMyClaims() {
   return this.request('/claims/me');
+}
+
+async submitDispute(formData) {
+  return this.uploadRequest('/claims', formData);
 }
 
 async createClaim(bookingId, claimData) {

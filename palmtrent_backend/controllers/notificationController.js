@@ -4,7 +4,8 @@ const User = require('../models/User');
 // Register device for push notifications
 exports.registerDevice = async (req, res) => {
   try {
-    const { pushToken, platform, deviceInfo } = req.body;
+    const { expoPushToken, fcmToken, platform, deviceInfo } = req.body;
+    const pushToken = req.body.pushToken || expoPushToken || fcmToken;
 
     if (!pushToken) {
       return res.status(400).json({
@@ -16,7 +17,7 @@ exports.registerDevice = async (req, res) => {
     // Determine token type and update user
     const updateData = {};
 
-    if (pushToken.startsWith('ExponentPushToken')) {
+    if (expoPushToken || pushToken.startsWith('ExponentPushToken')) {
       updateData.expoPushToken = pushToken;
     } else {
       updateData.fcmToken = pushToken;
@@ -49,11 +50,12 @@ exports.registerDevice = async (req, res) => {
 // Unregister device from push notifications
 exports.unregisterDevice = async (req, res) => {
   try {
-    const { pushToken } = req.body;
+    const { expoPushToken, fcmToken } = req.body;
+    const pushToken = req.body.pushToken || expoPushToken || fcmToken;
 
     const updateData = {};
 
-    if (pushToken?.startsWith('ExponentPushToken')) {
+    if (expoPushToken || pushToken?.startsWith('ExponentPushToken')) {
       updateData.expoPushToken = null;
     } else {
       updateData.fcmToken = null;

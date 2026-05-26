@@ -11,6 +11,12 @@
 const axios = require('axios');
 const mapboxService = require('./mapboxService');
 
+const allowEstimatedDistanceFallback = () => process.env.NODE_ENV !== 'production' ||
+  process.env.ALLOW_ESTIMATED_DISTANCE_IN_PRODUCTION === 'true';
+
+const allowLocationSearchFallback = () => process.env.NODE_ENV !== 'production' ||
+  process.env.ALLOW_LOCATION_FALLBACK_IN_PRODUCTION === 'true';
+
 // Zimbabwe city coordinates for fallback calculations
 const CITY_COORDINATES = {
   'harare': { lat: -17.8292, lng: 31.0522 },
@@ -79,10 +85,17 @@ class DistanceService {
         if (orsResult) return orsResult;
       }
 
+      if (!allowEstimatedDistanceFallback()) {
+        throw new Error('A configured distance provider is required in production');
+      }
+
       // Final fallback to coordinate-based calculation
       return this.calculateWithCoordinates(origin, destination);
     } catch (error) {
       console.error('Distance calculation error:', error);
+      if (!allowEstimatedDistanceFallback()) {
+        throw error;
+      }
       return this.calculateWithCoordinates(origin, destination);
     }
   }
@@ -452,10 +465,17 @@ class DistanceService {
         return await this.searchWithGoogle(query, country);
       }
 
+      if (!allowLocationSearchFallback()) {
+        throw new Error('A configured location search provider is required in production');
+      }
+
       // Fallback to Nominatim (OpenStreetMap)
       return await this.searchWithNominatim(query, country);
     } catch (error) {
       console.error('Location search error:', error);
+      if (!allowLocationSearchFallback()) {
+        throw error;
+      }
       return this.searchLocal(query);
     }
   }

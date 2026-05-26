@@ -21,6 +21,7 @@ const AgentPaymentScreen = ({ route, navigation, onNavigate, bookingData, update
   const bookingId = routeParams.bookingId || bookingData?.bookingId;
   const bookingReference = routeParams.bookingReference || bookingData?.bookingReference;
   const amount = routeParams.amount || bookingData?.amount || bookingData?.pricing?.totals?.total;
+  const existingAgentPayment = routeParams.agentPayment || bookingData?.agentPayment;
 
   const navigateTo = (screen, params = {}) => {
     if (onNavigate) {
@@ -59,7 +60,11 @@ const AgentPaymentScreen = ({ route, navigation, onNavigate, bookingData, update
   }, [bookingId, bookingReference]);
 
   useEffect(() => {
-    initiateAgentPayment();
+    if (existingAgentPayment?.paymentReference) {
+      hydrateExistingAgentPayment(existingAgentPayment);
+    } else {
+      initiateAgentPayment();
+    }
 
     // Subscribe to real-time payment confirmation events
     if (socketService.isConnected && socketService.socket) {
@@ -75,7 +80,25 @@ const AgentPaymentScreen = ({ route, navigation, onNavigate, bookingData, update
         socketService.socket.off('payment:confirmed', handleSocketPaymentConfirmed);
       }
     };
-  }, [handleSocketPaymentConfirmed]);
+  }, [handleSocketPaymentConfirmed, existingAgentPayment?.paymentReference]);
+
+  const hydrateExistingAgentPayment = (agentPayment) => {
+    setPaymentData(agentPayment);
+
+    const expiresAt = new Date(agentPayment.expiresAt);
+    const now = new Date();
+    const diff = Math.floor((expiresAt - now) / 1000);
+    setCountdown(diff > 0 ? diff : 0);
+
+    if (diff > 0) {
+      startCountdown();
+      startPolling(agentPayment.paymentReference);
+    } else {
+      handleExpiry();
+    }
+
+    setLoading(false);
+  };
 
   const initiateAgentPayment = async () => {
     setLoading(true);

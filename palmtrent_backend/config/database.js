@@ -5,6 +5,10 @@ const connectDB = async () => {
     const conn = await mongoose.connect(process.env.MONGODB_URI);
 
     console.log(`MongoDB Connected: ${conn.connection.host}`);
+
+    const monetizationService = require('../services/monetizationService');
+    await monetizationService.seedDefaults();
+    console.log('Monetization defaults verified');
   } catch (error) {
     console.error('Database connection error:', error);
     process.exit(1);

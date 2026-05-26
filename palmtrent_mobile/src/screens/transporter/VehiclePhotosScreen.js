@@ -105,7 +105,7 @@ const VehiclePhotosScreen = ({ navigation, onNavigate }) => {
               styles.submitButton,
               completedCount < requiredCount && styles.submitButtonDisabled
             ]}
-            onPress={() => navigateTo('VerificationPending')}
+            onPress={() => navigateTo('TransporterVerification', { submittedPhotos: photos })}
             disabled={completedCount < requiredCount}
           >
             <Text style={styles.submitButtonText}>

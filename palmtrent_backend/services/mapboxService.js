@@ -7,7 +7,8 @@
  * - Route calculation with distance and duration
  * - Location search/autocomplete
  *
- * Falls back to estimate-based calculations when Mapbox is not configured.
+ * Development and test environments can use estimate-based fallbacks when
+ * Mapbox is not configured. Production fails closed unless explicitly allowed.
  */
 
 // Try to load Mapbox SDK - gracefully handle if not installed
@@ -24,7 +25,7 @@ try {
   mbxOptimization = require('@mapbox/mapbox-sdk/services/optimization');
   mapboxAvailable = true;
 } catch (error) {
-  console.warn('Mapbox SDK not installed. Running in fallback mode.');
+  console.warn('Mapbox SDK not installed. Location services may be unavailable.');
   console.warn('To enable Mapbox, run: npm install @mapbox/mapbox-sdk');
 }
 
@@ -34,14 +35,30 @@ let optimizationClient = null;
 let activeAccessToken = null;
 let isInitialized = false;
 
+const isProduction = () => process.env.NODE_ENV === 'production';
+const allowLocationFallback = () => !isProduction() ||
+  process.env.ALLOW_LOCATION_FALLBACK_IN_PRODUCTION === 'true';
+
+const unavailableResult = (serviceName) => ({
+  success: false,
+  message: `${serviceName} requires Mapbox configuration in production`
+});
+
+const fallbackOrUnavailable = (serviceName, fallbackFactory) => {
+  if (allowLocationFallback()) {
+    return fallbackFactory();
+  }
+  return unavailableResult(serviceName);
+};
+
 const initializeClients = (accessToken = process.env.MAPBOX_ACCESS_TOKEN) => {
   if (!mapboxAvailable) {
-    console.warn('Mapbox SDK not available. Using fallback location services.');
+    console.warn('Mapbox SDK not available. Location services will use fallback only outside production.');
     return false;
   }
 
   if (!accessToken || accessToken === 'your_mapbox_access_token') {
-    console.warn('MAPBOX_ACCESS_TOKEN not set or using placeholder. Mapbox services will use fallback mode.');
+    console.warn('MAPBOX_ACCESS_TOKEN not set or using placeholder. Mapbox services are not configured.');
     console.warn('Get a free token at: https://account.mapbox.com/access-tokens/');
     return false;
   }
@@ -76,7 +93,7 @@ const ensureClients = async () => {
  */
 const geocode = async (address, options = {}) => {
   if (!(await ensureClients())) {
-    return getFallbackGeocode(address);
+    return fallbackOrUnavailable('Geocoding', () => getFallbackGeocode(address));
   }
 
   try {
@@ -133,7 +150,7 @@ const geocode = async (address, options = {}) => {
  */
 const reverseGeocode = async (latitude, longitude) => {
   if (!(await ensureClients())) {
-    return getFallbackReverseGeocode(latitude, longitude);
+    return fallbackOrUnavailable('Reverse geocoding', () => getFallbackReverseGeocode(latitude, longitude));
   }
 
   try {
@@ -183,7 +200,7 @@ const reverseGeocode = async (latitude, longitude) => {
  */
 const calculateRoute = async (origin, destination, waypoints = [], options = {}) => {
   if (!(await ensureClients())) {
-    return getFallbackRoute(origin, destination);
+    return fallbackOrUnavailable('Route calculation', () => getFallbackRoute(origin, destination));
   }
 
   try {
@@ -237,7 +254,8 @@ const calculateRoute = async (origin, destination, waypoints = [], options = {})
           alternatives: response.body.routes.slice(1).map(alt => ({
             distance: alt.distance,
             duration: alt.duration
-          }))
+          })),
+          isFallback: false
         }
       };
     }
@@ -340,7 +358,7 @@ const calculateRouteFromAddresses = async (originAddress, destinationAddress, wa
  */
 const searchLocations = async (query, options = {}) => {
   if (!(await ensureClients())) {
-    return getFallbackSearch(query);
+    return fallbackOrUnavailable('Location search', () => getFallbackSearch(query));
   }
 
   try {
@@ -398,7 +416,7 @@ const searchLocations = async (query, options = {}) => {
  */
 const getDistanceMatrix = async (origins, destinations) => {
   if (!(await ensureClients())) {
-    return getFallbackDistanceMatrix(origins, destinations);
+    return fallbackOrUnavailable('Distance matrix calculation', () => getFallbackDistanceMatrix(origins, destinations));
   }
 
   try {
@@ -573,7 +591,8 @@ const getFallbackGeocode = (address) => {
         data: {
           coordinates: { latitude: coords.lat, longitude: coords.lng },
           address: address,
-          placeName: city.charAt(0).toUpperCase() + city.slice(1)
+          placeName: city.charAt(0).toUpperCase() + city.slice(1),
+          isFallback: true
         }
       };
     }
@@ -585,7 +604,8 @@ const getFallbackGeocode = (address) => {
     data: {
       coordinates: { latitude: -17.8292, longitude: 31.0522 },
       address: address,
-      placeName: address
+      placeName: address,
+      isFallback: true
     }
   };
 };
@@ -595,7 +615,8 @@ const getFallbackReverseGeocode = (latitude, longitude) => {
     success: true,
     data: {
       address: `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
-      coordinates: { latitude, longitude }
+      coordinates: { latitude, longitude },
+      isFallback: true
     }
   };
 };
@@ -630,6 +651,7 @@ const getFallbackRoute = (origin, destination) => {
         hours: (durationSeconds / 3600).toFixed(2),
         formatted: formatDuration(durationSeconds)
       },
+      isFallback: true,
       isEstimate: true,
       estimateNote: 'Distance and duration are estimates. Configure Mapbox for accurate routing.'
     }
@@ -668,7 +690,7 @@ const getFallbackSearch = (query) => {
 
   return {
     success: true,
-    data: results.slice(0, 10)
+    data: results.slice(0, 10).map(result => ({ ...result, isFallback: true }))
   };
 };
 
@@ -682,7 +704,7 @@ const getFallbackDistanceMatrix = (origins, destinations) => {
 
   return {
     success: true,
-    data: { matrix, isEstimate: true }
+    data: { matrix, isEstimate: true, isFallback: true }
   };
 };
 

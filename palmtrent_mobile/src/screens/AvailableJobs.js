@@ -163,6 +163,10 @@ const AvailableJobsScreen = ({ navigation, onNavigate }) => {
     navigateTo('JobDetails', { job: job.rawData || job, jobId: job.id });
   };
 
+  const handleViewRouteMap = (job) => {
+    navigateTo('JobDetails', { job: job.rawData || job, jobId: job.id, focus: 'route' });
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -253,6 +257,7 @@ const AvailableJobsScreen = ({ navigation, onNavigate }) => {
                   job={job}
                   onAccept={() => handleAcceptJob(job)}
                   onViewDetails={() => handleViewDetails(job)}
+                  onViewMap={() => handleViewRouteMap(job)}
                 />
               ))}
             </View>
@@ -317,7 +322,7 @@ const FilterChip = ({ label, active, count, icon, onPress }) => (
 );
 
 // Job Card Component
-const JobCard = ({ job, onAccept, onViewDetails }) => {
+const JobCard = ({ job, onAccept, onViewDetails, onViewMap }) => {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -445,7 +450,7 @@ const JobCard = ({ job, onAccept, onViewDetails }) => {
           <DetailRow label="Toll Fees" value="$12 (2 gates)" />
           <DetailRow label="Payment Release" value="24 hours after delivery" />
           
-          <TouchableOpacity style={styles.viewMapButton}>
+          <TouchableOpacity style={styles.viewMapButton} onPress={onViewMap}>
             <Text style={styles.viewMapText}>📍 View Route Map</Text>
           </TouchableOpacity>
         </View>

@@ -217,7 +217,7 @@ const bookingSchema = new mongoose.Schema({
       },
       platformFeeRate: {
         type: Number,
-        default: 0.12
+        default: 0
       },
       transporterCommission: {
         type: Number,
@@ -225,7 +225,7 @@ const bookingSchema = new mongoose.Schema({
       },
       transporterCommissionRate: {
         type: Number,
-        default: 0.15
+        default: 0
       },
       transporterEarnings: {
         type: Number,

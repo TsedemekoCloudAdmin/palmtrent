@@ -2,6 +2,7 @@ const Booking = require('../models/Booking');
 const Rental = require('../models/Rental');
 const Trailer = require('../models/Trailer');
 const Vehicle = require('../models/Vehicle');
+const monetizationService = require('./monetizationService');
 
 function needsTrailer(booking) {
   const requested = [
@@ -103,7 +104,11 @@ async function createLinkedTrailerRental({ bookingId, transporterId, vehicleId, 
   const baseRate = trailer.rentalSettings.dailyRate || 0;
   const deposit = trailer.rentalSettings.deposit || 0;
   const subtotal = baseRate * days;
-  const platformFee = Math.round(subtotal * 0.10 * 100) / 100;
+  const settlementPreview = await monetizationService.calculateRentalSettlement({
+    pricing: { total: subtotal + deposit, deposit },
+    payment: { rentalPayment: { method: 'openapi_africa' } }
+  });
+  const platformFee = settlementPreview.platformFee;
 
   return Rental.create({
     itemType: 'trailer',

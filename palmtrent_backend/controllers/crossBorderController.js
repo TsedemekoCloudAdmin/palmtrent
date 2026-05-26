@@ -2,6 +2,7 @@ const CrossBorderDestination = require('../models/CrossBorderDestination');
 const Booking = require('../models/Booking');
 const { recordAudit } = require('../services/auditService');
 const { assertCorporateCanBook, reserveCorporateCredit } = require('../services/flowControlService');
+const monetizationService = require('../services/monetizationService');
 
 function generateBookingReference() {
   const timestamp = Date.now().toString(36);
@@ -188,9 +189,12 @@ exports.calculatePrice = async (req, res) => {
     // Calculate subtotal
     const subtotal = Object.values(priceBreakdown).reduce((sum, val) => sum + val, 0);
 
-    // Platform fee (12%)
-    const platformFeePercentage = 0.12;
-    const platformFee = Math.round(subtotal * platformFeePercentage);
+    const feePreview = await monetizationService.calculateShipmentFees(subtotal, subtotal, {
+      audience: req.user?.corporateAccount ? 'corporate' : 'all',
+      paymentMethod: req.query.paymentMethod || 'openapi_africa'
+    });
+    const platformFeePercentage = feePreview.platformFeeRate;
+    const platformFee = Math.round(feePreview.platformFee);
 
     // Total
     const total = subtotal + platformFee;
@@ -321,7 +325,11 @@ exports.createCrossBorderBooking = async (req, res) => {
     };
 
     const subtotal = Object.values(priceBreakdown).reduce((sum, val) => sum + val, 0);
-    const platformFee = Math.round(subtotal * 0.12);
+    const feePreview = await monetizationService.calculateShipmentFees(subtotal, subtotal, {
+      audience: req.user?.corporateAccount ? 'corporate' : 'all',
+      paymentMethod: req.body.paymentMethod || 'openapi_africa'
+    });
+    const platformFee = Math.round(feePreview.platformFee);
     const total = subtotal + platformFee;
 
     const bookingData = {
@@ -541,6 +549,14 @@ exports.getBookingCompliance = async (req, res) => {
     const booking = await Booking.findById(req.params.bookingId);
     if (!booking || !booking.crossBorder?.enabled) {
       return res.status(404).json({ success: false, message: 'Cross-border booking not found' });
+    }
+
+    const canAccess = booking.shipper?.toString() === req.user.id ||
+      booking.user?.toString() === req.user.id ||
+      booking.transporter?.toString() === req.user.id ||
+      req.user.userType === 'admin';
+    if (!canAccess) {
+      return res.status(403).json({ success: false, message: 'Not authorized' });
     }
 
     const required = Object.entries(booking.crossBorder.requiredDocuments || {})

@@ -7,7 +7,11 @@ const Rating = require('../models/Rating');
 const InsuranceClaim = require('../models/InsuranceClaim');
 const CorporateAccount = require('../models/CorporateAccount');
 const AuditLog = require('../models/AuditLog');
+const PlatformLedger = require('../models/PlatformLedger');
+const AdminPreference = require('../models/AdminPreference');
 const { recordAudit } = require('../services/auditService');
+const paymentService = require('../services/paymentService');
+const rentalPaymentService = require('../services/rentalPaymentService');
 const {
   listIntegrationSettings,
   updateIntegrationSetting,
@@ -43,20 +47,31 @@ exports.getDashboardStats = async (req, res) => {
       createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth }
     });
 
-    // Revenue statistics
-    const revenueAggregation = await Payment.aggregate([
-      { $match: { status: 'completed' } },
+    // Platform-owner revenue statistics. Gross payment volume is useful, but it is not
+    // the same as revenue earned by the platform.
+    const revenueMatch = {
+      status: 'posted',
+      direction: 'credit',
+      category: { $in: ['platform_fee', 'commission', 'subscription_fee'] }
+    };
+    const revenueAggregation = await PlatformLedger.aggregate([
+      { $match: revenueMatch },
       { $group: { _id: null, total: { $sum: '$amount' } } }
     ]);
     const totalRevenue = revenueAggregation.length > 0 ? revenueAggregation[0].total : 0;
 
-    const revenueThisMonth = await Payment.aggregate([
-      { $match: { status: 'completed', createdAt: { $gte: startOfMonth } } },
+    const revenueThisMonth = await PlatformLedger.aggregate([
+      { $match: { ...revenueMatch, postedAt: { $gte: startOfMonth } } },
       { $group: { _id: null, total: { $sum: '$amount' } } }
     ]);
 
-    const revenueLastMonth = await Payment.aggregate([
-      { $match: { status: 'completed', createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth } } },
+    const revenueLastMonth = await PlatformLedger.aggregate([
+      { $match: { ...revenueMatch, postedAt: { $gte: startOfLastMonth, $lte: endOfLastMonth } } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+
+    const grossPaymentVolume = await Payment.aggregate([
+      { $match: { status: { $in: ['confirmed', 'completed'] } } },
       { $group: { _id: null, total: { $sum: '$amount' } } }
     ]);
 
@@ -100,7 +115,8 @@ exports.getDashboardStats = async (req, res) => {
         revenue: {
           total: totalRevenue,
           thisMonth: monthlyRevenue,
-          growth: revenueGrowth
+          growth: revenueGrowth,
+          grossPaymentVolume: grossPaymentVolume.length > 0 ? grossPaymentVolume[0].total : 0
         },
         vehicles: {
           total: totalVehicles,
@@ -159,11 +175,24 @@ exports.getUsers = async (req, res) => {
       .skip(skip)
       .limit(parseInt(limit));
 
+    const userIds = users.map(user => user._id);
+    const bookingCounts = await Booking.aggregate([
+      { $match: { $or: [{ shipper: { $in: userIds } }, { user: { $in: userIds } }, { transporter: { $in: userIds } }] } },
+      { $project: { parties: { $setUnion: [['$shipper', '$user', '$transporter'], []] } } },
+      { $unwind: '$parties' },
+      { $match: { parties: { $in: userIds } } },
+      { $group: { _id: '$parties', totalBookings: { $sum: 1 } } }
+    ]);
+    const bookingCountMap = new Map(bookingCounts.map(item => [item._id.toString(), item.totalBookings]));
+
     const total = await User.countDocuments(query);
 
     res.status(200).json({
       success: true,
-      data: users,
+      data: users.map(user => ({
+        ...user.toObject(),
+        totalBookings: bookingCountMap.get(user._id.toString()) || 0
+      })),
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -460,12 +489,22 @@ exports.getAuditLogs = async (req, res) => {
 // @access  Private/Admin
 exports.getBookings = async (req, res) => {
   try {
-    const { status, search, startDate, endDate, page = 1, limit = 20, sort = '-createdAt' } = req.query;
+    const { status, search, startDate, endDate, userId, page = 1, limit = 20, sort = '-createdAt' } = req.query;
 
     let query = {};
 
     if (status && status !== 'all') {
       query.status = status;
+    }
+
+    const andConditions = [];
+
+    if (userId) {
+      andConditions.push({ $or: [
+        { shipper: userId },
+        { user: userId },
+        { transporter: userId }
+      ] });
     }
 
     if (startDate && endDate) {
@@ -476,18 +515,23 @@ exports.getBookings = async (req, res) => {
     }
 
     if (search) {
-      query.$or = [
+      andConditions.push({ $or: [
         { bookingId: { $regex: search, $options: 'i' } },
+        { bookingReference: { $regex: search, $options: 'i' } },
         { 'pickup.address': { $regex: search, $options: 'i' } },
         { 'delivery.address': { $regex: search, $options: 'i' } }
-      ];
+      ] });
+    }
+
+    if (andConditions.length) {
+      query.$and = andConditions;
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const bookings = await Booking.find(query)
-      .populate('shipper', 'name email phone')
-      .populate('transporter', 'name email phone')
+      .populate('shipper', 'fullName name email phone')
+      .populate('transporter', 'fullName name email phone')
       .sort(sort)
       .skip(skip)
       .limit(parseInt(limit));
@@ -603,8 +647,8 @@ exports.getPayments = async (req, res) => {
       query.status = status;
     }
 
-    if (method) {
-      query.method = method;
+    if (method && method !== 'all') {
+      query.paymentMethod = method;
     }
 
     if (startDate && endDate) {
@@ -650,6 +694,38 @@ exports.getPayments = async (req, res) => {
   } catch (error) {
     console.error('Get admin payments error:', error);
     res.status(500).json({ success: false, message: 'Error fetching payments' });
+  }
+};
+
+exports.confirmPayment = async (req, res) => {
+  try {
+    const payment = await Payment.findById(req.params.id);
+    if (!payment) return res.status(404).json({ success: false, message: 'Payment not found' });
+
+    const confirmed = payment.rental
+      ? await rentalPaymentService.confirmRentalPayment(payment.paymentReference, {
+        confirmedBy: req.user._id,
+        source: 'admin_portal',
+        note: req.body.note
+      })
+      : await paymentService.confirmPayment(payment.paymentReference, {
+        confirmedBy: req.user._id,
+        source: 'admin_portal',
+        note: req.body.note
+      });
+
+    await recordAudit({
+      actor: req.user,
+      action: 'payment.admin_confirmed',
+      entityType: 'Payment',
+      entityId: payment._id,
+      entityRef: payment.paymentReference,
+      req
+    });
+
+    res.json({ success: true, data: confirmed, message: 'Payment confirmed' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to confirm payment', error: error.message });
   }
 };
 
@@ -769,11 +845,19 @@ exports.getReports = async (req, res) => {
         break;
 
       case 'revenue':
-        report = await Payment.aggregate([
-          { $match: { ...dateFilter, status: 'completed' } },
+        const ledgerDateFilter = dateFilter.createdAt ? { postedAt: dateFilter.createdAt } : {};
+        report = await PlatformLedger.aggregate([
+          {
+            $match: {
+              ...ledgerDateFilter,
+              status: 'posted',
+              direction: 'credit',
+              category: { $in: ['platform_fee', 'commission', 'subscription_fee'] }
+            }
+          },
           { $group: {
             _id: {
-              $dateToString: { format: groupBy === 'month' ? '%Y-%m' : '%Y-%m-%d', date: '$createdAt' }
+              $dateToString: { format: groupBy === 'month' ? '%Y-%m' : '%Y-%m-%d', date: '$postedAt' }
             },
             total: { $sum: '$amount' },
             count: { $sum: 1 },
@@ -837,6 +921,69 @@ exports.getIntegrationSettings = async (req, res) => {
   } catch (error) {
     console.error('Get integration settings error:', error);
     res.status(500).json({ success: false, message: 'Error fetching integration settings' });
+  }
+};
+
+exports.getPreferences = async (req, res) => {
+  try {
+    const preferences = await AdminPreference.findOneAndUpdate(
+      { user: req.user._id },
+      { $setOnInsert: { user: req.user._id } },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+
+    res.json({ success: true, data: preferences });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error loading admin preferences', error: error.message });
+  }
+};
+
+exports.updatePreferences = async (req, res) => {
+  try {
+    const platform = req.body.platformSettings || {};
+    const notifications = req.body.notifications || {};
+
+    const update = {
+      platformSettings: {
+        platformCommissionRate: Number(platform.platformCommissionRate ?? 15),
+        minimumBookingAmount: Number(platform.minimumBookingAmount ?? 50),
+        autoCancelTimeoutHours: Number(platform.autoCancelTimeoutHours ?? 24)
+      },
+      notifications: {
+        email: notifications.email !== false,
+        sms: notifications.sms !== false,
+        whatsapp: notifications.whatsapp !== false
+      }
+    };
+
+    if (update.platformSettings.platformCommissionRate < 0 || update.platformSettings.platformCommissionRate > 100) {
+      return res.status(400).json({ success: false, message: 'Platform commission must be between 0 and 100' });
+    }
+    if (update.platformSettings.minimumBookingAmount < 0) {
+      return res.status(400).json({ success: false, message: 'Minimum booking amount cannot be negative' });
+    }
+    if (update.platformSettings.autoCancelTimeoutHours < 1) {
+      return res.status(400).json({ success: false, message: 'Auto-cancel timeout must be at least 1 hour' });
+    }
+
+    const preferences = await AdminPreference.findOneAndUpdate(
+      { user: req.user._id },
+      { $set: update, $setOnInsert: { user: req.user._id } },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+
+    await recordAudit({
+      actor: req.user,
+      action: 'admin.preferences_updated',
+      entityType: 'AdminPreference',
+      entityId: preferences._id,
+      after: update,
+      req
+    });
+
+    res.json({ success: true, message: 'Admin preferences saved', data: preferences });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error saving admin preferences', error: error.message });
   }
 };
 

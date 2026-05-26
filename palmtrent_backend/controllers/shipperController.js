@@ -1,60 +1,105 @@
 const Booking = require('../models/Booking');
 const Shipment = require('../models/Shipment');
 const User = require('../models/User');
+const Rating = require('../models/Rating');
 const { formatRelativeTime } = require('../utils/formatDate');
 
 exports.getDashboardStats = async (req, res) => {
   try {
-    const shipperId = req.user.id;
+    const shipperId = req.user.id || req.user._id;
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
 
-    // Get active bookings/shipments count
-    const activeBookings = await Booking.countDocuments({
-      shipper: shipperId,
-      status: { $in: ['confirmed', 'in_progress'] }
-    });
+    const activeStatuses = [
+      'pending',
+      'finding_transporter',
+      'matched',
+      'transporter_assigned',
+      'confirmed',
+      'en_route_pickup',
+      'pickup_started',
+      'picked_up',
+      'in_progress',
+      'in_transit',
+      'arrived_delivery'
+    ];
+    const completedStatuses = ['delivered', 'completed'];
 
-    const activeShipments = await Shipment.countDocuments({
-      shipper: shipperId,
-      status: { $in: ['assigned', 'in_transit', 'picked_up'] }
-    });
+    const baseMatch = { shipper: shipperId };
+    const amountExpression = {
+      $ifNull: [
+        '$totalAmount',
+        { $ifNull: ['$pricing.totals.total', { $ifNull: ['$pricing.total', 0] }] }
+      ]
+    };
 
-    const activeJobs = activeBookings + activeShipments;
+    const [
+      activeBookings,
+      activeShipments,
+      pendingPayment,
+      completedBookings,
+      completedShipments,
+      spendAgg,
+      currentMonthAgg,
+      previousMonthAgg,
+      activeMonthCount,
+      activePreviousMonthCount,
+      completedMonthCount,
+      completedPreviousMonthCount,
+      ratingData
+    ] = await Promise.all([
+      Booking.countDocuments({ ...baseMatch, status: { $in: activeStatuses } }),
+      Shipment.countDocuments({ shipper: shipperId, status: { $in: ['assigned', 'matched', 'en_route_pickup', 'picked_up', 'in_transit', 'arrived_delivery'] } }),
+      Booking.countDocuments({ ...baseMatch, paymentStatus: 'pending', status: { $in: ['draft', 'pending_payment', 'payment_confirmed', 'confirmed'] } }),
+      Booking.countDocuments({ ...baseMatch, status: { $in: completedStatuses } }),
+      Shipment.countDocuments({ shipper: shipperId, status: { $in: completedStatuses } }),
+      Booking.aggregate([
+        { $match: { shipper: req.user._id, status: { $nin: ['cancelled'] } } },
+        { $group: { _id: null, total: { $sum: amountExpression } } }
+      ]),
+      Booking.aggregate([
+        { $match: { shipper: req.user._id, status: { $nin: ['cancelled'] }, createdAt: { $gte: startOfMonth } } },
+        { $group: { _id: null, total: { $sum: amountExpression }, count: { $sum: 1 } } }
+      ]),
+      Booking.aggregate([
+        { $match: { shipper: req.user._id, status: { $nin: ['cancelled'] }, createdAt: { $gte: previousMonthStart, $lt: startOfMonth } } },
+        { $group: { _id: null, total: { $sum: amountExpression }, count: { $sum: 1 } } }
+      ]),
+      Booking.countDocuments({ ...baseMatch, status: { $in: activeStatuses }, createdAt: { $gte: startOfMonth } }),
+      Booking.countDocuments({ ...baseMatch, status: { $in: activeStatuses }, createdAt: { $gte: previousMonthStart, $lt: startOfMonth } }),
+      Booking.countDocuments({ ...baseMatch, status: { $in: completedStatuses }, updatedAt: { $gte: startOfMonth } }),
+      Booking.countDocuments({ ...baseMatch, status: { $in: completedStatuses }, updatedAt: { $gte: previousMonthStart, $lt: startOfMonth } }),
+      Rating.getUserRating(shipperId)
+    ]);
 
-    // Get pending payment count
-    const pendingPayment = await Booking.countDocuments({
-      shipper: shipperId,
-      status: 'confirmed',
-      paymentStatus: 'pending'
-    });
+    const totalSpent = spendAgg[0]?.total || 0;
+    const currentSpend = currentMonthAgg[0]?.total || 0;
+    const previousSpend = previousMonthAgg[0]?.total || 0;
 
-    // Calculate this month's spending
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0, 0, 0, 0);
-
-    const thisMonthBookings = await Booking.find({
-      shipper: shipperId,
-      status: { $in: ['confirmed', 'completed'] },
-      createdAt: { $gte: startOfMonth }
-    });
-
-    const spending = thisMonthBookings.reduce((total, booking) => {
-      return total + (booking.totalAmount || 0);
-    }, 0);
-
-    // Get total completed shipments
-    const totalShipments = await Shipment.countDocuments({
-      shipper: shipperId,
-      status: 'completed'
-    });
+    const calculateGrowth = (current, previous) => {
+      if (!previous && !current) return 0;
+      if (!previous) return 100;
+      return Math.round(((current - previous) / previous) * 100);
+    };
 
     res.status(200).json({
       success: true,
       data: {
-        activeJobs,
+        activeJobs: activeBookings + activeShipments,
+        activeShipments: activeBookings + activeShipments,
         pendingPayment,
-        spending: parseFloat(spending.toFixed(2)),
-        totalShipments
+        spending: parseFloat(currentSpend.toFixed(2)),
+        totalSpent: parseFloat(totalSpent.toFixed(2)),
+        completed: completedBookings + completedShipments,
+        totalShipments: completedBookings + completedShipments,
+        avgRating: ratingData.averageRating || 0,
+        ratingCount: ratingData.totalRatings || 0,
+        growth: {
+          shipments: calculateGrowth(activeMonthCount, activePreviousMonthCount),
+          completed: calculateGrowth(completedMonthCount, completedPreviousMonthCount),
+          spending: calculateGrowth(currentSpend, previousSpend)
+        }
       }
     });
   } catch (error) {

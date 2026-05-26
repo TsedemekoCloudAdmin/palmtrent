@@ -1,13 +1,14 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { useState } from 'react';
-import reactLogo from './assets/react.svg';
-import viteLogo from '/vite.svg';
 import LandingPage from './pages/LandingPage';
 import PalmTrentAdmin from './pages/PalmTrentAdmin';
 import ShipperDashboard from './pages/ShipperDashboard';
 import CorporateDashboard from './pages/CorporateDashboard';
 import TrailerOwnerDashboard from './pages/TrailerOwnerDashboard';
 import ResetPasswordPage from './pages/ResetPasswordPage';
+import ApiDocsPage from './pages/ApiDocsPage';
+import PaymentReturnPage from './pages/PaymentReturnPage';
+import PublicTrackingPage from './pages/PublicTrackingPage';
+import LegalPage from './pages/LegalPage';
 import './App.css';
 
 const getRoleHomePath = (user) => {
@@ -39,6 +40,11 @@ function App() {
         <Route path="/" element={<RoleRedirect />} />
         <Route path="/home" element={<LandingPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/api-docs" element={<ApiDocsPage />} />
+        <Route path="/payment/return" element={<PaymentReturnPage />} />
+        <Route path="/tracking/:trackingId" element={<PublicTrackingPage />} />
+        <Route path="/terms" element={<LegalPage />} />
+        <Route path="/privacy" element={<LegalPage />} />
         <Route path="/admin" element={<PalmTrentAdmin />} />
          <Route path="/shipper" element={<ShipperDashboard />} />
          <Route path="/corp" element={<CorporateDashboard />} />

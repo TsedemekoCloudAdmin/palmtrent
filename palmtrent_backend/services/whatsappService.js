@@ -2,6 +2,7 @@
 // WhatsApp Business API Integration Service
 
 const axios = require('axios');
+const crypto = require('crypto');
 const { getIntegrationConfig } = require('./integrationSettingsService');
 
 class WhatsAppService {
@@ -10,6 +11,7 @@ class WhatsAppService {
     this.phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
     this.accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
     this.verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
+    this.appSecret = process.env.WHATSAPP_APP_SECRET;
 
     // Session state for conversational flows
     this.sessions = new Map();
@@ -23,6 +25,25 @@ class WhatsAppService {
     this.phoneNumberId = config.phoneNumberId || this.phoneNumberId;
     this.accessToken = config.accessToken || this.accessToken;
     this.verifyToken = config.verifyToken || this.verifyToken;
+    this.appSecret = config.appSecret || this.appSecret;
+  }
+
+  async verifyWebhookSignature(rawBody, signatureHeader) {
+    await this.refreshConfig();
+
+    if (!this.appSecret) {
+      return process.env.NODE_ENV !== 'production';
+    }
+    if (!rawBody || !signatureHeader) return false;
+
+    const expectedSignature = `sha256=${crypto
+      .createHmac('sha256', this.appSecret)
+      .update(rawBody)
+      .digest('hex')}`;
+    const provided = Buffer.from(signatureHeader);
+    const expected = Buffer.from(expectedSignature);
+
+    return provided.length === expected.length && crypto.timingSafeEqual(provided, expected);
   }
 
   // Get or create session for a user

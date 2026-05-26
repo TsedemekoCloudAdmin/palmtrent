@@ -17,7 +17,7 @@ class SocketService {
   // Initialize socket connection
   async connect() {
     try {
-      const token = await AsyncStorage.getItem('token');
+      const token = await AsyncStorage.getItem('userToken') || await AsyncStorage.getItem('token');
 
       if (!token) {
         console.log('No token available for socket connection');

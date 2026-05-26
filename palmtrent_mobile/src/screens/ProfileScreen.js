@@ -150,8 +150,11 @@ const ProfileScreen = ({ navigation }) => {
           text: 'Logout',
           style: 'destructive',
           onPress: async () => {
-            await apiService.logout();
-            if (logout) logout();
+            if (logout) {
+              await logout();
+            } else {
+              await apiService.logout();
+            }
           }
         }
       ]
@@ -174,6 +177,9 @@ const ProfileScreen = ({ navigation }) => {
           ...prev,
           preferences: newPreferences
         }));
+        if (updateUser) {
+          updateUser({ preferences: newPreferences });
+        }
       }
     } catch (error) {
       console.error('Update preference error:', error);

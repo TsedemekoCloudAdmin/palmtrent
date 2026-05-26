@@ -3,6 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { protect } = require('../middleware/auth');
 const {
   getVehicles,
@@ -31,7 +32,7 @@ const storage = multer.diskStorage({
     cb(null, vehicleUploadDir);
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const uniqueSuffix = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
     cb(null, `vehicle-${req.params.id}-${uniqueSuffix}${path.extname(file.originalname)}`);
   }
 });
@@ -54,6 +55,9 @@ const upload = multer({
 router.route('/')
   .get(protect, getVehicles)
   .post(protect, createVehicle);
+
+router.route('/my-vehicles')
+  .get(protect, getVehicles);
 
 router.route('/available-for-rental')
   .get(getAvailableForRental);

@@ -3,6 +3,8 @@ const InsuranceClaim = require('../models/InsuranceClaim');
 const Booking = require('../models/Booking');
 const { recordAudit } = require('../services/auditService');
 const { assertBookingTransition } = require('../services/flowControlService');
+const escrowService = require('../services/escrowService');
+const { finalizeUploadedFiles } = require('../services/uploadFinalizationService');
 
 function mapDisputeCategoryToIncident(category) {
   const map = {
@@ -28,18 +30,60 @@ function canAccessBooking(booking, userId) {
     booking.transporter?.toString?.() === userId;
 }
 
+function getBookingCounterparty(booking, userId) {
+  const claimantIsTransporter = booking.transporter?._id?.toString() === userId ||
+    booking.transporter?.toString?.() === userId;
+  const counterparty = claimantIsTransporter ? booking.shipper || booking.user : booking.transporter;
+
+  if (!counterparty) return undefined;
+  return {
+    user: counterparty._id || counterparty,
+    name: counterparty.fullName || counterparty.name,
+    email: counterparty.email,
+    phone: counterparty.phone,
+    role: claimantIsTransporter ? 'shipper' : 'transporter'
+  };
+}
+
+async function holdEscrowForClaim(booking, claim, userId, reason, description) {
+  try {
+    const escrow = await escrowService.raiseDispute(booking._id, userId, reason, description);
+    claim.metadata = {
+      ...(claim.metadata || {}),
+      escrowHold: {
+        status: 'held',
+        escrow: escrow._id,
+        escrowReference: escrow.escrowReference,
+        heldAt: new Date()
+      }
+    };
+  } catch (error) {
+    claim.metadata = {
+      ...(claim.metadata || {}),
+      escrowHold: {
+        status: 'not_held',
+        reason: error.message,
+        checkedAt: new Date()
+      }
+    };
+  }
+}
+
 exports.createDispute = async (req, res) => {
   try {
     const userId = req.user.id;
     const {
       bookingId,
       category,
+      issueType,
       description,
       desiredOutcome,
       claimedValue
     } = req.body;
 
-    if (!bookingId || !category || !description) {
+    const disputeCategory = category || issueType;
+
+    if (!bookingId || !disputeCategory || !description) {
       return res.status(400).json({
         success: false,
         message: 'bookingId, category, and description are required'
@@ -65,12 +109,32 @@ exports.createDispute = async (req, res) => {
       });
     }
 
+    const existingDispute = await InsuranceClaim.findOne({
+      booking: bookingId,
+      'metadata.caseType': 'platform_dispute',
+      status: { $nin: ['closed', 'withdrawn', 'rejected'] }
+    });
+    if (existingDispute) {
+      return res.status(409).json({
+        success: false,
+        message: 'An active dispute already exists for this booking',
+        data: {
+          claimId: existingDispute._id,
+          claimReference: existingDispute.claimReference,
+          status: existingDispute.status
+        }
+      });
+    }
+
     const isTransporter = booking.transporter?._id?.toString() === userId;
-    const uploadedDocuments = (req.files || []).map(file => ({
+    const finalizedFiles = await finalizeUploadedFiles(req.files || [], 'claims');
+    const uploadedDocuments = finalizedFiles.map(file => ({
       type: file.mimetype === 'application/pdf' ? 'other' : 'photo_damage',
-      name: file.originalname,
-      url: `/uploads/claims/${file.filename}`,
-      uploadedAt: new Date()
+      name: file.originalName,
+      url: file.url,
+      uploadedAt: new Date(),
+      storageKey: file.key,
+      storageProvider: file.provider
     }));
 
     const claim = new InsuranceClaim({
@@ -88,8 +152,9 @@ exports.createDispute = async (req, res) => {
         phone: req.user.phone,
         role: isTransporter ? 'transporter' : 'shipper'
       },
+      respondent: getBookingCounterparty(booking, userId),
       incident: {
-        type: mapDisputeCategoryToIncident(category),
+        type: mapDisputeCategoryToIncident(disputeCategory),
         description,
         dateOccurred: new Date(),
         locationDescription: booking.route?.pickup?.address || booking.route?.delivery?.address
@@ -106,12 +171,13 @@ exports.createDispute = async (req, res) => {
       },
       metadata: {
         caseType: 'platform_dispute',
-        category,
+        category: disputeCategory,
         desiredOutcome
       }
     });
 
     claim.setSLADeadlines();
+    await holdEscrowForClaim(booking, claim, userId, disputeCategory, description);
     await claim.save();
 
     assertBookingTransition(booking.status, 'disputed');
@@ -124,7 +190,7 @@ exports.createDispute = async (req, res) => {
       entityType: 'InsuranceClaim',
       entityId: claim._id,
       entityRef: claim.claimReference,
-      after: { status: claim.status, booking: booking._id, bookingStatus: booking.status, category },
+      after: { status: claim.status, booking: booking._id, bookingStatus: booking.status, category: disputeCategory },
       req
     });
 
@@ -225,6 +291,7 @@ exports.createClaim = async (req, res) => {
         phone: req.user.phone,
         role: isShipper ? 'shipper' : 'transporter'
       },
+      respondent: getBookingCounterparty(booking, userId),
       incident: {
         type: incidentType,
         description: incidentDescription,
@@ -284,8 +351,9 @@ exports.uploadDocument = async (req, res) => {
       });
     }
 
-    // Only claimant can upload documents
-    if (claim.claimant.user.toString() !== userId) {
+    const isClaimant = claim.claimant.user.toString() === userId;
+    const isRespondent = claim.respondent?.user?.toString() === userId;
+    if (!isClaimant && !isRespondent) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to upload documents to this claim'
@@ -359,6 +427,17 @@ exports.submitClaim = async (req, res) => {
     claim.status = 'submitted';
     claim.timeline.submittedAt = new Date();
 
+    const booking = await Booking.findById(claim.booking);
+    if (booking) {
+      await holdEscrowForClaim(
+        booking,
+        claim,
+        userId,
+        claim.incident?.type || 'insurance_claim',
+        claim.incident?.description || 'Insurance claim submitted'
+      );
+    }
+
     await claim.save();
 
     res.json({
@@ -387,7 +466,7 @@ exports.getClaim = async (req, res) => {
     const userId = req.user.id;
 
     const claim = await InsuranceClaim.findById(claimId)
-      .populate('booking', 'bookingReference route cargoDetails')
+      .populate('booking', 'bookingReference route cargoDetails user shipper transporter')
       .populate('claimant.user', 'name email phone');
 
     if (!claim) {
@@ -400,8 +479,9 @@ exports.getClaim = async (req, res) => {
     // Check access
     const isClaimant = claim.claimant.user._id.toString() === userId;
     const isAdmin = req.user.userType === 'admin';
+    const isBookingParty = canAccessBooking(claim.booking, userId);
 
-    if (!isClaimant && !isAdmin) {
+    if (!isClaimant && !isAdmin && !isBookingParty) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to view this claim'
@@ -428,7 +508,12 @@ exports.getMyClaims = async (req, res) => {
     const userId = req.user.id;
     const { status, page = 1, limit = 10 } = req.query;
 
-    const query = { 'claimant.user': userId };
+    const query = {
+      $or: [
+        { 'claimant.user': userId },
+        { 'respondent.user': userId }
+      ]
+    };
     if (status) query.status = status;
 
     const claims = await InsuranceClaim.find(query)
@@ -478,9 +563,10 @@ exports.addCommunication = async (req, res) => {
     }
 
     const isClaimant = claim.claimant.user.toString() === userId;
+    const isRespondent = claim.respondent?.user?.toString() === userId;
     const isAdmin = req.user.userType === 'admin';
 
-    if (!isClaimant && !isAdmin) {
+    if (!isClaimant && !isRespondent && !isAdmin) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized'
@@ -488,7 +574,7 @@ exports.addCommunication = async (req, res) => {
     }
 
     claim.communication.push({
-      from: isAdmin ? 'platform' : 'claimant',
+      from: isAdmin ? 'platform' : isRespondent ? 'respondent' : 'claimant',
       message,
       attachments: attachments || [],
       sentAt: new Date()
@@ -560,7 +646,7 @@ exports.withdrawClaim = async (req, res) => {
 exports.adminUpdateStatus = async (req, res) => {
   try {
     const { claimId } = req.params;
-    const { status, notes, assessment, settlement, rejection } = req.body;
+    const { status, notes, assessment, settlement, rejection, escrowResolution } = req.body;
 
     if (req.user.userType !== 'admin') {
       return res.status(403).json({
@@ -633,6 +719,42 @@ exports.adminUpdateStatus = async (req, res) => {
 
     if (status === 'closed') {
       claim.timeline.closedAt = new Date();
+    }
+
+    if (escrowResolution) {
+      const { resolution, resolvedInFavorOf, splitPercentage } = escrowResolution;
+      if (!resolution || !['shipper', 'transporter', 'split'].includes(resolvedInFavorOf)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Escrow resolution requires resolution and resolvedInFavorOf'
+        });
+      }
+
+      const escrow = await escrowService.getEscrowByBooking(claim.booking);
+      if (!escrow || escrow.status !== 'disputed') {
+        return res.status(400).json({
+          success: false,
+          message: 'No disputed escrow is available for this claim'
+        });
+      }
+
+      const resolvedEscrow = await escrowService.resolveDispute(
+        escrow._id,
+        resolution,
+        resolvedInFavorOf,
+        splitPercentage
+      );
+      claim.metadata = {
+        ...(claim.metadata || {}),
+        escrowResolution: {
+          status: resolvedEscrow.status,
+          escrow: resolvedEscrow._id,
+          escrowReference: resolvedEscrow.escrowReference,
+          resolvedInFavorOf,
+          resolution,
+          resolvedAt: new Date()
+        }
+      };
     }
 
     // Add status change note

@@ -3,6 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const {
   getAvailableJobs,
   getDashboardStats,
@@ -36,7 +37,7 @@ const verificationUpload = multer({
     filename: (req, file, cb) => {
       const ext = path.extname(file.originalname || '') || '.jpg';
       const safeField = file.fieldname.replace(/[^a-z0-9_-]/gi, '').toLowerCase();
-      cb(null, `${req.user.id}-${safeField}-${Date.now()}${ext}`);
+      cb(null, `${req.user.id}-${safeField}-${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`);
     }
   }),
   limits: { fileSize: 8 * 1024 * 1024 },

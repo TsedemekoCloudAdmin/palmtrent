@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const {
+  getPayments,
   createPayment,
-  initiatePaynowPayment,
+  initiatePayment,
   confirmCashPayment,
   checkPaymentStatus,
   handlePaynowWebhook,
@@ -19,6 +20,7 @@ const {
   cancelAndRefund,
   recordCashCollection,
   adminReleaseFunds,
+  adminProcessScheduledReleases,
   adminResolveDispute,
   adminGetEscrowSummary,
   // Withdrawal endpoints
@@ -30,7 +32,7 @@ const {
 } = require('../controllers/paymentController');
 const { protect } = require('../middleware/auth');
 
-// Webhook routes - no authentication (called by payment providers)
+// Paynow mobile-money webhook routes - no authentication (called by provider).
 router.post('/webhook', handlePaynowWebhook);
 router.post('/resulturl', handlePaynowWebhook);
 
@@ -42,11 +44,13 @@ router.get('/ecocash-agent/webhook', testAgentWebhook); // Health check
 router.use(protect);
 
 // Create payment record
+router.get('/', getPayments);
 router.post('/create', createPayment);
 
-// Initiate Paynow payment
-router.post('/initiate-paynow', initiatePaynowPayment);
-router.post('/initiate-openapi', initiatePaynowPayment);
+// Initiate hosted checkout. Old route names stay as compatibility aliases.
+router.post('/initiate', initiatePayment);
+router.post('/initiate-openapi', initiatePayment);
+router.post('/initiate-paynow', initiatePayment);
 
 // Confirm cash payment (agent, pickup, delivery)
 router.post('/confirm-cash', confirmCashPayment);
@@ -79,6 +83,7 @@ router.post('/escrow/cancel/:bookingId', cancelAndRefund);
 router.post('/escrow/cash-collection/:bookingId', recordCashCollection);
 
 // Admin routes
+router.post('/escrow/admin/process-scheduled-releases', adminProcessScheduledReleases);
 router.post('/escrow/admin/release/:escrowId', adminReleaseFunds);
 router.post('/escrow/admin/resolve-dispute/:escrowId', adminResolveDispute);
 router.get('/escrow/admin/summary', adminGetEscrowSummary);

@@ -9,12 +9,23 @@ import {
   TextInput,
   Linking,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import apiService from '../services/apiService';
 
 const SupportScreen = ({ navigation }) => {
   const [expandedFaq, setExpandedFaq] = useState(null);
   const [message, setMessage] = useState('');
+  const [sending, setSending] = useState(false);
+
+  const supportCategories = [
+    { id: 'general', label: 'General' },
+    { id: 'booking', label: 'Booking' },
+    { id: 'payment', label: 'Payment' },
+    { id: 'technical', label: 'Technical' },
+  ];
+  const [category, setCategory] = useState('general');
 
   const contactOptions = [
     {
@@ -75,16 +86,31 @@ const SupportScreen = ({ navigation }) => {
     },
   ];
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!message.trim()) {
       Alert.alert('Error', 'Please enter a message');
       return;
     }
-    Alert.alert(
-      'Message Sent',
-      'Thank you for contacting us. We\'ll respond within 24 hours.',
-      [{ text: 'OK', onPress: () => setMessage('') }]
-    );
+
+    setSending(true);
+    try {
+      const response = await apiService.createSupportTicket({
+        category,
+        subject: `${supportCategories.find(item => item.id === category)?.label || 'General'} support request`,
+        message: message.trim(),
+        source: 'mobile',
+      });
+
+      Alert.alert(
+        'Message Sent',
+        `Ticket ${response.data?.ticketReference || ''} has been created. We'll respond within 24 hours.`,
+        [{ text: 'OK', onPress: () => setMessage('') }]
+      );
+    } catch (error) {
+      Alert.alert('Message Not Sent', error.message || 'Unable to submit your support request. Please try again.');
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -97,7 +123,7 @@ const SupportScreen = ({ navigation }) => {
           <MaterialIcons name="arrow-back" size={24} color="#0C2D48" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Help & Support</Text>
-        <View style={styles.placeholder} />
+        <View style={styles.headerSpacer} />
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -147,6 +173,20 @@ const SupportScreen = ({ navigation }) => {
         {/* Send Message */}
         <Text style={styles.sectionLabel}>Send Us a Message</Text>
         <View style={styles.messageCard}>
+          <View style={styles.categoryRow}>
+            {supportCategories.map(item => (
+              <TouchableOpacity
+                key={item.id}
+                style={[styles.categoryPill, category === item.id && styles.categoryPillActive]}
+                onPress={() => setCategory(item.id)}
+                disabled={sending}
+              >
+                <Text style={[styles.categoryPillText, category === item.id && styles.categoryPillTextActive]}>
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
           <TextInput
             style={styles.messageInput}
             placeholder="Describe your issue or question..."
@@ -156,13 +196,22 @@ const SupportScreen = ({ navigation }) => {
             value={message}
             onChangeText={setMessage}
             textAlignVertical="top"
+            maxLength={4000}
+            editable={!sending}
           />
           <TouchableOpacity
-            style={styles.sendButton}
+            style={[styles.sendButton, sending && styles.sendButtonDisabled]}
             onPress={handleSendMessage}
+            disabled={sending}
           >
-            <MaterialIcons name="send" size={20} color="white" />
-            <Text style={styles.sendButtonText}>Send Message</Text>
+            {sending ? (
+              <ActivityIndicator color="white" />
+            ) : (
+              <>
+                <MaterialIcons name="send" size={20} color="white" />
+                <Text style={styles.sendButtonText}>Send Message</Text>
+              </>
+            )}
           </TouchableOpacity>
         </View>
 
@@ -206,7 +255,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#0C2D48',
   },
-  placeholder: {
+  headerSpacer: {
     width: 40,
   },
   content: {
@@ -307,6 +356,32 @@ const styles = StyleSheet.create({
     minHeight: 100,
     marginBottom: 12,
   },
+  categoryRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 12,
+  },
+  categoryPill: {
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  categoryPillActive: {
+    backgroundColor: '#0C2D48',
+    borderColor: '#0C2D48',
+  },
+  categoryPillText: {
+    color: '#374151',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  categoryPillTextActive: {
+    color: 'white',
+  },
   sendButton: {
     backgroundColor: '#0C2D48',
     flexDirection: 'row',
@@ -314,6 +389,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 12,
     borderRadius: 8,
+  },
+  sendButtonDisabled: {
+    backgroundColor: '#64748b',
   },
   sendButtonText: {
     color: 'white',

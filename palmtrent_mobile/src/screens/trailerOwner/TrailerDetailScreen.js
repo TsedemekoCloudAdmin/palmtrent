@@ -8,74 +8,130 @@ import {
   SafeAreaView,
   StatusBar,
   Image,
-  Alert
+  Alert,
+  ActivityIndicator
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import apiService from '../../services/apiService';
+
+const featureLabels = {
+  refrigeration: 'Refrigeration Unit',
+  liftGate: 'Lift Gate',
+  loadingRamp: 'Loading Ramp',
+  tarpaulin: 'Tarpaulin Cover',
+  sideLoader: 'Side Loader',
+  gps: 'GPS Tracking',
+  lighting: 'Lighting',
+  tieDowns: 'Tie Downs'
+};
+
+const formatAssetType = (assetType) => String(assetType || 'trailer')
+  .replace(/_/g, ' ')
+  .replace(/\b\w/g, char => char.toUpperCase());
+
+const normalizeTrailer = (trailer) => {
+  if (!trailer) return null;
+  const features = Array.isArray(trailer.features)
+    ? trailer.features
+    : Object.entries(trailer.features || {})
+      .filter(([, enabled]) => Boolean(enabled))
+      .map(([key]) => featureLabels[key] || formatAssetType(key));
+  const location = trailer.currentLocation?.address ||
+    trailer.operatingAreas?.[0]?.city ||
+    trailer.rentalSettings?.pickupLocations?.[0]?.city ||
+    '';
+  const capacityValue = trailer.capacity?.weight?.value;
+  const capacityUnit = trailer.capacity?.weight?.unit || 'kg';
+  const type = trailer.trailerType?.name || formatAssetType(trailer.assetType);
+  const name = trailer.assetName || `${type} ${trailer.registrationNumber || ''}`.trim();
+
+  return {
+    ...trailer,
+    id: trailer._id || trailer.id,
+    name,
+    type,
+    capacity: capacityValue ? `${capacityValue} ${capacityUnit}` : '',
+    licensePlate: trailer.registrationNumber || '',
+    vin: trailer.tractorUnit?.chassisNumber || trailer.documents?.registration?.number || '',
+    make: trailer.tractorUnit?.make || '',
+    model: trailer.tractorUnit?.model || '',
+    year: trailer.year ? String(trailer.year) : '',
+    condition: trailer.status === 'maintenance' ? 'Needs Maintenance' : 'Good',
+    features,
+    dailyRate: trailer.rentalSettings?.dailyRate || 0,
+    weeklyRate: trailer.rentalSettings?.weeklyRate || 0,
+    monthlyRate: trailer.rentalSettings?.monthlyRate || 0,
+    status: trailer.status || 'available',
+    location,
+    currentRental: trailer.currentRental,
+    maintenanceHistory: trailer.maintenanceHistory || []
+  };
+};
 
 const TrailerDetailScreen = ({ navigation, route }) => {
-  const { trailer } = route.params || {};
+  const { trailer, trailerId } = route.params || {};
   const [trailerData, setTrailerData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [savingStatus, setSavingStatus] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    // Initialize trailer data with safe defaults
-    const initializeTrailerData = () => {
-      const defaultTrailer = {
-        id: 1,
-        name: 'Flatbed TR-001',
-        type: 'Flatbed',
-        capacity: '10 tonnes',
-        licensePlate: 'ABC1234',
-        vin: '1HGBH41JXMN109186',
-        make: 'Mercedes',
-        model: 'Actros',
-        year: '2022',
-        condition: 'Excellent',
-        features: ['Tarpaulin Cover', 'GPS Tracking', 'ABS Brakes'],
-        dailyRate: 80,
-        weeklyRate: 500,
-        monthlyRate: 1800,
-        status: 'rented',
-        location: 'Bulawayo',
-        currentRental: {
-          id: 1,
-          customer: 'John Transport',
-          startDate: '2024-01-15',
-          endDate: '2024-01-18',
-          totalAmount: 240,
-          contact: '+263 77 123 4567',
-          cargo: 'Construction materials',
-          route: 'Harare to Bulawayo'
-        },
-        maintenanceHistory: [
-          {
-            id: 1,
-            type: 'Routine Service',
-            date: '2024-01-10',
-            cost: 150,
-            workshop: 'Harare Truck Services',
-            nextService: '2024-04-10'
-          }
-        ]
-      };
+    let mounted = true;
 
-      setTrailerData({
-        ...defaultTrailer,
-        ...trailer,
-        features: trailer?.features || defaultTrailer.features,
-        maintenanceHistory: trailer?.maintenanceHistory || defaultTrailer.maintenanceHistory
-      });
-      setLoading(false);
+    const loadTrailer = async () => {
+      const id = trailerId || trailer?._id || trailer?.id;
+      if (!id && trailer) {
+        setTrailerData(normalizeTrailer(trailer));
+        setLoading(false);
+        return;
+      }
+      if (!id) {
+        setError('Trailer record is missing.');
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError('');
+        const response = await apiService.getTrailerById(id);
+        if (!mounted) return;
+        setTrailerData(normalizeTrailer(response.data));
+      } catch (err) {
+        if (!mounted) return;
+        setError(err.message || 'Unable to load trailer details.');
+        setTrailerData(null);
+      } finally {
+        if (mounted) setLoading(false);
+      }
     };
 
-    initializeTrailerData();
-  }, [trailer]);
+    loadTrailer();
+    return () => {
+      mounted = false;
+    };
+  }, [trailer, trailerId]);
 
   if (loading || !trailerData) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <Text>Loading trailer details...</Text>
+          <ActivityIndicator color="#0C2D48" />
+          <Text style={styles.loadingText}>Loading trailer details...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (error || !trailerData) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <MaterialIcons name="error-outline" size={32} color="#dc2626" />
+          <Text style={styles.errorText}>{error || 'Trailer details are unavailable.'}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => navigation.goBack()}>
+            <Text style={styles.retryButtonText}>Go Back</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -87,12 +143,17 @@ const TrailerDetailScreen = ({ navigation, route }) => {
     }
   };
 
-  const updateTrailerStatus = (newStatus) => {
-    setTrailerData(prev => ({
-      ...prev,
-      status: newStatus
-    }));
-    Alert.alert('Status Updated', `Trailer marked as ${newStatus}`);
+  const updateTrailerStatus = async (newStatus) => {
+    try {
+      setSavingStatus(true);
+      const response = await apiService.updateTrailerStatus(trailerData.id, newStatus);
+      setTrailerData(normalizeTrailer(response.data));
+      Alert.alert('Status Updated', `Trailer marked as ${newStatus}`);
+    } catch (err) {
+      Alert.alert('Status Update Failed', err.message || 'Unable to update trailer status.');
+    } finally {
+      setSavingStatus(false);
+    }
   };
 
   const getStatusColor = (status) => {
@@ -159,6 +220,7 @@ const TrailerDetailScreen = ({ navigation, route }) => {
               <TouchableOpacity 
                 style={[styles.actionButton, styles.maintenanceButton]}
                 onPress={() => updateTrailerStatus('maintenance')}
+                disabled={savingStatus}
               >
                 <MaterialIcons name="build" size={20} color="#dc2626" />
                 <Text style={[styles.actionButtonText, { color: '#dc2626' }]}>Mark for Maintenance</Text>
@@ -177,6 +239,7 @@ const TrailerDetailScreen = ({ navigation, route }) => {
               <TouchableOpacity 
                 style={[styles.actionButton, styles.availableButton]}
                 onPress={() => updateTrailerStatus('available')}
+                disabled={savingStatus}
               >
                 <MaterialIcons name="check-circle" size={20} color="#16a34a" />
                 <Text style={[styles.actionButtonText, { color: '#16a34a' }]}>Mark Available</Text>
@@ -184,7 +247,7 @@ const TrailerDetailScreen = ({ navigation, route }) => {
             )}
             <TouchableOpacity 
               style={[styles.actionButton, styles.editButton]}
-              onPress={() => navigateTo('EditTrailer', { trailer: trailerData })}
+              onPress={() => navigateTo('EditTrailer', { trailer: trailerData, trailerId: trailerData.id })}
             >
               <MaterialIcons name="edit" size={20} color="#6b7280" />
               <Text style={[styles.actionButtonText, { color: '#6b7280' }]}>Edit Details</Text>
@@ -353,6 +416,32 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  loadingText: {
+    marginTop: 12,
+    color: '#475569',
+  },
+  errorText: {
+    color: '#991b1b',
+    marginTop: 12,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#0C2D48',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  retryButtonText: {
+    color: 'white',
+    fontWeight: '700',
   },
   content: {
     padding: 16,

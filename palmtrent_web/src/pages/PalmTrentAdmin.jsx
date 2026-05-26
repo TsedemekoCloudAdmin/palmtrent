@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Users, Truck, Package, DollarSign, TrendingUp, TrendingDown,
   AlertCircle, CheckCircle, Clock, MapPin, Star, Settings, Menu,
@@ -6,14 +6,45 @@ import {
   ChevronLeft, ChevronRight, MoreVertical, Phone, Mail, Calendar,
   CreditCard, Building, MessageSquare, FileText, Shield, Check
 } from 'lucide-react';
-import { adminAPI, authAPI } from '../services/api';
+import { adminAPI, authAPI, trackingAPI } from '../services/api';
 import './styles/AdminDashboard.css';
+
+const downloadCsv = (filename, rows) => {
+  const data = rows.length ? rows : [{ message: 'No records available' }];
+  const headers = Object.keys(data[0]);
+  const csv = [
+    headers.join(','),
+    ...data.map(row => headers.map(header => `"${String(row[header] ?? '').replace(/"/g, '""')}"`).join(','))
+  ].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+};
+
+const getPaymentMethodLabel = (method) => {
+  switch (method) {
+    case 'ecocash': return 'EC';
+    case 'onemoney': return 'OM';
+    case 'openapi_africa':
+    case 'clicknpay': return 'CP';
+    case 'bank_transfer': return 'BT';
+    case 'card': return 'CC';
+    case 'cash_agent':
+    case 'cash_on_pickup':
+    case 'cash_on_delivery': return 'CA';
+    default: return 'PM';
+  }
+};
 
 const AdminDashboard = () => {
   const [timeRange, setTimeRange] = useState('today');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [loading, setLoading] = useState(false);
+  const [jobsUserFilter, setJobsUserFilter] = useState(null);
 
   const handleNavClick = (tab) => {
     setActiveTab(tab);
@@ -22,23 +53,27 @@ const AdminDashboard = () => {
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <DashboardView timeRange={timeRange} setTimeRange={setTimeRange} />;
+        return <DashboardView timeRange={timeRange} setTimeRange={setTimeRange} setActiveTab={setActiveTab} />;
       case 'users':
-        return <UsersView />;
+        return <UsersView setActiveTab={setActiveTab} setJobsUserFilter={setJobsUserFilter} />;
       case 'jobs':
-        return <JobsView />;
+        return <JobsView userFilter={jobsUserFilter} clearUserFilter={() => setJobsUserFilter(null)} />;
       case 'payments':
         return <PaymentsView />;
       case 'rentals':
         return <RentalsView />;
+      case 'monetization':
+        return <MonetizationView />;
       case 'disputes':
         return <DisputesView />;
       case 'reviews':
         return <ReviewsView />;
+      case 'support':
+        return <SupportView />;
       case 'settings':
         return <SettingsView />;
       default:
-        return <DashboardView timeRange={timeRange} setTimeRange={setTimeRange} />;
+        return <DashboardView timeRange={timeRange} setTimeRange={setTimeRange} setActiveTab={setActiveTab} />;
     }
   };
 
@@ -100,6 +135,13 @@ const AdminDashboard = () => {
             onClick={() => handleNavClick('rentals')}
           />
           <NavItem
+            icon={<DollarSign />}
+            label="Monetization"
+            active={activeTab === 'monetization'}
+            sidebarOpen={sidebarOpen}
+            onClick={() => handleNavClick('monetization')}
+          />
+          <NavItem
             icon={<AlertCircle />}
             label="Disputes"
             badge="2"
@@ -113,6 +155,13 @@ const AdminDashboard = () => {
             active={activeTab === 'reviews'}
             sidebarOpen={sidebarOpen}
             onClick={() => handleNavClick('reviews')}
+          />
+          <NavItem
+            icon={<MessageSquare />}
+            label="Support"
+            active={activeTab === 'support'}
+            sidebarOpen={sidebarOpen}
+            onClick={() => handleNavClick('support')}
           />
           <NavItem
             icon={<Settings />}
@@ -139,7 +188,7 @@ const AdminDashboard = () => {
 };
 
 // ============ Dashboard View ============
-const DashboardView = ({ timeRange, setTimeRange }) => {
+const DashboardView = ({ timeRange, setTimeRange, setActiveTab }) => {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     today: { revenue: 0, bookings: 0, activeJobs: 0, newUsers: 0, disputes: 0 },
@@ -208,6 +257,23 @@ const DashboardView = ({ timeRange, setTimeRange }) => {
   }, [timeRange]);
 
   const recentActivityData = recentActivity;
+  const exportDashboardReport = () => {
+    downloadCsv(`admin-dashboard-${timeRange}.csv`, [
+      { metric: 'Revenue', value: stats.today.revenue },
+      { metric: 'Bookings', value: stats.today.bookings },
+      { metric: 'Active Jobs', value: stats.today.activeJobs },
+      { metric: 'New Users', value: stats.today.newUsers },
+      { metric: 'Disputes', value: stats.today.disputes }
+    ]);
+  };
+
+  if (loading) {
+    return (
+      <div className="admin-content">
+        <div className="loading-state"><RefreshCw className="icon spinning" /><p>Loading dashboard...</p></div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -228,7 +294,7 @@ const DashboardView = ({ timeRange, setTimeRange }) => {
               <option value="month">This Month</option>
               <option value="year">This Year</option>
             </select>
-            <button className="btn-primary">Export Report</button>
+            <button className="btn-primary" onClick={exportDashboardReport}>Export Report</button>
           </div>
         </div>
       </div>
@@ -245,7 +311,7 @@ const DashboardView = ({ timeRange, setTimeRange }) => {
           <div className="jobs-section">
             <div className="section-header">
               <h3 className="section-title">Active Jobs</h3>
-              <button className="view-all-btn">View All</button>
+              <button className="view-all-btn" onClick={() => setActiveTab('jobs')}>View All</button>
             </div>
             <div className="jobs-list">
               {activeJobs.map((job) => (
@@ -269,7 +335,7 @@ const DashboardView = ({ timeRange, setTimeRange }) => {
 };
 
 // ============ Users View ============
-const UsersView = () => {
+const UsersView = ({ setActiveTab, setJobsUserFilter }) => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -278,15 +344,15 @@ const UsersView = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedUser, setSelectedUser] = useState(null);
   const [showUserModal, setShowUserModal] = useState(false);
+  const [userMessage, setUserMessage] = useState('');
+  const [roleEditUser, setRoleEditUser] = useState(null);
+  const [roleEditValue, setRoleEditValue] = useState('shipper');
   const usersPerPage = 10;
 
-  useEffect(() => {
-    loadUsers();
-  }, []);
-
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
+      setUserMessage('');
       const params = { limit: 50 };
       if (filterType !== 'all') params.role = filterType;
       if (filterStatus !== 'all') params.status = filterStatus;
@@ -304,7 +370,7 @@ const UsersView = () => {
           status: u.status || 'active',
           verified: u.isVerified || false,
           rating: u.rating?.average || 0,
-          totalBookings: 0, // Would need separate query
+          totalBookings: u.totalBookings || 0,
           joinDate: u.createdAt,
           lastActive: u.lastLogin || u.updatedAt
         })));
@@ -312,10 +378,15 @@ const UsersView = () => {
     } catch (error) {
       console.error('Failed to load users:', error);
       setUsers([]);
+      setUserMessage(error.message || 'Unable to load users.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [filterType, filterStatus, searchTerm]);
+
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
 
   const filteredUsers = users.filter(user => {
     const matchesSearch = user.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -350,9 +421,82 @@ const UsersView = () => {
     return <span className={`status-badge ${config.class}`}>{config.label}</span>;
   };
 
-  const handleViewUser = (user) => {
+  const handleViewUser = async (user) => {
     setSelectedUser(user);
     setShowUserModal(true);
+    try {
+      const response = await adminAPI.getUserById(user.id);
+      const details = response.data || {};
+      const totalBookings = (details.bookingStats || []).reduce((sum, item) => sum + Number(item.count || 0), 0);
+      setSelectedUser(current => current?.id === user.id ? {
+        ...current,
+        totalBookings,
+        rating: details.rating?.avgRating || current.rating || 0,
+        totalRatings: details.rating?.totalRatings || 0
+      } : current);
+    } catch (error) {
+      console.error('Unable to load user details:', error);
+    }
+  };
+
+  const openUserBookings = (user) => {
+    setJobsUserFilter({ id: user.id, name: user.fullName });
+    setShowUserModal(false);
+    setSelectedUser(null);
+    setActiveTab('jobs');
+  };
+
+  const exportUsers = () => {
+    downloadCsv('admin-users.csv', filteredUsers.map(user => ({
+      name: user.fullName,
+      email: user.email,
+      phone: user.phone,
+      type: user.userType,
+      status: user.status,
+      verified: user.verified,
+      rating: user.rating,
+      joined: user.joinDate
+    })));
+  };
+
+  const updateSelectedUserStatus = async (status) => {
+    try {
+      await adminAPI.updateUser(selectedUser.id, { status });
+      setShowUserModal(false);
+      setSelectedUser(null);
+      await loadUsers();
+      setUserMessage(`User marked ${status}.`);
+    } catch (error) {
+      setUserMessage(error.message || 'Unable to update user status.');
+    }
+  };
+
+  const editUserRole = (user) => {
+    setRoleEditUser(user);
+    setRoleEditValue(user.userType || 'shipper');
+    setUserMessage('');
+  };
+
+  const saveUserRole = async () => {
+    if (!roleEditUser) return;
+    try {
+      await adminAPI.updateUser(roleEditUser.id, { userType: roleEditValue });
+      await loadUsers();
+      setUserMessage(`${roleEditUser.fullName} role updated to ${roleEditValue}.`);
+      setRoleEditUser(null);
+    } catch (error) {
+      setUserMessage(error.message || 'Unable to update user.');
+    }
+  };
+
+  const updateUserStatus = async (user, status) => {
+    try {
+      await adminAPI.updateUser(user.id, { status });
+      await loadUsers();
+      setUserMessage(`${user.fullName} marked ${status}.`);
+    } catch (error) {
+      setUserMessage(error.message || 'Unable to update user status.');
+    }
   };
 
   return (
@@ -367,7 +511,7 @@ const UsersView = () => {
             <button className="btn-secondary" onClick={loadUsers}>
               <RefreshCw className="icon" /> Refresh
             </button>
-            <button className="btn-primary">
+            <button className="btn-primary" onClick={exportUsers}>
               <Download className="icon" /> Export
             </button>
           </div>
@@ -375,6 +519,12 @@ const UsersView = () => {
       </div>
 
       <div className="admin-content">
+        {userMessage && (
+          <div className="integration-message">
+            <AlertCircle className="icon" />
+            <span>{userMessage}</span>
+          </div>
+        )}
         {/* Filters */}
         <div className="filters-bar">
           <div className="search-box">
@@ -462,15 +612,15 @@ const UsersView = () => {
                         <button className="action-btn" onClick={() => handleViewUser(user)} title="View Details">
                           <Eye className="icon" />
                         </button>
-                        <button className="action-btn" title="Edit">
+                        <button className="action-btn" title="Edit" onClick={() => editUserRole(user)}>
                           <Edit className="icon" />
                         </button>
                         {user.status === 'active' ? (
-                          <button className="action-btn danger" title="Suspend">
+                          <button className="action-btn danger" title="Suspend" onClick={() => updateUserStatus(user, 'suspended')}>
                             <Ban className="icon" />
                           </button>
                         ) : (
-                          <button className="action-btn success" title="Activate">
+                          <button className="action-btn success" title="Activate" onClick={() => updateUserStatus(user, 'active')}>
                             <CheckCircle className="icon" />
                           </button>
                         )}
@@ -575,16 +725,47 @@ const UsersView = () => {
               </div>
 
               <div className="modal-actions">
-                <button className="btn-secondary">View Bookings</button>
-                <button className="btn-secondary">Send Message</button>
+                <button className="btn-secondary" onClick={() => openUserBookings(selectedUser)}>View Bookings</button>
+                <button className="btn-secondary" onClick={() => window.location.href = `mailto:${selectedUser.email}`}>Send Message</button>
                 {selectedUser.status === 'active' ? (
-                  <button className="btn-danger">Suspend Account</button>
+                  <button className="btn-danger" onClick={() => updateSelectedUserStatus('suspended')}>Suspend Account</button>
                 ) : selectedUser.status === 'pending' ? (
-                  <button className="btn-success">Approve Account</button>
+                  <button className="btn-success" onClick={() => updateSelectedUserStatus('active')}>Approve Account</button>
                 ) : (
-                  <button className="btn-success">Reactivate Account</button>
+                  <button className="btn-success" onClick={() => updateSelectedUserStatus('active')}>Reactivate Account</button>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {roleEditUser && (
+        <div className="modal-overlay" onClick={() => setRoleEditUser(null)}>
+          <div className="modal-content user-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Edit User Role</h2>
+              <button className="modal-close" onClick={() => setRoleEditUser(null)}><XCircle className="icon" /></button>
+            </div>
+            <div className="modal-body">
+              <div className="detail-grid">
+                <div><span>User</span><strong>{roleEditUser.fullName}</strong></div>
+                <div><span>Email</span><strong>{roleEditUser.email}</strong></div>
+              </div>
+              <div className="settings-form">
+                <label>Role</label>
+                <select value={roleEditValue} onChange={(event) => setRoleEditValue(event.target.value)}>
+                  <option value="shipper">Shipper</option>
+                  <option value="transporter">Transporter</option>
+                  <option value="corporate">Corporate</option>
+                  <option value="trailer_owner">Trailer Owner</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button className="btn-secondary" onClick={() => setRoleEditUser(null)}>Cancel</button>
+              <button className="btn-primary" onClick={saveUserRole}>Save Role</button>
             </div>
           </div>
         </div>
@@ -594,22 +775,32 @@ const UsersView = () => {
 };
 
 // ============ Jobs View ============
-const JobsView = () => {
+const JobsView = ({ userFilter, clearUserFilter }) => {
   const [jobs, setJobs] = useState([]);
   const [filterStatus, setFilterStatus] = useState('all');
+  const [selectedJob, setSelectedJob] = useState(null);
+  const [trackingDetails, setTrackingDetails] = useState(null);
+  const [trackingLoading, setTrackingLoading] = useState(false);
 
   useEffect(() => {
     const loadJobs = async () => {
       try {
-        const response = await adminAPI.getBookings(filterStatus === 'all' ? { limit: 50 } : { status: filterStatus, limit: 50 });
+        const params = filterStatus === 'all' ? { limit: 50 } : { status: filterStatus, limit: 50 };
+        if (userFilter?.id) params.userId = userFilter.id;
+        const response = await adminAPI.getBookings(params);
         setJobs((response.data || []).map(booking => ({
           id: booking.bookingId || booking.bookingReference || booking._id,
+          dbId: booking._id,
           shipper: booking.shipper?.fullName || booking.shipper?.name || 'N/A',
           transporter: booking.transporter?.fullName || booking.transporter?.name || 'Pending',
-          route: `${booking.pickup?.city || booking.route?.pickup?.city || 'N/A'} - ${booking.delivery?.city || booking.route?.delivery?.city || 'N/A'}`,
+          route: `${booking.pickup?.city || booking.route?.pickup?.city || booking.route?.pickup?.address || 'N/A'} - ${booking.delivery?.city || booking.route?.delivery?.city || booking.route?.delivery?.address || 'N/A'}`,
+          pickup: booking.route?.pickup?.address || booking.pickup?.address || booking.pickup?.city || 'N/A',
+          delivery: booking.route?.delivery?.address || booking.delivery?.address || booking.delivery?.city || 'N/A',
           status: booking.status,
           amount: booking.pricing?.total || booking.pricing?.totals?.total || booking.totalAmount || 0,
-          createdAt: booking.createdAt
+          createdAt: booking.createdAt,
+          cargo: booking.cargoDetails?.description || booking.cargoDetails?.type || 'N/A',
+          paymentStatus: booking.paymentStatus || booking.payment?.status || 'N/A'
         })));
       } catch (error) {
         console.error('Failed to load jobs:', error);
@@ -617,9 +808,26 @@ const JobsView = () => {
       }
     };
     loadJobs();
-  }, [filterStatus]);
+  }, [filterStatus, userFilter]);
 
   const filteredJobs = filterStatus === 'all' ? jobs : jobs.filter(j => j.status === filterStatus);
+  const viewJob = (job) => {
+    setSelectedJob(job);
+    setTrackingDetails(null);
+  };
+  const trackJob = async (job) => {
+    setSelectedJob(job);
+    setTrackingLoading(true);
+    setTrackingDetails(null);
+    try {
+      const response = await trackingAPI.track(job.id);
+      setTrackingDetails(response.data || response);
+    } catch (error) {
+      setTrackingDetails({ error: error.message || 'Unable to load tracking details.' });
+    } finally {
+      setTrackingLoading(false);
+    }
+  };
 
   const getStatusBadge = (status) => {
     const config = {
@@ -640,9 +848,14 @@ const JobsView = () => {
         <div className="topbar-content">
           <div className="topbar-left">
             <h1 className="page-title">Jobs Management</h1>
-            <p className="page-subtitle">{filteredJobs.length} jobs</p>
+            <p className="page-subtitle">{userFilter ? `${filteredJobs.length} job(s) for ${userFilter.name}` : `${filteredJobs.length} jobs`}</p>
           </div>
           <div className="topbar-right">
+            {userFilter && (
+              <button className="btn-secondary" onClick={clearUserFilter}>
+                <XCircle className="icon" /> Clear User
+              </button>
+            )}
             <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="filter-select">
               <option value="all">All Status</option>
               <option value="pending">Pending</option>
@@ -655,6 +868,43 @@ const JobsView = () => {
       </div>
 
       <div className="admin-content">
+        {selectedJob && (
+          <div className="settings-section admin-job-detail-panel">
+            <div className="settings-section-header">
+              <div>
+                <h3>{selectedJob.id}</h3>
+                <p>{selectedJob.route}</p>
+              </div>
+              <button className="btn-secondary" onClick={() => { setSelectedJob(null); setTrackingDetails(null); }}>
+                <XCircle className="icon" /> Close
+              </button>
+            </div>
+            <div className="user-details-grid">
+              <div className="detail-item"><Package className="icon" /><div><label>Status</label><p>{selectedJob.status?.replace(/_/g, ' ')}</p></div></div>
+              <div className="detail-item"><DollarSign className="icon" /><div><label>Amount</label><p>${Number(selectedJob.amount || 0).toLocaleString()}</p></div></div>
+              <div className="detail-item"><Users className="icon" /><div><label>Shipper</label><p>{selectedJob.shipper}</p></div></div>
+              <div className="detail-item"><Truck className="icon" /><div><label>Transporter</label><p>{selectedJob.transporter}</p></div></div>
+              <div className="detail-item"><MapPin className="icon" /><div><label>Pickup</label><p>{selectedJob.pickup}</p></div></div>
+              <div className="detail-item"><MapPin className="icon" /><div><label>Delivery</label><p>{selectedJob.delivery}</p></div></div>
+            </div>
+            {trackingLoading && <div className="settings-empty">Loading tracking details...</div>}
+            {trackingDetails && (
+              <div className="admin-tracking-panel">
+                {trackingDetails.error ? (
+                  <p className="integration-message">{trackingDetails.error}</p>
+                ) : (
+                  <>
+                    <h4>Live Tracking</h4>
+                    <div className="detail-row"><label>Reference</label><span>{trackingDetails.reference || selectedJob.id}</span></div>
+                    <div className="detail-row"><label>Current Status</label><span>{trackingDetails.status?.replace(/_/g, ' ') || selectedJob.status}</span></div>
+                    <div className="detail-row"><label>Current Location</label><span>{trackingDetails.currentLocation?.address || 'Location not reported yet'}</span></div>
+                    <div className="detail-row"><label>Tracking Events</label><span>{trackingDetails.tracking?.length || 0}</span></div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         <div className="data-table-container">
           <table className="data-table">
             <thead>
@@ -681,8 +931,8 @@ const JobsView = () => {
                   <td>{new Date(job.createdAt).toLocaleDateString()}</td>
                   <td>
                     <div className="action-buttons">
-                      <button className="action-btn" title="View Details"><Eye className="icon" /></button>
-                      <button className="action-btn" title="Track"><MapPin className="icon" /></button>
+                      <button className="action-btn" title="View Details" onClick={() => viewJob(job)}><Eye className="icon" /></button>
+                      <button className="action-btn" title="Track" onClick={() => trackJob(job)}><MapPin className="icon" /></button>
                     </div>
                   </td>
                 </tr>
@@ -722,6 +972,7 @@ const RentalsView = () => {
   const pendingCount = rentals.filter(rental => ['pending', 'approved', 'payment_pending'].includes(rental.status)).length;
   const activeCount = rentals.filter(rental => ['confirmed', 'active'].includes(rental.status)).length;
   const settledCount = rentals.filter(rental => rental.settlement?.status === 'settled').length;
+
   const getStatusBadge = (status) => {
     const normalized = status || 'pending';
     return <span className={`status-badge status-${normalized.replace(/_/g, '-')}`}>{normalized.replace(/_/g, ' ')}</span>;
@@ -801,6 +1052,7 @@ const RentalsView = () => {
           )}
         </div>
       </div>
+
     </>
   );
 };
@@ -810,31 +1062,34 @@ const PaymentsView = () => {
   const [payments, setPayments] = useState([]);
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterMethod, setFilterMethod] = useState('all');
-  const [dateRange, setDateRange] = useState('all');
+  const [paymentMessage, setPaymentMessage] = useState('');
+  const [selectedPayment, setSelectedPayment] = useState(null);
+
+  const loadPayments = useCallback(async () => {
+    try {
+      const params = { limit: 50 };
+      if (filterStatus !== 'all') params.status = filterStatus;
+      if (filterMethod !== 'all') params.method = filterMethod;
+      const response = await adminAPI.getPayments(params);
+      setPayments((response.data || []).map(payment => ({
+        id: payment.paymentReference || payment._id,
+        dbId: payment._id,
+        bookingRef: payment.booking?.bookingReference || payment.booking?.bookingId || payment.rental?.rentalReference || 'N/A',
+        payer: payment.customer?.email || payment.booking?.user?.email || payment.user?.fullName || 'N/A',
+        amount: Number(payment.amount || 0),
+        method: payment.paymentMethod || payment.method || payment.gateway || 'N/A',
+        status: payment.status || 'pending',
+        date: payment.createdAt
+      })));
+    } catch (error) {
+      console.error('Failed to load payments:', error);
+      setPayments([]);
+    }
+  }, [filterStatus, filterMethod]);
 
   useEffect(() => {
-    const loadPayments = async () => {
-      try {
-        const params = { limit: 50 };
-        if (filterStatus !== 'all') params.status = filterStatus;
-        if (filterMethod !== 'all') params.method = filterMethod;
-        const response = await adminAPI.getPayments(params);
-        setPayments((response.data || []).map(payment => ({
-          id: payment.paymentReference || payment._id,
-          bookingRef: payment.booking?.bookingReference || payment.booking?.bookingId || payment.rental?.rentalReference || 'N/A',
-          payer: payment.customer?.email || payment.user?.fullName || 'N/A',
-          amount: Number(payment.amount || 0),
-          method: payment.paymentMethod || payment.method || payment.gateway || 'N/A',
-          status: payment.status || 'pending',
-          date: payment.createdAt
-        })));
-      } catch (error) {
-        console.error('Failed to load payments:', error);
-        setPayments([]);
-      }
-    };
     loadPayments();
-  }, [filterStatus, filterMethod]);
+  }, [loadPayments]);
 
   const filteredPayments = payments.filter(p => {
     const matchesStatus = filterStatus === 'all' || p.status === filterStatus;
@@ -842,10 +1097,37 @@ const PaymentsView = () => {
     return matchesStatus && matchesMethod;
   });
 
-  const totalRevenue = filteredPayments.filter(p => p.status === 'completed').reduce((sum, p) => sum + p.amount, 0);
+  const isCompletedPayment = (status) => ['completed', 'confirmed'].includes(status);
+  const canAdminConfirmPayment = (status) => ['pending', 'initiated', 'processing'].includes(status);
+  const totalRevenue = filteredPayments.filter(p => isCompletedPayment(p.status)).reduce((sum, p) => sum + p.amount, 0);
   const pendingAmount = filteredPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
+  const exportPayments = () => {
+    downloadCsv('admin-payments.csv', filteredPayments.map(payment => ({
+      paymentId: payment.id,
+      booking: payment.bookingRef,
+      payer: payment.payer,
+      method: payment.method,
+      amount: payment.amount,
+      status: payment.status,
+      date: payment.date
+    })));
+  };
+  const viewPayment = (payment) => setSelectedPayment(payment);
+  const downloadReceipt = (payment) => {
+    downloadCsv(`receipt-${payment.id}.csv`, [payment]);
+  };
+  const confirmPayment = async (payment) => {
+    try {
+      setPaymentMessage('');
+      await adminAPI.confirmPayment(payment.dbId, 'Confirmed from admin payments screen');
+      await loadPayments();
+      setPaymentMessage(`Payment ${payment.id} confirmed.`);
+    } catch (error) {
+      setPaymentMessage(error.message || 'Unable to confirm payment.');
+    }
+  };
 
-  const getPaymentMethodIcon = (method) => {
+  const _getPaymentMethodIcon = (method) => {
     switch (method) {
       case 'ecocash': return '📱';
       case 'openapi_africa': return '💵';
@@ -858,8 +1140,12 @@ const PaymentsView = () => {
   const getStatusBadge = (status) => {
     const config = {
       completed: { class: 'status-completed', label: 'Completed' },
+      confirmed: { class: 'status-completed', label: 'Confirmed' },
       pending: { class: 'status-pending', label: 'Pending' },
+      initiated: { class: 'status-pending', label: 'Initiated' },
+      processing: { class: 'status-pending', label: 'Processing' },
       failed: { class: 'status-failed', label: 'Failed' },
+      cancelled: { class: 'status-failed', label: 'Cancelled' },
       refunded: { class: 'status-refunded', label: 'Refunded' }
     };
     const c = config[status] || config.pending;
@@ -875,7 +1161,7 @@ const PaymentsView = () => {
             <p className="page-subtitle">Manage all platform transactions</p>
           </div>
           <div className="topbar-right">
-            <button className="btn-secondary">
+            <button className="btn-secondary" onClick={exportPayments}>
               <Download className="icon" /> Export
             </button>
           </div>
@@ -883,11 +1169,17 @@ const PaymentsView = () => {
       </div>
 
       <div className="admin-content">
+        {paymentMessage && (
+          <div className="integration-message">
+            <AlertCircle className="icon" />
+            <span>{paymentMessage}</span>
+          </div>
+        )}
         {/* Payment Stats */}
         <div className="stats-grid stats-grid-4">
           <StatCard title="Total Revenue" value={`$${totalRevenue.toLocaleString()}`} icon={<DollarSign className="icon" />} color="success" />
           <StatCard title="Pending Payments" value={`$${pendingAmount.toLocaleString()}`} icon={<Clock className="icon" />} color="accent" />
-          <StatCard title="Completed" value={filteredPayments.filter(p => p.status === 'completed').length} icon={<CheckCircle className="icon" />} color="primary" />
+          <StatCard title="Completed" value={filteredPayments.filter(p => isCompletedPayment(p.status)).length} icon={<CheckCircle className="icon" />} color="primary" />
           <StatCard title="Failed" value={filteredPayments.filter(p => p.status === 'failed').length} icon={<XCircle className="icon" />} color="error" />
         </div>
 
@@ -895,15 +1187,21 @@ const PaymentsView = () => {
         <div className="filters-bar">
           <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="filter-select">
             <option value="all">All Status</option>
+            <option value="confirmed">Confirmed</option>
             <option value="completed">Completed</option>
             <option value="pending">Pending</option>
+            <option value="initiated">Initiated</option>
+            <option value="processing">Processing</option>
             <option value="failed">Failed</option>
+            <option value="cancelled">Cancelled</option>
             <option value="refunded">Refunded</option>
           </select>
           <select value={filterMethod} onChange={(e) => setFilterMethod(e.target.value)} className="filter-select">
             <option value="all">All Methods</option>
             <option value="ecocash">EcoCash</option>
+            <option value="onemoney">OneMoney</option>
             <option value="openapi_africa">OpenAPI Africa</option>
+            <option value="clicknpay">ClicknPay</option>
             <option value="bank_transfer">Bank Transfer</option>
             <option value="card">Card</option>
           </select>
@@ -932,7 +1230,7 @@ const PaymentsView = () => {
                   <td>{payment.payer}</td>
                   <td>
                     <div className="payment-method">
-                      <span className="method-icon">{getPaymentMethodIcon(payment.method)}</span>
+                      <span className="method-icon">{getPaymentMethodLabel(payment.method)}</span>
                       <span>{payment.method.replace('_', ' ')}</span>
                     </div>
                   </td>
@@ -941,10 +1239,10 @@ const PaymentsView = () => {
                   <td>{new Date(payment.date).toLocaleString()}</td>
                   <td>
                     <div className="action-buttons">
-                      <button className="action-btn" title="View Details"><Eye className="icon" /></button>
-                      <button className="action-btn" title="Receipt"><FileText className="icon" /></button>
-                      {payment.status === 'pending' && (
-                        <button className="action-btn success" title="Confirm"><CheckCircle className="icon" /></button>
+                      <button className="action-btn" title="View Details" onClick={() => viewPayment(payment)}><Eye className="icon" /></button>
+                      <button className="action-btn" title="Receipt" onClick={() => downloadReceipt(payment)}><FileText className="icon" /></button>
+                      {canAdminConfirmPayment(payment.status) && (
+                        <button className="action-btn success" title="Confirm" onClick={() => confirmPayment(payment)}><CheckCircle className="icon" /></button>
                       )}
                     </div>
                   </td>
@@ -954,6 +1252,35 @@ const PaymentsView = () => {
           </table>
         </div>
       </div>
+
+      {selectedPayment && (
+        <div className="modal-overlay" onClick={() => setSelectedPayment(null)}>
+          <div className="modal-content payment-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Payment Details</h2>
+              <button className="modal-close" onClick={() => setSelectedPayment(null)}>
+                <XCircle className="icon" />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="detail-grid">
+                <div><span>Payment</span><strong>{selectedPayment.id}</strong></div>
+                <div><span>Booking</span><strong>{selectedPayment.bookingRef}</strong></div>
+                <div><span>Payer</span><strong>{selectedPayment.payer}</strong></div>
+                <div><span>Method</span><strong>{selectedPayment.method.replace(/_/g, ' ')}</strong></div>
+                <div><span>Amount</span><strong>${selectedPayment.amount.toFixed(2)}</strong></div>
+                <div><span>Status</span><strong>{selectedPayment.status}</strong></div>
+                <div><span>Date</span><strong>{new Date(selectedPayment.date).toLocaleString()}</strong></div>
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button className="btn-secondary" onClick={() => downloadReceipt(selectedPayment)}><FileText className="icon" /> Receipt</button>
+              <button className="btn-primary" onClick={() => setSelectedPayment(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </>
   );
 };
@@ -964,33 +1291,37 @@ const DisputesView = () => {
   const [filterStatus, setFilterStatus] = useState('all');
   const [selectedDispute, setSelectedDispute] = useState(null);
   const [showDisputeModal, setShowDisputeModal] = useState(false);
+  const [resolutionText, setResolutionText] = useState('');
+  const [disputeMessage, setDisputeMessage] = useState('');
+
+  const loadDisputes = useCallback(async () => {
+    try {
+      const response = await adminAPI.getDisputes(filterStatus === 'all' ? {} : { status: filterStatus });
+      setDisputes((response.data || []).map(booking => ({
+        id: booking.dispute?._id || booking._id,
+        bookingId: booking._id,
+        bookingRef: booking.bookingReference || booking.bookingId || booking._id,
+        complainant: booking.dispute?.raisedBy?.fullName || booking.shipper?.fullName || booking.shipper?.name || 'N/A',
+        complainantType: booking.dispute?.raisedByRole || 'shipper',
+        respondent: booking.transporter?.fullName || booking.transporter?.name || 'N/A',
+        type: booking.dispute?.type || booking.dispute?.reason || 'dispute',
+        status: booking.dispute?.status || 'open',
+        priority: booking.dispute?.priority || 'medium',
+        amount: Number(booking.dispute?.claimAmount || booking.dispute?.refundAmount || 0),
+        description: booking.dispute?.description || booking.dispute?.notes || '',
+        resolution: booking.dispute?.resolution,
+        createdAt: booking.dispute?.createdAt || booking.updatedAt
+      })));
+    } catch (error) {
+      console.error('Failed to load disputes:', error);
+      setDisputes([]);
+      setDisputeMessage(error.message || 'Unable to load disputes.');
+    }
+  }, [filterStatus]);
 
   useEffect(() => {
-    const loadDisputes = async () => {
-      try {
-        const response = await adminAPI.getDisputes(filterStatus === 'all' ? {} : { status: filterStatus });
-        setDisputes((response.data || []).map(booking => ({
-          id: booking.dispute?._id || booking._id,
-          bookingId: booking._id,
-          bookingRef: booking.bookingReference || booking.bookingId || booking._id,
-          complainant: booking.dispute?.raisedBy?.fullName || booking.shipper?.fullName || booking.shipper?.name || 'N/A',
-          complainantType: booking.dispute?.raisedByRole || 'shipper',
-          respondent: booking.transporter?.fullName || booking.transporter?.name || 'N/A',
-          type: booking.dispute?.type || booking.dispute?.reason || 'dispute',
-          status: booking.dispute?.status || 'open',
-          priority: booking.dispute?.priority || 'medium',
-          amount: Number(booking.dispute?.claimAmount || booking.dispute?.refundAmount || 0),
-          description: booking.dispute?.description || booking.dispute?.notes || '',
-          resolution: booking.dispute?.resolution,
-          createdAt: booking.dispute?.createdAt || booking.updatedAt
-        })));
-      } catch (error) {
-        console.error('Failed to load disputes:', error);
-        setDisputes([]);
-      }
-    };
     loadDisputes();
-  }, [filterStatus]);
+  }, [loadDisputes]);
 
   const filteredDisputes = filterStatus === 'all' ? disputes : disputes.filter(d => d.status === filterStatus);
 
@@ -1017,7 +1348,28 @@ const DisputesView = () => {
 
   const handleViewDispute = (dispute) => {
     setSelectedDispute(dispute);
+    setResolutionText(dispute.resolution || '');
+    setDisputeMessage('');
     setShowDisputeModal(true);
+  };
+
+  const handleResolveDispute = async (dispute = selectedDispute) => {
+    const resolution = resolutionText.trim();
+    if (!resolution) {
+      setDisputeMessage('Resolution details are required before closing a dispute.');
+      return;
+    }
+    if (!resolution || !dispute) return;
+    try {
+      await adminAPI.resolveDispute(dispute.bookingId || dispute.id, { resolution, status: 'resolved' });
+      setShowDisputeModal(false);
+      setSelectedDispute(null);
+      setResolutionText('');
+      await loadDisputes();
+      setDisputeMessage(`Dispute ${dispute.bookingRef || dispute.id} resolved.`);
+    } catch (error) {
+      setDisputeMessage(error.message || 'Unable to resolve dispute.');
+    }
   };
 
   return (
@@ -1040,6 +1392,12 @@ const DisputesView = () => {
       </div>
 
       <div className="admin-content">
+        {disputeMessage && (
+          <div className="integration-message">
+            <AlertCircle className="icon" />
+            <span>{disputeMessage}</span>
+          </div>
+        )}
         {/* Disputes Stats */}
         <div className="stats-grid stats-grid-4">
           <StatCard title="Open" value={disputes.filter(d => d.status === 'open').length} icon={<AlertCircle className="icon" />} color="error" />
@@ -1107,10 +1465,10 @@ const DisputesView = () => {
                 </button>
                 {dispute.status !== 'resolved' && (
                   <>
-                    <button className="btn-secondary">
+                    <button className="btn-secondary" onClick={() => window.location.href = `mailto:?subject=Dispute ${dispute.id}&body=Booking ${dispute.bookingRef}`}>
                       <MessageSquare className="icon" /> Contact Parties
                     </button>
-                    <button className="btn-primary">
+                    <button className="btn-primary" onClick={() => handleViewDispute(dispute)}>
                       Resolve
                     </button>
                   </>
@@ -1154,7 +1512,7 @@ const DisputesView = () => {
               {selectedDispute.status !== 'resolved' && (
                 <div className="resolution-form">
                   <h3>Resolution</h3>
-                  <textarea placeholder="Enter resolution details..." rows={4}></textarea>
+                  <textarea placeholder="Enter resolution details..." rows={4} value={resolutionText} onChange={e => setResolutionText(e.target.value)}></textarea>
                   <div className="resolution-options">
                     <label>
                       <input type="radio" name="resolution" value="favor_complainant" />
@@ -1179,13 +1537,335 @@ const DisputesView = () => {
               <div className="modal-actions">
                 <button className="btn-secondary" onClick={() => setShowDisputeModal(false)}>Cancel</button>
                 {selectedDispute.status !== 'resolved' && (
-                  <button className="btn-primary">Submit Resolution</button>
+                  <button className="btn-primary" onClick={() => handleResolveDispute(selectedDispute)}>Submit Resolution</button>
                 )}
               </div>
             </div>
           </div>
         </div>
       )}
+    </>
+  );
+};
+
+// ============ Monetization View ============
+const MonetizationView = () => {
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState({
+    plans: [],
+    commissionRules: [],
+    subscriptions: [],
+    ledgerSummary: [],
+    payouts: []
+  });
+  const [monetizationMessage, setMonetizationMessage] = useState('');
+  const [planForm, setPlanForm] = useState({
+    code: 'transporter_custom',
+    name: 'Transporter Custom',
+    audience: 'transporter',
+    price: 25,
+    billingCycle: 'monthly',
+    trialDays: 0,
+    active: true
+  });
+  const [ruleForm, setRuleForm] = useState({
+    code: 'shipment_custom',
+    name: 'Shipment Custom Rule',
+    target: 'shipment',
+    audience: 'all',
+    paymentMethod: 'all',
+    platformFeeRate: 0.12,
+    transporterCommissionRate: 0.15,
+    rentalCommissionRate: 0.10,
+    minimumFee: 5,
+    priority: 50,
+    enabled: true
+  });
+
+  const loadMonetization = async () => {
+    setLoading(true);
+    try {
+      setMonetizationMessage('');
+      const response = await adminAPI.getMonetization();
+      setData(response.data || {});
+    } catch (error) {
+      setMonetizationMessage(error.message || 'Unable to load monetization settings.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadMonetization();
+  }, []);
+
+  const updatePlanField = (field, value) => setPlanForm(form => ({ ...form, [field]: value }));
+  const updateRuleField = (field, value) => setRuleForm(form => ({ ...form, [field]: value }));
+
+  const savePlan = async () => {
+    try {
+      await adminAPI.savePlan({
+        ...planForm,
+        price: Number(planForm.price),
+        trialDays: Number(planForm.trialDays),
+        limits: {
+          vehicles: Number(planForm.vehicles || 1),
+          drivers: Number(planForm.drivers || 1),
+          fleetAssets: Number(planForm.fleetAssets || 1),
+          corporateSeats: Number(planForm.corporateSeats || 1),
+          monthlyBookings: Number(planForm.monthlyBookings || 25),
+          apiAccess: Boolean(planForm.apiAccess),
+          priorityMatching: Boolean(planForm.priorityMatching)
+        }
+      });
+      await loadMonetization();
+      setMonetizationMessage('Plan saved.');
+    } catch (error) {
+      setMonetizationMessage(error.message || 'Unable to save plan.');
+    }
+  };
+
+  const saveCommissionRule = async () => {
+    try {
+      await adminAPI.saveCommissionRule({
+        ...ruleForm,
+        platformFeeRate: Number(ruleForm.platformFeeRate),
+        transporterCommissionRate: Number(ruleForm.transporterCommissionRate),
+        rentalCommissionRate: Number(ruleForm.rentalCommissionRate),
+        minimumFee: Number(ruleForm.minimumFee),
+        priority: Number(ruleForm.priority)
+      });
+      await loadMonetization();
+      setMonetizationMessage('Commission rule saved.');
+    } catch (error) {
+      setMonetizationMessage(error.message || 'Unable to save commission rule.');
+    }
+  };
+
+  const togglePlan = async (plan) => {
+    await adminAPI.updatePlan(plan._id, { active: !plan.active });
+    await loadMonetization();
+  };
+
+  const toggleRule = async (rule) => {
+    await adminAPI.updateCommissionRule(rule._id, { enabled: !rule.enabled });
+    await loadMonetization();
+  };
+
+  const updateSubscriptionStatus = async (subscription, status) => {
+    await adminAPI.updateSubscription(subscription._id, { status });
+    await loadMonetization();
+  };
+
+  const markSubscriptionPaid = async (subscription) => {
+    await adminAPI.updateSubscription(subscription._id, {
+      status: 'active',
+      payment: {
+        ...(subscription.payment || {}),
+        status: 'paid',
+        paidAt: new Date().toISOString(),
+        reference: subscription.payment?.reference || `ADMIN-${Date.now()}`
+      }
+    });
+    await loadMonetization();
+  };
+
+  const updatePayoutStatus = async (payout, status) => {
+    await adminAPI.updatePayout(payout._id, { status });
+    await loadMonetization();
+  };
+
+  const ledgerTotals = (data.ledgerSummary || []).reduce((acc, item) => {
+    const key = `${item._id.direction}_${item._id.category}`;
+    acc[key] = item.total;
+    return acc;
+  }, {});
+
+  if (loading) {
+    return (
+      <div className="admin-content">
+        <div className="loading-state"><RefreshCw className="icon spinning" /><p>Loading monetization...</p></div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="admin-topbar">
+        <div className="topbar-content">
+          <div className="topbar-left">
+            <h1 className="page-title">Monetization</h1>
+            <p className="page-subtitle">Manage platform plans, subscriptions, commissions, ledger and payouts</p>
+          </div>
+          <div className="topbar-right">
+            <button className="btn-secondary" onClick={loadMonetization}><RefreshCw className="icon" /> Refresh</button>
+          </div>
+        </div>
+      </div>
+
+      <div className="admin-content">
+        {monetizationMessage && (
+          <div className="integration-message">
+            <AlertCircle className="icon" />
+            <span>{monetizationMessage}</span>
+          </div>
+        )}
+        <div className="stats-grid stats-grid-4">
+          <StatCard title="Platform Fees" value={`$${Number(ledgerTotals.credit_platform_fee || 0).toLocaleString()}`} icon={<DollarSign className="icon" />} color="success" />
+          <StatCard title="Commissions" value={`$${Number(ledgerTotals.credit_commission || 0).toLocaleString()}`} icon={<TrendingUp className="icon" />} color="primary" />
+          <StatCard title="Subscriptions" value={`$${Number(ledgerTotals.credit_subscription_fee || 0).toLocaleString()}`} icon={<CreditCard className="icon" />} color="accent" />
+          <StatCard title="Payouts" value={`$${Number(ledgerTotals.debit_payout || 0).toLocaleString()}`} icon={<Truck className="icon" />} color="secondary" />
+        </div>
+
+        <div className="settings-grid">
+          <div className="settings-card">
+            <h3>Plan Builder</h3>
+            <div className="settings-form">
+              <input value={planForm.code} onChange={e => updatePlanField('code', e.target.value)} placeholder="plan_code" />
+              <input value={planForm.name} onChange={e => updatePlanField('name', e.target.value)} placeholder="Plan name" />
+              <select value={planForm.audience} onChange={e => updatePlanField('audience', e.target.value)}>
+                <option value="transporter">Transporter</option>
+                <option value="trailer_owner">Trailer Owner</option>
+                <option value="corporate">Corporate</option>
+                <option value="shipper">Shipper</option>
+              </select>
+              <select value={planForm.billingCycle} onChange={e => updatePlanField('billingCycle', e.target.value)}>
+                <option value="monthly">Monthly</option>
+                <option value="quarterly">Quarterly</option>
+                <option value="annual">Annual</option>
+              </select>
+              <input type="number" value={planForm.price} onChange={e => updatePlanField('price', e.target.value)} placeholder="Monthly fee" />
+              <input type="number" value={planForm.trialDays} onChange={e => updatePlanField('trialDays', e.target.value)} placeholder="Trial days" />
+              <input type="number" value={planForm.vehicles || ''} onChange={e => updatePlanField('vehicles', e.target.value)} placeholder="Vehicle limit" />
+              <input type="number" value={planForm.fleetAssets || ''} onChange={e => updatePlanField('fleetAssets', e.target.value)} placeholder="Fleet asset limit" />
+              <button className="btn-primary" onClick={savePlan}>Save Plan</button>
+            </div>
+          </div>
+
+          <div className="settings-card">
+            <h3>Commission Rule Builder</h3>
+            <div className="settings-form">
+              <input value={ruleForm.code} onChange={e => updateRuleField('code', e.target.value)} placeholder="rule_code" />
+              <input value={ruleForm.name} onChange={e => updateRuleField('name', e.target.value)} placeholder="Rule name" />
+              <select value={ruleForm.target} onChange={e => updateRuleField('target', e.target.value)}>
+                <option value="shipment">Shipment</option>
+                <option value="rental">Rental</option>
+                <option value="subscription">Subscription</option>
+              </select>
+              <select value={ruleForm.audience} onChange={e => updateRuleField('audience', e.target.value)}>
+                <option value="all">All</option>
+                <option value="shipper">Shipper</option>
+                <option value="transporter">Transporter</option>
+                <option value="trailer_owner">Trailer Owner</option>
+                <option value="corporate">Corporate</option>
+              </select>
+              <input value={ruleForm.paymentMethod} onChange={e => updateRuleField('paymentMethod', e.target.value)} placeholder="all/openapi_africa/cash_on_delivery" />
+              <input type="number" step="0.01" value={ruleForm.platformFeeRate} onChange={e => updateRuleField('platformFeeRate', e.target.value)} placeholder="Platform fee rate" />
+              <input type="number" step="0.01" value={ruleForm.transporterCommissionRate} onChange={e => updateRuleField('transporterCommissionRate', e.target.value)} placeholder="Transporter commission rate" />
+              <input type="number" step="0.01" value={ruleForm.rentalCommissionRate} onChange={e => updateRuleField('rentalCommissionRate', e.target.value)} placeholder="Rental commission rate" />
+              <input type="number" value={ruleForm.minimumFee} onChange={e => updateRuleField('minimumFee', e.target.value)} placeholder="Minimum fee" />
+              <button className="btn-primary" onClick={saveCommissionRule}>Save Commission Rule</button>
+            </div>
+          </div>
+        </div>
+
+        <div className="data-table-container">
+          <h3>Plans</h3>
+          <table className="data-table">
+            <thead><tr><th>Plan</th><th>Audience</th><th>Price</th><th>Cycle</th><th>Limits</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>
+              {(data.plans || []).map(plan => (
+                <tr key={plan._id}>
+                  <td>{plan.name}<br /><span className="booking-ref">{plan.code}</span></td>
+                  <td>{plan.audience}</td>
+                  <td>${plan.price}</td>
+                  <td>{plan.billingCycle}</td>
+                  <td>{plan.limits?.vehicles || 0} vehicles / {plan.limits?.fleetAssets || 0} assets / {plan.limits?.corporateSeats || 0} seats</td>
+                  <td>{plan.active ? 'Active' : 'Inactive'}</td>
+                  <td><button className="btn-secondary" onClick={() => togglePlan(plan)}>{plan.active ? 'Disable' : 'Enable'}</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="data-table-container">
+          <h3>Commission Rules</h3>
+          <table className="data-table">
+            <thead><tr><th>Rule</th><th>Target</th><th>Audience</th><th>Payment</th><th>Platform</th><th>Transporter</th><th>Rental</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>
+              {(data.commissionRules || []).map(rule => (
+                <tr key={rule._id}>
+                  <td>{rule.name}<br /><span className="booking-ref">{rule.code}</span></td>
+                  <td>{rule.target}</td>
+                  <td>{rule.audience}</td>
+                  <td>{rule.paymentMethod}</td>
+                  <td>{Number(rule.platformFeeRate * 100).toFixed(1)}%</td>
+                  <td>{Number(rule.transporterCommissionRate * 100).toFixed(1)}%</td>
+                  <td>{Number(rule.rentalCommissionRate * 100).toFixed(1)}%</td>
+                  <td>{rule.enabled ? 'Enabled' : 'Disabled'}</td>
+                  <td><button className="btn-secondary" onClick={() => toggleRule(rule)}>{rule.enabled ? 'Disable' : 'Enable'}</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="data-table-container">
+          <h3>Subscriptions</h3>
+          <table className="data-table">
+            <thead><tr><th>User</th><th>Plan</th><th>Status</th><th>Payment</th><th>Amount</th><th>Next Billing</th><th>Actions</th></tr></thead>
+            <tbody>
+              {(data.subscriptions || []).map(subscription => (
+                <tr key={subscription._id}>
+                  <td>{subscription.user?.fullName || subscription.user?.email || 'N/A'}</td>
+                  <td>{subscription.plan?.name || 'N/A'}</td>
+                  <td>{subscription.status}</td>
+                  <td>{subscription.payment?.status || 'pending'}</td>
+                  <td>${subscription.amount}</td>
+                  <td>{subscription.nextBillingAt ? new Date(subscription.nextBillingAt).toLocaleDateString() : 'N/A'}</td>
+                  <td>
+                    {subscription.payment?.status !== 'paid' && (
+                      <button className="btn-success" onClick={() => markSubscriptionPaid(subscription)}>Mark Paid</button>
+                    )}
+                    <button className="btn-secondary" onClick={() => updateSubscriptionStatus(subscription, 'active')}>Activate</button>
+                    <button className="btn-danger" onClick={() => updateSubscriptionStatus(subscription, 'suspended')}>Suspend</button>
+                  </td>
+                </tr>
+              ))}
+              {!(data.subscriptions || []).length && <tr><td colSpan="7">No subscriptions yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="data-table-container">
+          <h3>Payouts</h3>
+          <table className="data-table">
+            <thead><tr><th>Reference</th><th>Recipient</th><th>Source</th><th>Amount</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>
+              {(data.payouts || []).map(payout => (
+                <tr key={payout._id}>
+                  <td>{payout.payoutReference}</td>
+                  <td>{payout.recipient?.fullName || payout.recipient?.email || 'N/A'}</td>
+                  <td>{payout.sourceType}</td>
+                  <td>${payout.amount}</td>
+                  <td>{payout.status}</td>
+                  <td>
+                    {payout.status === 'pending' && (
+                      <button className="btn-secondary" onClick={() => updatePayoutStatus(payout, 'approved')}>Approve</button>
+                    )}
+                    {['approved', 'processing'].includes(payout.status) && (
+                      <button className="btn-success" onClick={() => updatePayoutStatus(payout, 'paid')}>Mark Paid</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {!(data.payouts || []).length && <tr><td colSpan="6">No payouts yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
     </>
   );
 };
@@ -1300,6 +1980,222 @@ const INTEGRATION_FIELDS = {
   ]
 };
 
+// ============ Support View ============
+const SupportView = () => {
+  const [tickets, setTickets] = useState([]);
+  const [filterStatus, setFilterStatus] = useState('open');
+  const [selectedTicket, setSelectedTicket] = useState(null);
+  const [replyText, setReplyText] = useState('');
+  const [message, setMessage] = useState('');
+
+  const loadTickets = useCallback(async () => {
+    try {
+      const response = await adminAPI.getSupportTickets(filterStatus === 'all' ? {} : { status: filterStatus });
+      setTickets(response.data || []);
+    } catch (error) {
+      setMessage(error.message || 'Unable to load support tickets.');
+      setTickets([]);
+    }
+  }, [filterStatus]);
+
+  useEffect(() => {
+    loadTickets();
+  }, [loadTickets]);
+
+  const updateTicketStatus = async (ticket, status) => {
+    try {
+      await adminAPI.updateSupportTicket(ticket._id, { status });
+      setMessage(`Ticket ${ticket.ticketReference} marked ${status}.`);
+      await loadTickets();
+      if (selectedTicket?._id === ticket._id) {
+        setSelectedTicket(prev => prev ? { ...prev, status } : prev);
+      }
+    } catch (error) {
+      setMessage(error.message || 'Unable to update ticket.');
+    }
+  };
+
+  const sendReply = async () => {
+    if (!selectedTicket || !replyText.trim()) return;
+    try {
+      const response = await adminAPI.replyToSupportTicket(selectedTicket._id, replyText.trim());
+      setSelectedTicket(response.data);
+      setReplyText('');
+      setMessage(`Reply added to ${selectedTicket.ticketReference}.`);
+      await loadTickets();
+    } catch (error) {
+      setMessage(error.message || 'Unable to add reply.');
+    }
+  };
+
+  const statusBadge = (status) => {
+    const config = {
+      open: { class: 'status-open', label: 'Open' },
+      pending: { class: 'status-pending', label: 'Pending' },
+      resolved: { class: 'status-resolved', label: 'Resolved' },
+      closed: { class: 'status-closed', label: 'Closed' }
+    };
+    const current = config[status] || config.open;
+    return <span className={`status-badge ${current.class}`}>{current.label}</span>;
+  };
+
+  const priorityBadge = (priority) => {
+    const config = {
+      urgent: { class: 'priority-high', label: 'Urgent' },
+      high: { class: 'priority-high', label: 'High' },
+      normal: { class: 'priority-medium', label: 'Normal' },
+      low: { class: 'priority-low', label: 'Low' }
+    };
+    const current = config[priority] || config.normal;
+    return <span className={`priority-badge ${current.class}`}>{current.label}</span>;
+  };
+
+  return (
+    <>
+      <div className="admin-topbar">
+        <div className="topbar-content">
+          <div className="topbar-left">
+            <h1 className="page-title">Support</h1>
+            <p className="page-subtitle">{tickets.filter(ticket => !['resolved', 'closed'].includes(ticket.status)).length} active tickets</p>
+          </div>
+          <div className="topbar-right">
+            <button className="btn-secondary" onClick={loadTickets}>
+              <RefreshCw className="icon" /> Refresh
+            </button>
+            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="filter-select">
+              <option value="all">All Status</option>
+              <option value="open">Open</option>
+              <option value="pending">Pending</option>
+              <option value="resolved">Resolved</option>
+              <option value="closed">Closed</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="admin-content">
+        {message && <div className="integration-message">{message}</div>}
+
+        <div className="stats-grid stats-grid-4">
+          <StatCard title="Open" value={tickets.filter(ticket => ticket.status === 'open').length} icon={<MessageSquare className="icon" />} color="error" />
+          <StatCard title="Pending" value={tickets.filter(ticket => ticket.status === 'pending').length} icon={<Clock className="icon" />} color="accent" />
+          <StatCard title="Resolved" value={tickets.filter(ticket => ticket.status === 'resolved').length} icon={<CheckCircle className="icon" />} color="success" />
+          <StatCard title="Urgent" value={tickets.filter(ticket => ticket.priority === 'urgent').length} icon={<AlertCircle className="icon" />} color="error" />
+        </div>
+
+        <div className="data-table-container">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Ticket</th>
+                <th>Requester</th>
+                <th>Category</th>
+                <th>Priority</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tickets.map(ticket => (
+                <tr key={ticket._id}>
+                  <td>
+                    <div className="user-info">
+                      <div className="user-details">
+                        <span className="user-name">{ticket.ticketReference}</span>
+                        <span className="user-email">{ticket.subject}</span>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <div className="user-details">
+                      <span className="user-name">{ticket.requester?.fullName || ticket.contact?.name || 'N/A'}</span>
+                      <span className="user-email">{ticket.requester?.email || ticket.contact?.email || ''}</span>
+                    </div>
+                  </td>
+                  <td>{ticket.category}</td>
+                  <td>{priorityBadge(ticket.priority)}</td>
+                  <td>{statusBadge(ticket.status)}</td>
+                  <td>{ticket.createdAt ? new Date(ticket.createdAt).toLocaleString() : 'N/A'}</td>
+                  <td>
+                    <div className="table-actions">
+                      <button className="action-btn" title="View" onClick={() => setSelectedTicket(ticket)}>
+                        <Eye className="icon" />
+                      </button>
+                      {!['resolved', 'closed'].includes(ticket.status) && (
+                        <button className="action-btn success" title="Resolve" onClick={() => updateTicketStatus(ticket, 'resolved')}>
+                          <Check className="icon" />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {tickets.length === 0 && (
+                <tr>
+                  <td colSpan="7">No support tickets found.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {selectedTicket && (
+        <div className="modal-overlay" onClick={() => setSelectedTicket(null)}>
+          <div className="modal-content dispute-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h2>{selectedTicket.ticketReference}</h2>
+              <button className="modal-close" onClick={() => setSelectedTicket(null)}>
+                <XCircle className="icon" />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="dispute-full-details">
+                <div className="detail-row">
+                  <label>Status:</label>
+                  <span>{statusBadge(selectedTicket.status)}</span>
+                </div>
+                <div className="detail-row">
+                  <label>Requester:</label>
+                  <span>{selectedTicket.requester?.fullName || selectedTicket.contact?.name || 'N/A'}</span>
+                </div>
+                <div className="detail-row">
+                  <label>Message:</label>
+                  <p>{selectedTicket.message}</p>
+                </div>
+              </div>
+
+              <div className="resolution-form">
+                <h3>Conversation</h3>
+                {(selectedTicket.conversation || []).map((entry, index) => (
+                  <div key={`${entry.createdAt || index}-${entry.authorRole}`} className="dispute-resolution">
+                    <MessageSquare className="icon" />
+                    <span>{entry.authorRole || 'user'}: {entry.message}</span>
+                  </div>
+                ))}
+                <textarea
+                  placeholder="Write a response..."
+                  rows={4}
+                  value={replyText}
+                  onChange={(event) => setReplyText(event.target.value)}
+                />
+              </div>
+
+              <div className="modal-actions">
+                <button className="btn-secondary" onClick={() => updateTicketStatus(selectedTicket, 'pending')}>Mark Pending</button>
+                <button className="btn-secondary" onClick={() => updateTicketStatus(selectedTicket, 'closed')}>Close</button>
+                <button className="btn-primary" onClick={sendReply}>Send Reply</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </>
+  );
+};
+
 // ============ Settings View ============
 const SettingsView = () => {
   const [integrations, setIntegrations] = useState([]);
@@ -1308,10 +2204,79 @@ const SettingsView = () => {
   const [savingProvider, setSavingProvider] = useState(null);
   const [testingProvider, setTestingProvider] = useState(null);
   const [integrationMessage, setIntegrationMessage] = useState('');
+  const [preferences, setPreferences] = useState({
+    platformSettings: {
+      platformCommissionRate: 15,
+      minimumBookingAmount: 50,
+      autoCancelTimeoutHours: 24
+    },
+    notifications: {
+      email: true,
+      sms: true,
+      whatsapp: true
+    }
+  });
+  const [savingPreferences, setSavingPreferences] = useState(false);
 
   useEffect(() => {
     loadIntegrations();
+    loadPreferences();
   }, []);
+
+  const loadPreferences = async () => {
+    try {
+      const response = await adminAPI.getPreferences();
+      const data = response.data || {};
+      setPreferences({
+        platformSettings: {
+          platformCommissionRate: data.platformSettings?.platformCommissionRate ?? 15,
+          minimumBookingAmount: data.platformSettings?.minimumBookingAmount ?? 50,
+          autoCancelTimeoutHours: data.platformSettings?.autoCancelTimeoutHours ?? 24
+        },
+        notifications: {
+          email: data.notifications?.email !== false,
+          sms: data.notifications?.sms !== false,
+          whatsapp: data.notifications?.whatsapp !== false
+        }
+      });
+    } catch (error) {
+      setIntegrationMessage(error.message || 'Unable to load admin preferences');
+    }
+  };
+
+  const updatePlatformPreference = (field, value) => {
+    setPreferences(current => ({
+      ...current,
+      platformSettings: {
+        ...current.platformSettings,
+        [field]: value
+      }
+    }));
+  };
+
+  const updateNotificationPreference = (field, value) => {
+    setPreferences(current => ({
+      ...current,
+      notifications: {
+        ...current.notifications,
+        [field]: value
+      }
+    }));
+  };
+
+  const savePreferences = async () => {
+    try {
+      setSavingPreferences(true);
+      setIntegrationMessage('');
+      const response = await adminAPI.updatePreferences(preferences);
+      setIntegrationMessage(response.message || 'Admin preferences saved');
+      await loadPreferences();
+    } catch (error) {
+      setIntegrationMessage(error.message || 'Unable to save admin preferences');
+    } finally {
+      setSavingPreferences(false);
+    }
+  };
 
   const loadIntegrations = async () => {
     try {
@@ -1415,15 +2380,31 @@ const SettingsView = () => {
             <div className="settings-grid">
               <div className="setting-item">
                 <label>Platform Commission (%)</label>
-                <input type="number" defaultValue="15" />
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={preferences.platformSettings.platformCommissionRate}
+                  onChange={event => updatePlatformPreference('platformCommissionRate', event.target.value)}
+                />
               </div>
               <div className="setting-item">
                 <label>Minimum Booking Amount ($)</label>
-                <input type="number" defaultValue="50" />
+                <input
+                  type="number"
+                  min="0"
+                  value={preferences.platformSettings.minimumBookingAmount}
+                  onChange={event => updatePlatformPreference('minimumBookingAmount', event.target.value)}
+                />
               </div>
               <div className="setting-item">
                 <label>Auto-cancel Timeout (hours)</label>
-                <input type="number" defaultValue="24" />
+                <input
+                  type="number"
+                  min="1"
+                  value={preferences.platformSettings.autoCancelTimeoutHours}
+                  onChange={event => updatePlatformPreference('autoCancelTimeoutHours', event.target.value)}
+                />
               </div>
             </div>
           </div>
@@ -1433,20 +2414,34 @@ const SettingsView = () => {
             <div className="settings-toggle-list">
               <div className="toggle-item">
                 <span>Email Notifications</span>
-                <input type="checkbox" defaultChecked />
+                <input
+                  type="checkbox"
+                  checked={preferences.notifications.email}
+                  onChange={event => updateNotificationPreference('email', event.target.checked)}
+                />
               </div>
               <div className="toggle-item">
                 <span>SMS Notifications</span>
-                <input type="checkbox" defaultChecked />
+                <input
+                  type="checkbox"
+                  checked={preferences.notifications.sms}
+                  onChange={event => updateNotificationPreference('sms', event.target.checked)}
+                />
               </div>
               <div className="toggle-item">
                 <span>WhatsApp Notifications</span>
-                <input type="checkbox" defaultChecked />
+                <input
+                  type="checkbox"
+                  checked={preferences.notifications.whatsapp}
+                  onChange={event => updateNotificationPreference('whatsapp', event.target.checked)}
+                />
               </div>
             </div>
           </div>
 
-          <button className="btn-primary">Save Changes</button>
+          <button className="btn-primary" onClick={savePreferences} disabled={savingPreferences}>
+            {savingPreferences ? 'Saving...' : 'Save Changes'}
+          </button>
 
           <div className="settings-section">
             <div className="settings-section-header">
@@ -1607,9 +2602,24 @@ const ActiveJobCard = ({ job }) => {
   const statusConfig = {
     in_transit: { class: 'status-in-transit', label: 'In Transit' },
     loading: { class: 'status-loading', label: 'Loading' },
-    awaiting_pickup: { class: 'status-awaiting', label: 'Awaiting Pickup' }
+    awaiting_pickup: { class: 'status-awaiting', label: 'Awaiting Pickup' },
+    pending_payment: { class: 'status-awaiting', label: 'Pending Payment' },
+    payment_confirmed: { class: 'status-awaiting', label: 'Payment Confirmed' },
+    finding_transporter: { class: 'status-awaiting', label: 'Finding Transporter' },
+    matched: { class: 'status-awaiting', label: 'Matched' },
+    transporter_assigned: { class: 'status-loading', label: 'Assigned' },
+    confirmed: { class: 'status-loading', label: 'Confirmed' },
+    en_route_pickup: { class: 'status-loading', label: 'En Route' },
+    picked_up: { class: 'status-loading', label: 'Picked Up' },
+    in_progress: { class: 'status-in-transit', label: 'In Progress' },
+    arrived_delivery: { class: 'status-in-transit', label: 'Arrived' },
+    delivered: { class: 'status-in-transit', label: 'Delivered' },
+    completed: { class: 'status-in-transit', label: 'Completed' }
   };
-  const status = statusConfig[job.status];
+  const status = statusConfig[job.status] || {
+    class: 'status-awaiting',
+    label: job.status?.replace(/_/g, ' ') || 'Pending'
+  };
 
   return (
     <div className="job-card">

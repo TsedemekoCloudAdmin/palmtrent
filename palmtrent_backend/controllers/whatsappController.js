@@ -7,8 +7,11 @@ const Booking = require('../models/Booking');
 const CargoType = require('../models/CargoType');
 const VehicleType = require('../models/VehicleType');
 const pricingService = require('../services/pricingService');
+const monetizationService = require('../services/monetizationService');
 const distanceService = require('../services/distanceService');
 const Shipment = require('../models/Shipment');
+const matchingService = require('../services/matchingService');
+const notificationService = require('../services/notificationService');
 const { assertTransporterEligible, isPaymentConfirmed, assertBookingTransition } = require('../services/flowControlService');
 const { recordAudit } = require('../services/auditService');
 
@@ -45,6 +48,15 @@ exports.verifyWebhook = (req, res) => {
 // Handle incoming webhook (POST)
 exports.handleWebhook = async (req, res) => {
   try {
+    const validSignature = await whatsappService.verifyWebhookSignature(
+      req.rawBody,
+      req.get('x-hub-signature-256')
+    );
+    if (!validSignature) {
+      console.warn('WhatsApp webhook rejected due to invalid signature');
+      return res.sendStatus(401);
+    }
+
     // Always respond immediately to avoid timeout
     res.sendStatus(200);
 
@@ -486,6 +498,13 @@ async function confirmBooking(from, session, user) {
       coordinates: [ctx.delivery.longitude, ctx.delivery.latitude]
     } : undefined;
 
+    const fees = await monetizationService.calculateShipmentFees(ctx.price, ctx.price, {
+      audience: 'all',
+      paymentMethod: 'openapi_africa'
+    });
+    const platformCommission = Math.round((fees.platformFee + fees.transporterCommission) * 100) / 100;
+    const transporterTotal = Math.max(0, Math.round((ctx.price - platformCommission) * 100) / 100);
+
     const booking = new Booking({
       user: user._id,
       shipper: user._id,
@@ -515,8 +534,8 @@ async function confirmBooking(from, session, user) {
         totals: {
           subtotal: ctx.price,
           total: ctx.price,
-          transporterTotal: ctx.price * 0.85,
-          platformCommission: ctx.price * 0.15
+          transporterTotal,
+          platformTotal: platformCommission
         },
         currency: 'USD'
       },
@@ -703,6 +722,8 @@ async function handleJobAcceptance(from, bookingId, accepted, user) {
 
       booking.shipments = [...(booking.shipments || []), shipment._id];
       await booking.save();
+      await matchingService.recordTransporterOfferResponse(user._id, 'accepted');
+      await notificationService.notifyTransporterAssigned(booking, user);
 
       await recordAudit({
         actor: user,
@@ -716,11 +737,17 @@ async function handleJobAcceptance(from, bookingId, accepted, user) {
       return whatsappService.sendTextMessage(from,
         `✅ *Job Accepted!*\n\n📋 *Booking:* ${booking.bookingReference || booking.bookingNumber}\n📍 *Pickup:* ${booking.route.pickup.address}\n📅 *Date:* ${new Date(booking.route.pickup.date || booking.route.pickup.scheduledDate).toLocaleDateString()}\n\nPlease proceed to the pickup location. The shipper has been notified.\n\nUse the Palmtrent app to update status and navigate.`);
     } else {
-      booking.declines = [
-        ...(booking.declines || []),
-        { transporter: user._id, reason: 'Declined via WhatsApp', declinedAt: new Date() }
-      ];
-      await booking.save();
+      const alreadyDeclined = (booking.declines || []).some(decline =>
+        decline.transporter?.toString() === user._id.toString()
+      );
+      if (!alreadyDeclined) {
+        booking.declines = [
+          ...(booking.declines || []),
+          { transporter: user._id, reason: 'Declined via WhatsApp', declinedAt: new Date() }
+        ];
+        await booking.save();
+        await matchingService.recordTransporterOfferResponse(user._id, 'declined');
+      }
       return whatsappService.sendTextMessage(from,
         'Job declined. We\'ll notify you of other available jobs.');
     }

@@ -1,6 +1,9 @@
 const distanceService = require('../services/distanceService');
 const mapboxService = require('../services/mapboxService');
 
+const allowLocationFallback = () => process.env.NODE_ENV !== 'production' ||
+  process.env.ALLOW_LOCATION_FALLBACK_IN_PRODUCTION === 'true';
+
 /**
  * @desc    Calculate route distance and duration between two points
  * @route   POST /api/v1/routes/calculate
@@ -147,25 +150,29 @@ exports.reverseGeocode = async (req, res) => {
     const latitude = parseFloat(lat);
     const longitude = parseFloat(lng);
 
-    // Try Mapbox reverse geocoding first
-    if (mapboxService.isInitialized) {
-      const result = await mapboxService.reverseGeocode(latitude, longitude);
-      if (result.success) {
-        return res.json({
-          success: true,
-          data: {
-            address: result.data.address,
-            placeName: result.data.placeName,
-            city: result.data.context?.city || result.data.placeName,
-            region: result.data.context?.region,
-            country: result.data.context?.country || 'Zimbabwe',
-            countryCode: result.data.context?.countryCode,
-            lat: latitude,
-            lng: longitude,
-            source: 'mapbox'
-          }
-        });
-      }
+    const result = await mapboxService.reverseGeocode(latitude, longitude);
+    if (result.success) {
+      return res.json({
+        success: true,
+        data: {
+          address: result.data.address,
+          placeName: result.data.placeName,
+          city: result.data.context?.city || result.data.placeName,
+          region: result.data.context?.region,
+          country: result.data.context?.country || 'Zimbabwe',
+          countryCode: result.data.context?.countryCode,
+          lat: latitude,
+          lng: longitude,
+          source: result.data.isFallback ? 'fallback' : 'mapbox'
+        }
+      });
+    }
+
+    if (!allowLocationFallback()) {
+      return res.status(503).json({
+        success: false,
+        message: result.message || 'Reverse geocoding provider is not configured'
+      });
     }
 
     // Fallback to city lookup
@@ -239,7 +246,7 @@ exports.geocode = async (req, res) => {
           coordinates: result.data.coordinates,
           context: result.data.context,
           allResults: result.data.allResults,
-          source: mapboxService.isInitialized ? 'mapbox' : 'fallback'
+          source: result.data.isFallback ? 'fallback' : 'mapbox'
         }
       });
     } else {

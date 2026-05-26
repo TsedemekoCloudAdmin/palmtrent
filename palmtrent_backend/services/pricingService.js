@@ -1,4 +1,5 @@
 const PricingConfig = require('../models/PricingConfig');
+const monetizationService = require('./monetizationService');
 
 class PricingService {
   
@@ -58,11 +59,12 @@ class PricingService {
     const crossBorderFees = this.calculateCrossBorderFees(bookingData, config);
     
     // Step 10: Calculate platform fee based on payment method (goes to platform)
-    const platformFeeData = this.calculatePlatformFee(
+    const platformFeeData = await this.calculatePlatformFee(
       baseTransportFee + crossBorderFees.total,
       bookingData.paymentMethod,
       bookingData.isCrossBorder,
-      config
+      config,
+      bookingData
     );
     
     // Step 11: Calculate insurance (goes to insurance provider)
@@ -74,7 +76,7 @@ class PricingService {
     
     // Calculate transporter earnings (base transport fee + cross-border fees)
     const transporterEarnings = baseTransportFee + crossBorderFees.total;    
-    const commissionData = this.calculateTransporterCommission(
+    const commissionData = await this.calculateTransporterCommission(
        transporterEarnings, 
        bookingData,
        config
@@ -169,7 +171,25 @@ class PricingService {
    * Calculate platform fee based on payment method
    * This amount goes to the platform
    */
-  calculatePlatformFee(baseAmount, paymentMethod = 'digital', isCrossBorder = false, config) {
+  async calculatePlatformFee(baseAmount, paymentMethod = 'digital', isCrossBorder = false, config, bookingData = {}) {
+    const monetizationFees = await monetizationService.calculateShipmentFees(baseAmount, baseAmount, {
+      audience: bookingData.corporateAccount || bookingData.userType === 'corporate' ? 'corporate' : 'all',
+      paymentMethod,
+      accountTier: bookingData.transporter?.tier || 'all'
+    });
+    if (monetizationFees.rule) {
+      let rate = monetizationFees.platformFeeRate;
+      if (isCrossBorder) {
+        rate += config.crossBorder.platformFeeIncrease || 0;
+      }
+      return {
+        platformFee: baseAmount * rate,
+        rate,
+        description: monetizationFees.rule.name,
+        method: paymentMethod
+      };
+    }
+
     const method = paymentMethod.toLowerCase().replace(/[_-]/g, '');
     let feeConfig;
     
@@ -594,7 +614,20 @@ class PricingService {
  * Calculate platform commission from transporter earnings
  * This is the platform's cut from the transporter's fee
  */
- calculateTransporterCommission(transporterEarnings, bookingData, config) {
+ async calculateTransporterCommission(transporterEarnings, bookingData, config) {
+   const monetizationFees = await monetizationService.calculateShipmentFees(transporterEarnings, transporterEarnings, {
+     audience: bookingData.corporateAccount || bookingData.userType === 'corporate' ? 'corporate' : 'all',
+     paymentMethod: bookingData.paymentMethod,
+     accountTier: bookingData.transporter?.tier || 'all'
+   });
+   if (monetizationFees.rule) {
+     return {
+       commission: Math.min(transporterEarnings, monetizationFees.transporterCommission),
+       rate: monetizationFees.transporterCommissionRate,
+       description: monetizationFees.rule.name
+     };
+   }
+
    if (!config.transportCommission?.enabled) {
      return {
        commission: 0,

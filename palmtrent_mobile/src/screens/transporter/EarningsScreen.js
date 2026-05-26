@@ -9,12 +9,33 @@ import {
   StatusBar,
   Dimensions,
   RefreshControl,
-  ActivityIndicator
+  ActivityIndicator,
+  TextInput,
+  Modal,
+  Alert
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../../services/apiService';
 
 const { width } = Dimensions.get('window');
+
+const payoutMethodLabels = {
+  ecocash: 'EcoCash',
+  onemoney: 'OneMoney',
+  bank_transfer: 'Bank Transfer'
+};
+
+const emptyPayoutForm = {
+  payoutMethod: 'ecocash',
+  accountNumber: '',
+  accountName: '',
+  bankName: ''
+};
+
+const money = (value) => `$${Number(value || 0).toLocaleString(undefined, {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2
+})}`;
 
 const EarningsScreen = ({ navigation, onNavigate }) => {
   const [period, setPeriod] = useState('month');
@@ -31,6 +52,21 @@ const EarningsScreen = ({ navigation, onNavigate }) => {
     jobsThisMonth: 0,
     onTimeRate: 0
   });
+  const [balanceData, setBalanceData] = useState({
+    availableBalance: 0,
+    pendingBalance: 0,
+    pendingWithdrawalBalance: 0,
+    totalWithdrawn: 0,
+    recentReleased: []
+  });
+  const [payoutPreferences, setPayoutPreferences] = useState(null);
+  const [withdrawals, setWithdrawals] = useState([]);
+  const [showPayoutModal, setShowPayoutModal] = useState(false);
+  const [showWithdrawalModal, setShowWithdrawalModal] = useState(false);
+  const [payoutForm, setPayoutForm] = useState(emptyPayoutForm);
+  const [withdrawalAmount, setWithdrawalAmount] = useState('');
+  const [savingPayout, setSavingPayout] = useState(false);
+  const [requestingWithdrawal, setRequestingWithdrawal] = useState(false);
 
   const fetchEarnings = useCallback(async () => {
     try {
@@ -43,11 +79,11 @@ const EarningsScreen = ({ navigation, onNavigate }) => {
           ? Math.round(response.data.totalEarnings / response.data.completedTrips)
           : 0;
 
-        setStats({
+        setStats(prev => ({
+          ...prev,
           avgPerJob,
-          jobsThisMonth: response.data.completedTrips,
-          onTimeRate: 97 // This would come from a separate endpoint
-        });
+          jobsThisMonth: response.data.completedTrips
+        }));
       }
     } catch (error) {
       console.error('Failed to fetch earnings:', error);
@@ -60,7 +96,7 @@ const EarningsScreen = ({ navigation, onNavigate }) => {
       if (response.success) {
         setStats(prev => ({
           ...prev,
-          onTimeRate: response.data.onTimeDelivery || 97
+          onTimeRate: response.data.onTimeDelivery ?? 0
         }));
       }
     } catch (error) {
@@ -68,14 +104,46 @@ const EarningsScreen = ({ navigation, onNavigate }) => {
     }
   }, []);
 
+  const fetchPayoutData = useCallback(async () => {
+    try {
+      const [balanceResponse, preferenceResponse, historyResponse] = await Promise.all([
+        apiService.getTransporterBalance(),
+        apiService.getPayoutPreferences(),
+        apiService.getWithdrawalHistory()
+      ]);
+
+      if (balanceResponse.success) {
+        setBalanceData(balanceResponse.data || {});
+        setWithdrawalAmount(String(balanceResponse.data?.availableBalance || ''));
+      }
+
+      if (preferenceResponse.success) {
+        const preferences = preferenceResponse.data || {};
+        setPayoutPreferences(preferences);
+        setPayoutForm({
+          payoutMethod: preferences.method || 'ecocash',
+          accountNumber: preferences.accountNumber || '',
+          accountName: preferences.accountName || '',
+          bankName: preferences.bankName || ''
+        });
+      }
+
+      if (historyResponse.success) {
+        setWithdrawals(historyResponse.data?.withdrawals || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch payout data:', error);
+    }
+  }, []);
+
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      await Promise.all([fetchEarnings(), fetchDashboardStats()]);
+      await Promise.all([fetchEarnings(), fetchDashboardStats(), fetchPayoutData()]);
       setLoading(false);
     };
     loadData();
-  }, [fetchEarnings, fetchDashboardStats]);
+  }, [fetchEarnings, fetchDashboardStats, fetchPayoutData]);
 
   useEffect(() => {
     // Refetch when period changes
@@ -84,9 +152,92 @@ const EarningsScreen = ({ navigation, onNavigate }) => {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([fetchEarnings(), fetchDashboardStats()]);
+    await Promise.all([fetchEarnings(), fetchDashboardStats(), fetchPayoutData()]);
     setRefreshing(false);
-  }, [fetchEarnings, fetchDashboardStats]);
+  }, [fetchEarnings, fetchDashboardStats, fetchPayoutData]);
+
+  const updatePayoutForm = (field, value) => {
+    setPayoutForm(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleSavePayoutPreferences = async () => {
+    if (!payoutForm.payoutMethod || !payoutForm.accountNumber.trim()) {
+      Alert.alert('Missing Details', 'Select a payout method and enter the payout account.');
+      return;
+    }
+
+    setSavingPayout(true);
+    try {
+      const response = await apiService.updatePayoutPreferences({
+        payoutMethod: payoutForm.payoutMethod,
+        accountNumber: payoutForm.accountNumber.trim(),
+        accountName: payoutForm.accountName.trim(),
+        bankName: payoutForm.bankName.trim()
+      });
+
+      if (!response.success) {
+        throw new Error(response.message || 'Unable to save payout preferences');
+      }
+
+      setPayoutPreferences(response.data);
+      setShowPayoutModal(false);
+      Alert.alert('Saved', 'Payout preferences updated.');
+    } catch (error) {
+      Alert.alert('Error', error.message || 'Unable to save payout preferences');
+    } finally {
+      setSavingPayout(false);
+    }
+  };
+
+  const handleRequestWithdrawal = async () => {
+    const amount = Number(withdrawalAmount);
+    const preferences = payoutPreferences || {};
+    const payoutMethod = preferences.method || payoutForm.payoutMethod;
+    const accountNumber = preferences.accountNumber || payoutForm.accountNumber;
+
+    if (!payoutMethod || !accountNumber) {
+      Alert.alert('Payout Method Required', 'Add a payout method before requesting a withdrawal.');
+      setShowWithdrawalModal(false);
+      setShowPayoutModal(true);
+      return;
+    }
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      Alert.alert('Invalid Amount', 'Enter a valid withdrawal amount.');
+      return;
+    }
+
+    setRequestingWithdrawal(true);
+    try {
+      const response = await apiService.requestWithdrawal({
+        amount,
+        payoutMethod,
+        accountNumber,
+        accountName: preferences.accountName || payoutForm.accountName,
+        bankName: preferences.bankName || payoutForm.bankName
+      });
+
+      if (!response.success) {
+        throw new Error(response.message || 'Unable to request withdrawal');
+      }
+
+      setShowWithdrawalModal(false);
+      Alert.alert('Withdrawal Queued', response.message || 'Your withdrawal request has been queued.');
+      await fetchPayoutData();
+    } catch (error) {
+      Alert.alert('Error', error.message || 'Unable to request withdrawal');
+    } finally {
+      setRequestingWithdrawal(false);
+    }
+  };
+
+  const payoutSummary = () => {
+    if (!payoutPreferences?.method) return 'No payout method configured';
+    const label = payoutMethodLabels[payoutPreferences.method] || payoutPreferences.method;
+    const account = payoutPreferences.accountNumber || payoutPreferences.phone || '';
+    const masked = account.length > 4 ? `${account.slice(0, 4)}****${account.slice(-4)}` : '****';
+    return `${label}: ${masked}`;
+  };
 
   const navigateTo = (screen, params = {}) => {
     if (onNavigate) {
@@ -177,7 +328,7 @@ const EarningsScreen = ({ navigation, onNavigate }) => {
           <View style={styles.earningsCard}>
             <Text style={styles.earningsLabel}>Total Earnings ({getPeriodLabel()})</Text>
             <Text style={styles.earningsAmount}>
-              ${earningsData.totalEarnings?.toLocaleString() || '0'}
+              {money(earningsData.totalEarnings)}
             </Text>
 
             <View style={styles.earningsStats}>
@@ -188,12 +339,51 @@ const EarningsScreen = ({ navigation, onNavigate }) => {
               <View style={[styles.earningsStat, styles.earningsStatDivider]}>
                 <Text style={styles.earningsStatLabel}>Pending</Text>
                 <Text style={styles.earningsStatValue}>
-                  ${earningsData.pendingEarnings?.toLocaleString() || '0'}
+                  {money(earningsData.pendingEarnings)}
                 </Text>
               </View>
               <View style={styles.earningsStat}>
                 <Text style={styles.earningsStatLabel}>On-Time</Text>
                 <Text style={styles.earningsStatValue}>{stats.onTimeRate}%</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Withdrawal Balance */}
+        <View style={styles.section}>
+          <View style={styles.balanceCard}>
+            <View style={styles.balanceHeader}>
+              <View>
+                <Text style={styles.balanceLabel}>Available to Withdraw</Text>
+                <Text style={styles.balanceAmount}>{money(balanceData.availableBalance)}</Text>
+              </View>
+              <TouchableOpacity
+                style={[
+                  styles.withdrawButton,
+                  Number(balanceData.availableBalance || 0) <= 0 && styles.withdrawButtonDisabled
+                ]}
+                disabled={Number(balanceData.availableBalance || 0) <= 0}
+                onPress={() => {
+                  setWithdrawalAmount(String(balanceData.availableBalance || ''));
+                  setShowWithdrawalModal(true);
+                }}
+              >
+                <Text style={styles.withdrawButtonText}>Withdraw</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.balanceStats}>
+              <View style={styles.balanceStat}>
+                <Text style={styles.balanceStatLabel}>Pending Release</Text>
+                <Text style={styles.balanceStatValue}>{money(balanceData.pendingBalance)}</Text>
+              </View>
+              <View style={styles.balanceStat}>
+                <Text style={styles.balanceStatLabel}>Queued Withdrawals</Text>
+                <Text style={styles.balanceStatValue}>{money(balanceData.pendingWithdrawalBalance)}</Text>
+              </View>
+              <View style={styles.balanceStat}>
+                <Text style={styles.balanceStatLabel}>Withdrawn</Text>
+                <Text style={styles.balanceStatValue}>{money(balanceData.totalWithdrawn)}</Text>
               </View>
             </View>
           </View>
@@ -224,10 +414,6 @@ const EarningsScreen = ({ navigation, onNavigate }) => {
           <View style={styles.card}>
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>Recent Transactions</Text>
-              <TouchableOpacity style={styles.exportButton}>
-                <MaterialIcons name="file-download" size={16} color="#0C2D48" />
-                <Text style={styles.exportButtonText}>Export</Text>
-              </TouchableOpacity>
             </View>
 
             <View style={styles.transactionsList}>
@@ -240,7 +426,7 @@ const EarningsScreen = ({ navigation, onNavigate }) => {
                       date: formatDate(txn.date),
                       route: txn.route || 'Completed Trip',
                       amount: txn.amount,
-                      status: 'paid'
+                      status: txn.status || 'paid'
                     }}
                   />
                 ))
@@ -265,7 +451,7 @@ const EarningsScreen = ({ navigation, onNavigate }) => {
               <View style={styles.pendingContent}>
                 <Text style={styles.pendingTitle}>Pending Payout</Text>
                 <Text style={styles.pendingAmount}>
-                  ${earningsData.pendingEarnings?.toLocaleString()}
+                  {money(earningsData.pendingEarnings)}
                 </Text>
                 <Text style={styles.pendingNote}>
                   Funds will be released after delivery confirmation
@@ -279,15 +465,61 @@ const EarningsScreen = ({ navigation, onNavigate }) => {
         <View style={styles.section}>
           <View style={styles.payoutCard}>
             <Text style={styles.payoutTitle}>Payout Method</Text>
-            <Text style={styles.payoutText}>EcoCash: ****5678</Text>
-            <TouchableOpacity style={styles.payoutButton}>
-              <Text style={styles.payoutButtonText}>Change Payout Method</Text>
+            <Text style={styles.payoutText}>{payoutSummary()}</Text>
+            <TouchableOpacity style={styles.payoutButton} onPress={() => setShowPayoutModal(true)}>
+              <Text style={styles.payoutButtonText}>
+                {payoutPreferences?.method ? 'Change Payout Method' : 'Add Payout Method'}
+              </Text>
             </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Withdrawal History */}
+        <View style={styles.section}>
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>Withdrawal History</Text>
+            </View>
+            {withdrawals.length > 0 ? (
+              <View style={styles.transactionsList}>
+                {withdrawals.map((withdrawal) => (
+                  <WithdrawalItem key={withdrawal.reference} withdrawal={withdrawal} />
+                ))}
+              </View>
+            ) : (
+              <View style={styles.emptyTransactions}>
+                <MaterialIcons name="account-balance-wallet" size={48} color="#d1d5db" />
+                <Text style={styles.emptyText}>No withdrawals yet</Text>
+                <Text style={styles.emptySubtext}>
+                  Released settlement payouts will appear here after you withdraw
+                </Text>
+              </View>
+            )}
           </View>
         </View>
 
         <View style={styles.bottomPadding} />
       </ScrollView>
+
+      <PayoutPreferencesModal
+        visible={showPayoutModal}
+        form={payoutForm}
+        saving={savingPayout}
+        onChange={updatePayoutForm}
+        onClose={() => setShowPayoutModal(false)}
+        onSave={handleSavePayoutPreferences}
+      />
+
+      <WithdrawalModal
+        visible={showWithdrawalModal}
+        amount={withdrawalAmount}
+        balance={balanceData.availableBalance}
+        payoutSummary={payoutSummary()}
+        requesting={requestingWithdrawal}
+        onChangeAmount={setWithdrawalAmount}
+        onClose={() => setShowWithdrawalModal(false)}
+        onSubmit={handleRequestWithdrawal}
+      />
     </SafeAreaView>
   );
 };
@@ -350,6 +582,162 @@ const TransactionItem = ({ transaction }) => (
       </View>
     </View>
   </View>
+);
+
+const WithdrawalItem = ({ withdrawal }) => (
+  <View style={styles.transactionItem}>
+    <View style={styles.transactionInfo}>
+      <Text style={styles.transactionRoute}>{withdrawal.reference}</Text>
+      <View style={styles.transactionMeta}>
+        <Text style={styles.transactionId}>
+          {payoutMethodLabels[withdrawal.payoutMethod] || withdrawal.payoutMethod}
+        </Text>
+        <Text style={styles.transactionDot}>-</Text>
+        <Text style={styles.transactionDate}>{withdrawal.accountNumber}</Text>
+        <Text style={styles.transactionDot}>-</Text>
+        <Text style={styles.transactionDate}>{formatDateSafe(withdrawal.requestedAt)}</Text>
+      </View>
+    </View>
+    <View style={styles.transactionAmount}>
+      <Text style={styles.transactionValue}>{money(withdrawal.amount)}</Text>
+      <View style={[
+        styles.statusBadge,
+        withdrawal.status === 'paid' ? styles.statusPaid : styles.statusPending
+      ]}>
+        <Text style={[
+          styles.statusText,
+          withdrawal.status === 'paid' ? styles.statusTextPaid : styles.statusTextPending
+        ]}>
+          {withdrawal.status}
+        </Text>
+      </View>
+    </View>
+  </View>
+);
+
+const formatDateSafe = (dateString) => {
+  if (!dateString) return '';
+  return new Date(dateString).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+};
+
+const PayoutPreferencesModal = ({ visible, form, saving, onChange, onClose, onSave }) => (
+  <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <View style={styles.modalOverlay}>
+      <View style={styles.modalCard}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>Payout Method</Text>
+          <TouchableOpacity onPress={onClose}>
+            <MaterialIcons name="close" size={24} color="#374151" />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.methodRow}>
+          {Object.entries(payoutMethodLabels).map(([method, label]) => (
+            <TouchableOpacity
+              key={method}
+              style={[styles.methodButton, form.payoutMethod === method && styles.methodButtonActive]}
+              onPress={() => onChange('payoutMethod', method)}
+            >
+              <Text style={[
+                styles.methodButtonText,
+                form.payoutMethod === method && styles.methodButtonTextActive
+              ]}>
+                {label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <TextInput
+          style={styles.modalInput}
+          value={form.accountName}
+          onChangeText={(value) => onChange('accountName', value)}
+          placeholder="Account holder name"
+          placeholderTextColor="#9ca3af"
+        />
+        <TextInput
+          style={styles.modalInput}
+          value={form.accountNumber}
+          onChangeText={(value) => onChange('accountNumber', value)}
+          placeholder={form.payoutMethod === 'bank_transfer' ? 'Bank account number' : 'Mobile money number'}
+          placeholderTextColor="#9ca3af"
+          keyboardType="phone-pad"
+        />
+        {form.payoutMethod === 'bank_transfer' && (
+          <TextInput
+            style={styles.modalInput}
+            value={form.bankName}
+            onChangeText={(value) => onChange('bankName', value)}
+            placeholder="Bank name"
+            placeholderTextColor="#9ca3af"
+          />
+        )}
+
+        <TouchableOpacity
+          style={[styles.modalPrimaryButton, saving && styles.withdrawButtonDisabled]}
+          onPress={onSave}
+          disabled={saving}
+        >
+          {saving ? (
+            <ActivityIndicator size="small" color="white" />
+          ) : (
+            <Text style={styles.modalPrimaryButtonText}>Save Payout Method</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+    </View>
+  </Modal>
+);
+
+const WithdrawalModal = ({
+  visible,
+  amount,
+  balance,
+  payoutSummary,
+  requesting,
+  onChangeAmount,
+  onClose,
+  onSubmit
+}) => (
+  <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <View style={styles.modalOverlay}>
+      <View style={styles.modalCard}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>Request Withdrawal</Text>
+          <TouchableOpacity onPress={onClose}>
+            <MaterialIcons name="close" size={24} color="#374151" />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.withdrawalSummary}>
+          <Text style={styles.balanceLabel}>Available Balance</Text>
+          <Text style={styles.balanceAmount}>{money(balance)}</Text>
+          <Text style={styles.payoutText}>{payoutSummary}</Text>
+        </View>
+
+        <TextInput
+          style={styles.modalInput}
+          value={amount}
+          onChangeText={onChangeAmount}
+          placeholder="Withdrawal amount"
+          placeholderTextColor="#9ca3af"
+          keyboardType="decimal-pad"
+        />
+
+        <TouchableOpacity
+          style={[styles.modalPrimaryButton, requesting && styles.withdrawButtonDisabled]}
+          onPress={onSubmit}
+          disabled={requesting}
+        >
+          {requesting ? (
+            <ActivityIndicator size="small" color="white" />
+          ) : (
+            <Text style={styles.modalPrimaryButtonText}>Queue Withdrawal</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+    </View>
+  </Modal>
 );
 
 const styles = StyleSheet.create({
@@ -465,6 +853,63 @@ const styles = StyleSheet.create({
   statsGrid: {
     flexDirection: 'row',
     gap: 12,
+  },
+  balanceCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  balanceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  balanceLabel: {
+    fontSize: 13,
+    color: '#6b7280',
+    marginBottom: 4,
+  },
+  balanceAmount: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#0C2D48',
+  },
+  withdrawButton: {
+    backgroundColor: '#16a34a',
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  withdrawButtonDisabled: {
+    opacity: 0.5,
+  },
+  withdrawButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  balanceStats: {
+    borderTopWidth: 1,
+    borderTopColor: '#f3f4f6',
+    paddingTop: 12,
+    gap: 10,
+  },
+  balanceStat: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  balanceStatLabel: {
+    fontSize: 13,
+    color: '#6b7280',
+  },
+  balanceStatValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1f2937',
   },
   statCard: {
     flex: 1,
@@ -678,6 +1123,77 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#1e40af',
     fontWeight: '500',
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  modalCard: {
+    backgroundColor: 'white',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    gap: 14,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#111827',
+  },
+  methodRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  methodButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#f3f4f6',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  methodButtonActive: {
+    backgroundColor: '#0C2D48',
+    borderColor: '#0C2D48',
+  },
+  methodButtonText: {
+    color: '#374151',
+    fontWeight: '600',
+  },
+  methodButtonTextActive: {
+    color: 'white',
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#111827',
+  },
+  modalPrimaryButton: {
+    backgroundColor: '#0C2D48',
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  modalPrimaryButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  withdrawalSummary: {
+    backgroundColor: '#f9fafb',
+    borderRadius: 12,
+    padding: 14,
   },
   bottomPadding: {
     height: 20,

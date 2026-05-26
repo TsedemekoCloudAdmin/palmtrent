@@ -7,6 +7,7 @@ const Escrow = require('../models/Escrow');
 const matchingService = require('../services/matchingService');
 const escrowService = require('../services/escrowService');
 const whatsappController = require('./whatsappController');
+const notificationService = require('../services/notificationService');
 
 /**
  * Manually trigger transporter matching for a booking
@@ -369,9 +370,17 @@ exports.acceptJob = async (req, res) => {
       console.error('WhatsApp notification error:', whatsappError);
     }
 
-    // TODO: Send notification to shipper about match
-    // const notificationService = require('../services/notificationService');
-    // await notificationService.sendTransporterMatched(booking.shipper, transporterId, booking);
+    try {
+      await notificationService.notifyTransporterAssigned(booking, req.user);
+    } catch (notifyError) {
+      console.error('Shipper match notification error:', notifyError);
+    }
+
+    try {
+      await matchingService.recordTransporterOfferResponse(transporterId, 'accepted');
+    } catch (statsError) {
+      console.error('Transporter acceptance stats error:', statsError);
+    }
 
     res.status(200).json({
       success: true,
@@ -420,20 +429,24 @@ exports.declineJob = async (req, res) => {
       });
     }
 
-    // Record decline (for stats and future matching improvements)
+    // Record one decline per booking/transporter offer response.
     if (!booking.declines) {
       booking.declines = [];
     }
 
-    booking.declines.push({
-      transporter: transporterId,
-      reason: reason || 'Not specified',
-      declinedAt: new Date()
-    });
+    const alreadyDeclined = booking.declines.some(decline =>
+      decline.transporter?.toString() === transporterId.toString()
+    );
+    if (!alreadyDeclined) {
+      booking.declines.push({
+        transporter: transporterId,
+        reason: reason || 'Not specified',
+        declinedAt: new Date()
+      });
 
-    await booking.save();
-
-    // TODO: Update transporter stats (track decline for acceptance rate)
+      await booking.save();
+      await matchingService.recordTransporterOfferResponse(transporterId, 'declined');
+    }
 
     res.status(200).json({
       success: true,

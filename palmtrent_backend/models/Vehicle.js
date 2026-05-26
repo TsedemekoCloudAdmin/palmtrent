@@ -236,6 +236,14 @@ const vehicleSchema = new mongoose.Schema({
     caption: String,
     isPrimary: { type: Boolean, default: false }
   }],
+
+  photos: [{
+    type: String,
+    url: String,
+    storageKey: String,
+    storageProvider: String,
+    uploadedAt: Date
+  }],
   
   // Description
   description: String,

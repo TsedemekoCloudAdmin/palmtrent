@@ -3,6 +3,7 @@ const Vehicle = require('../models/Vehicle');
 const Trailer = require('../models/Trailer');
 const User = require('../models/User');
 const rentalPaymentService = require('../services/rentalPaymentService');
+const monetizationService = require('../services/monetizationService');
 
 const TRAILER_FLEET_ITEM_TYPES = ['trailer', 'tractor_unit', 'truck', 'full_rig'];
 
@@ -18,6 +19,69 @@ function displayItemType(itemType) {
     full_rig: 'Full rig',
     vehicle: 'Vehicle'
   }[itemType] || 'Rental item';
+}
+
+function assertRentalAccess(rental, user) {
+  const userId = (user.id || user._id).toString();
+  return rental.owner?.toString?.() === userId ||
+    rental.renter?.toString?.() === userId ||
+    rental.owner?._id?.toString?.() === userId ||
+    rental.renter?._id?.toString?.() === userId ||
+    user.userType === 'admin';
+}
+
+function formatRentalTracking(rental) {
+  const asset = rental.trailer || rental.vehicle;
+  const latest = rental.tracking?.[rental.tracking.length - 1];
+  const assetLocation = asset?.currentLocation;
+  const pickupCoordinates = rental.pickup?.location?.coordinates?.coordinates;
+  const returnCoordinates = rental.return?.location?.coordinates?.coordinates;
+  const latestLocation = latest?.location || assetLocation || (
+    Array.isArray(pickupCoordinates) && pickupCoordinates.length === 2
+      ? {
+          latitude: pickupCoordinates[1],
+          longitude: pickupCoordinates[0],
+          address: rental.pickup?.location?.address
+        }
+      : null
+  );
+
+  const start = rental.pickup?.location?.address || asset?.rentalSettings?.pickupLocations?.[0]?.address || 'Pickup location';
+  const end = rental.return?.location?.address || 'Return location';
+  const totalWindow = rental.rentalPeriod?.endDate && rental.rentalPeriod?.startDate
+    ? new Date(rental.rentalPeriod.endDate) - new Date(rental.rentalPeriod.startDate)
+    : 0;
+  const elapsed = rental.rentalPeriod?.startDate ? Date.now() - new Date(rental.rentalPeriod.startDate) : 0;
+  const progress = totalWindow > 0
+    ? Math.max(0, Math.min(100, Math.round((elapsed / totalWindow) * 100)))
+    : (rental.status === 'completed' ? 100 : rental.status === 'active' ? 50 : 0);
+
+  return {
+    rentalId: rental._id,
+    rentalReference: rental.rentalReference,
+    status: rental.status,
+    itemType: rental.itemType,
+    asset: asset ? {
+      id: asset._id,
+      name: asset.assetName || asset.registrationNumber,
+      registrationNumber: asset.registrationNumber,
+      assetType: asset.assetType
+    } : null,
+    currentLocation: latestLocation,
+    lastUpdate: latest?.timestamp || assetLocation?.updatedAt || rental.updatedAt,
+    batteryLevel: latest?.batteryLevel ?? assetLocation?.batteryLevel ?? null,
+    speed: latest?.speed ?? assetLocation?.speed ?? null,
+    heading: latest?.heading ?? assetLocation?.heading ?? null,
+    estimatedReturn: rental.rentalPeriod?.endDate,
+    route: {
+      from: start,
+      to: end,
+      progress
+    },
+    owner: rental.owner,
+    renter: rental.renter,
+    history: (rental.tracking || []).slice(-10).reverse()
+  };
 }
 
 // Get available rentals (vehicles and trailers)
@@ -321,7 +385,11 @@ exports.createRentalRequest = async (req, res) => {
 
     const subtotal = rateAmount * numberOfUnits;
     const deposit = item.rentalSettings.deposit || 0;
-    const platformFee = Math.round(subtotal * 0.10 * 100) / 100; // 10% platform fee
+    const rentalFeePreview = await monetizationService.calculateRentalSettlement({
+      pricing: { total: subtotal + deposit, deposit },
+      payment: { rentalPayment: { method: 'openapi_africa' } }
+    });
+    const platformFee = rentalFeePreview.platformFee;
     const total = subtotal + deposit + platformFee;
 
     // Create rental
@@ -782,5 +850,94 @@ exports.getRentalById = async (req, res) => {
       success: false,
       message: 'Failed to fetch rental'
     });
+  }
+};
+
+exports.getRentalTracking = async (req, res) => {
+  try {
+    const rental = await Rental.findById(req.params.id)
+      .populate('vehicle', 'registrationNumber images currentLocation rentalSettings')
+      .populate('trailer', 'registrationNumber assetType assetName tractorUnit combination images rentalSettings trailerType currentLocation')
+      .populate('owner', 'fullName phone rating')
+      .populate('renter', 'fullName phone rating');
+
+    if (!rental) {
+      return res.status(404).json({ success: false, message: 'Rental not found' });
+    }
+
+    if (!assertRentalAccess(rental, req.user)) {
+      return res.status(403).json({ success: false, message: 'Not authorized to track this rental' });
+    }
+
+    res.json({
+      success: true,
+      data: formatRentalTracking(rental)
+    });
+  } catch (error) {
+    console.error('Get rental tracking error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch rental tracking' });
+  }
+};
+
+exports.updateRentalLocation = async (req, res) => {
+  try {
+    const { latitude, longitude, address, speed, heading, batteryLevel, note, source = 'driver_app' } = req.body;
+    if (!Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))) {
+      return res.status(400).json({ success: false, message: 'Latitude and longitude are required' });
+    }
+
+    const rental = await Rental.findById(req.params.id);
+    if (!rental) {
+      return res.status(404).json({ success: false, message: 'Rental not found' });
+    }
+
+    if (!assertRentalAccess(rental, req.user)) {
+      return res.status(403).json({ success: false, message: 'Not authorized to update this rental location' });
+    }
+
+    const entry = {
+      location: {
+        latitude: Number(latitude),
+        longitude: Number(longitude),
+        address: address || `${Number(latitude).toFixed(6)}, ${Number(longitude).toFixed(6)}`
+      },
+      speed: speed !== undefined ? Number(speed) : undefined,
+      heading: heading !== undefined ? Number(heading) : undefined,
+      batteryLevel: batteryLevel !== undefined ? Number(batteryLevel) : undefined,
+      source,
+      note,
+      recordedBy: req.user._id,
+      timestamp: new Date()
+    };
+
+    rental.tracking.push(entry);
+    await rental.save();
+
+    if (isTrailerFleetItem(rental.itemType) && rental.trailer) {
+      await Trailer.findByIdAndUpdate(rental.trailer, {
+        currentLocation: {
+          ...entry.location,
+          speed: entry.speed,
+          heading: entry.heading,
+          batteryLevel: entry.batteryLevel,
+          source,
+          updatedAt: entry.timestamp
+        }
+      });
+    }
+
+    const updatedRental = await Rental.findById(req.params.id)
+      .populate('vehicle', 'registrationNumber images currentLocation rentalSettings')
+      .populate('trailer', 'registrationNumber assetType assetName tractorUnit combination images rentalSettings trailerType currentLocation')
+      .populate('owner', 'fullName phone rating')
+      .populate('renter', 'fullName phone rating');
+
+    res.json({
+      success: true,
+      data: formatRentalTracking(updatedRental)
+    });
+  } catch (error) {
+    console.error('Update rental location error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update rental location' });
   }
 };

@@ -8,14 +8,15 @@ import {
   SafeAreaView,
   StatusBar,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
+  Image,
+  Platform
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
-import useAuth from '../../hook/useAuth';
+import * as ImagePicker from 'expo-image-picker';
 import apiService from '../../services/apiService';
 
 export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
-  const { user } = useAuth();
   const job = route.params?.job;
   const shipmentId = route.params?.shipmentId;
   const [checklist, setChecklist] = useState({
@@ -23,10 +24,11 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
     inspected: false,
     photos: [],
     recipientVerified: false,
-    signature: false,
+    signature: null,
     cashCollected: false
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploadingEvidence, setIsUploadingEvidence] = useState(false);
 
   const navigateTo = (screen, params = {}) => {
     if (onNavigate && typeof onNavigate === 'function') {
@@ -63,9 +65,9 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
     try {
       // Call the confirm-delivery API endpoint
       const response = await apiService.post(`/transporter/shipments/${currentShipmentId}/confirm-delivery`, {
-        photos: checklist.photos,
+        photos: checklist.photos.map(photo => photo.path),
         notes: `Cargo delivered and inspected. ${checklist.photos.length} photos taken. Recipient verified.`,
-        signature: checklist.signature,
+        signature: checklist.signature.path,
         receiverName: expectedRecipient,
         receiverPhone: expectedRecipientPhone
       });
@@ -92,6 +94,81 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
       Alert.alert('Error', error.message || 'Failed to confirm delivery. Please try again.');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const requestCameraPermission = async () => {
+    if (Platform.OS === 'web') return true;
+
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission required', 'Camera access is required to capture shipment evidence.');
+      return false;
+    }
+    return true;
+  };
+
+  const captureImage = async ({ aspect = [4, 3] } = {}) => {
+    const hasPermission = await requestCameraPermission();
+    if (!hasPermission) return null;
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect,
+      quality: 0.8
+    });
+
+    return result.canceled ? null : result.assets?.[0]?.uri;
+  };
+
+  const takeDeliveryPhoto = async () => {
+    if (!checklist.inspected || checklist.photos.length >= 4 || isUploadingEvidence) return;
+
+    setIsUploadingEvidence(true);
+    try {
+      const uri = await captureImage();
+      if (!uri) return;
+
+      const response = await apiService.uploadPODPhoto(uri, shipmentId || job?.shipmentId || job?._id);
+      const path = response.data?.path || response.data?.url;
+      if (!path) throw new Error('Photo upload did not return a file path');
+
+      setChecklist(current => ({
+        ...current,
+        photos: [...current.photos, { uri, path }]
+      }));
+    } catch (error) {
+      console.error('Delivery photo upload error:', error);
+      Alert.alert('Upload failed', error.message || 'Failed to upload delivery photo.');
+    } finally {
+      setIsUploadingEvidence(false);
+    }
+  };
+
+  const captureSignature = async () => {
+    const locked = (isCashOnDelivery && !checklist.cashCollected) ||
+      (!isCashOnDelivery && checklist.photos.length < 3);
+    if (locked || checklist.signature || isUploadingEvidence) return;
+
+    setIsUploadingEvidence(true);
+    try {
+      const uri = await captureImage({ aspect: [16, 9] });
+      if (!uri) return;
+
+      const response = await apiService.uploadSignature(uri, shipmentId || job?.shipmentId || job?._id);
+      const path = response.data?.path || response.data?.url;
+      if (!path) throw new Error('Signature upload did not return a file path');
+
+      setChecklist(current => ({
+        ...current,
+        signature: { uri, path }
+      }));
+    } catch (error) {
+      console.error('Delivery signature upload error:', error);
+      Alert.alert('Upload failed', error.message || 'Failed to upload signature image.');
+    } finally {
+      setIsUploadingEvidence(false);
     }
   };
 
@@ -198,19 +275,17 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
               {[1, 2, 3, 4].map((n) => (
                 <TouchableOpacity
                   key={n}
-                  style={[styles.photoButton, !checklist.inspected && styles.photoButtonDisabled]}
-                  onPress={() => {
-                    if (checklist.photos.length < 4) {
-                      setChecklist({...checklist, photos: [...checklist.photos, `delivery${n}`]});
-                    }
-                  }}
-                  disabled={!checklist.inspected}
+                  style={[styles.photoButton, !checklist.inspected && styles.photoButtonDisabled, checklist.photos[n-1] && styles.photoButtonCompleted]}
+                  onPress={takeDeliveryPhoto}
+                  disabled={!checklist.inspected || checklist.photos[n-1] || isUploadingEvidence}
                   activeOpacity={0.7}
                 >
                   {checklist.photos[n-1] ? (
                     <>
-                      <MaterialIcons name="check-circle" size={24} color="#16a34a" />
-                      <Text style={styles.photoButtonText}>Photo {n}</Text>
+                      <Image source={{ uri: checklist.photos[n-1].uri }} style={styles.photoPreview} />
+                      <View style={styles.photoBadge}>
+                        <MaterialIcons name="check-circle" size={16} color="#16a34a" />
+                      </View>
                     </>
                   ) : (
                     <>
@@ -259,8 +334,8 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
               style={[styles.button, styles.purpleButton,
                 ((isCashOnDelivery && !checklist.cashCollected) || (!isCashOnDelivery && checklist.photos.length < 3)) && styles.buttonDisabled
               ]}
-              onPress={() => setChecklist({...checklist, signature: true})}
-              disabled={(isCashOnDelivery && !checklist.cashCollected) || (!isCashOnDelivery && checklist.photos.length < 3)}
+              onPress={captureSignature}
+              disabled={(isCashOnDelivery && !checklist.cashCollected) || (!isCashOnDelivery && checklist.photos.length < 3) || checklist.signature || isUploadingEvidence}
               activeOpacity={0.7}
             >
               <MaterialIcons name="edit" size={20} color="white" />
@@ -269,7 +344,7 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
             {checklist.signature && (
               <View style={styles.successMessage}>
                 <MaterialIcons name="check-circle" size={16} color="#166534" />
-                <Text style={styles.successText}>Signed by {expectedRecipient}</Text>
+                <Text style={styles.successText}>Signature image captured for {expectedRecipient}</Text>
               </View>
             )}
           </ChecklistCard>
@@ -592,6 +667,24 @@ const styles = StyleSheet.create({
   },
   photoButtonDisabled: {
     opacity: 0.5,
+  },
+  photoButtonCompleted: {
+    borderColor: '#16a34a',
+    borderStyle: 'solid',
+    backgroundColor: '#f0fdf4',
+  },
+  photoPreview: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 6,
+  },
+  photoBadge: {
+    position: 'absolute',
+    right: 4,
+    bottom: 4,
+    borderRadius: 12,
+    backgroundColor: 'white',
+    padding: 2,
   },
   photoButtonText: {
     fontSize: 12,

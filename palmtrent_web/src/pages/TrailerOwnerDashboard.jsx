@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle, Clock, DollarSign, Package, Plus, RefreshCw,
   Settings, Truck, Wrench, XCircle
@@ -49,7 +49,7 @@ const TrailerOwnerDashboard = () => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const [dashboard, fleetResponse, listingResponse, rentalResponse] = await Promise.all([
@@ -71,11 +71,11 @@ const TrailerOwnerDashboard = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [assetFilter, activeTab]);
 
   useEffect(() => {
     loadData();
-  }, [assetFilter, activeTab]);
+  }, [loadData]);
 
   const totalRentalValue = useMemo(() => (
     listings.reduce((sum, rental) => sum + Number(rental.pricing?.total || 0), 0)

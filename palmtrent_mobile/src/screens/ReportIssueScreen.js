@@ -23,11 +23,11 @@ const ReportIssueScreen = ({ navigation, route }) => {
   const [description, setDescription] = useState('');
 
   const issueCategories = [
-    { id: 'damage', label: 'Cargo Damage', icon: 'report-problem', color: '#ef4444' },
-    { id: 'delay', label: 'Delivery Delay', icon: 'schedule', color: '#f59e0b' },
-    { id: 'payment', label: 'Payment Issue', icon: 'payment', color: '#3b82f6' },
-    { id: 'driver', label: 'Driver Conduct', icon: 'person', color: '#8b5cf6' },
-    { id: 'missing', label: 'Missing Items', icon: 'inventory', color: '#ec4899' },
+    { id: 'cargo_damage', label: 'Cargo Damage', icon: 'report-problem', color: '#ef4444' },
+    { id: 'late_delivery', label: 'Delivery Delay', icon: 'schedule', color: '#f59e0b' },
+    { id: 'payment_issue', label: 'Payment Issue', icon: 'payment', color: '#3b82f6' },
+    { id: 'unprofessional_conduct', label: 'Driver Conduct', icon: 'person', color: '#8b5cf6' },
+    { id: 'cargo_missing', label: 'Missing Items', icon: 'inventory', color: '#ec4899' },
     { id: 'other', label: 'Other Issue', icon: 'help-outline', color: '#6b7280' }
   ];
 
@@ -46,6 +46,7 @@ const ReportIssueScreen = ({ navigation, route }) => {
     try {
       const response = await apiService.post('/claims', {
         bookingId,
+        category: selectedCategory,
         issueType: selectedCategory,
         description: description.trim(),
         reportedBy: user?._id
@@ -138,6 +139,7 @@ const ReportIssueScreen = ({ navigation, route }) => {
             multiline
             numberOfLines={6}
             textAlignVertical="top"
+            maxLength={500}
           />
           <Text style={styles.charCount}>{description.length}/500 characters</Text>
 

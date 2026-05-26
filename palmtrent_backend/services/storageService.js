@@ -1,6 +1,7 @@
 // services/storageService.js
 const crypto = require('crypto');
 const path = require('path');
+const fs = require('fs');
 const { getIntegrationConfig } = require('./integrationSettingsService');
 
 class StorageService {
@@ -13,7 +14,8 @@ class StorageService {
       bucket: process.env.AWS_S3_BUCKET || process.env.STORAGE_BUCKET,
       region: process.env.AWS_REGION || process.env.STORAGE_REGION || 'us-east-1',
       accessKeyId: process.env.AWS_ACCESS_KEY_ID || process.env.STORAGE_ACCESS_KEY_ID,
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || process.env.STORAGE_SECRET_ACCESS_KEY
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || process.env.STORAGE_SECRET_ACCESS_KEY,
+      endpoint: process.env.STORAGE_ENDPOINT
     };
 
     // Cloudinary config (if using Cloudinary)
@@ -32,9 +34,55 @@ class StorageService {
       bucket: config.bucket || process.env.AWS_S3_BUCKET || process.env.STORAGE_BUCKET,
       region: config.region || process.env.AWS_REGION || process.env.STORAGE_REGION || 'us-east-1',
       accessKeyId: config.accessKeyId || process.env.AWS_ACCESS_KEY_ID || process.env.STORAGE_ACCESS_KEY_ID,
-      secretAccessKey: config.secretAccessKey || process.env.AWS_SECRET_ACCESS_KEY || process.env.STORAGE_SECRET_ACCESS_KEY
+      secretAccessKey: config.secretAccessKey || process.env.AWS_SECRET_ACCESS_KEY || process.env.STORAGE_SECRET_ACCESS_KEY,
+      endpoint: config.endpoint || process.env.STORAGE_ENDPOINT
     };
     return this;
+  }
+
+  isLocalStorageAllowed() {
+    return process.env.NODE_ENV !== 'production' ||
+      process.env.ALLOW_LOCAL_STORAGE_IN_PRODUCTION === 'true';
+  }
+
+  hasS3Config() {
+    return Boolean(
+      this.s3Config.bucket &&
+      this.s3Config.region &&
+      this.s3Config.accessKeyId &&
+      this.s3Config.secretAccessKey
+    );
+  }
+
+  isObjectStorageProvider() {
+    return ['s3', 'r2'].includes(String(this.provider || '').toLowerCase());
+  }
+
+  createS3Client(S3Client) {
+    const options = {
+      region: this.s3Config.region,
+      credentials: {
+        accessKeyId: this.s3Config.accessKeyId,
+        secretAccessKey: this.s3Config.secretAccessKey
+      }
+    };
+
+    if (String(this.provider).toLowerCase() === 'r2') {
+      options.endpoint = this.s3Config.endpoint;
+      options.forcePathStyle = true;
+    }
+
+    return new S3Client(options);
+  }
+
+  objectUrlForKey(key) {
+    if (this.baseUrl && this.baseUrl !== '/uploads') {
+      return `${this.baseUrl.replace(/\/$/, '')}/${key}`;
+    }
+    if (String(this.provider).toLowerCase() === 's3') {
+      return `https://${this.s3Config.bucket}.s3.${this.s3Config.region}.amazonaws.com/${key}`;
+    }
+    return `/api/v1/uploads/${key}`;
   }
 
   /**
@@ -52,8 +100,18 @@ class StorageService {
    */
   async getUploadUrl(filename, contentType, folder = 'general') {
     await this.refreshConfig();
-    if (this.provider === 's3' && this.s3Config.bucket) {
+    if (this.isObjectStorageProvider()) {
+      if (!this.hasS3Config()) {
+        throw new Error('Object storage is selected but required bucket/credential settings are missing');
+      }
+      if (String(this.provider).toLowerCase() === 'r2' && !this.s3Config.endpoint) {
+        throw new Error('R2 storage is selected but STORAGE_ENDPOINT is missing');
+      }
       return this.getS3PresignedUrl(filename, contentType, folder);
+    }
+
+    if (!this.isLocalStorageAllowed()) {
+      throw new Error('Local upload storage is disabled in production');
     }
 
     // For local storage, return the upload endpoint
@@ -74,13 +132,7 @@ class StorageService {
       const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
       const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
 
-      const client = new S3Client({
-        region: this.s3Config.region,
-        credentials: {
-          accessKeyId: this.s3Config.accessKeyId,
-          secretAccessKey: this.s3Config.secretAccessKey
-        }
-      });
+      const client = this.createS3Client(S3Client);
 
       const key = `${folder}/${filename}`;
       const command = new PutObjectCommand({
@@ -95,7 +147,7 @@ class StorageService {
         uploadUrl,
         method: 'PUT',
         key,
-        publicUrl: `https://${this.s3Config.bucket}.s3.${this.s3Config.region}.amazonaws.com/${key}`
+        publicUrl: this.objectUrlForKey(key)
       };
     } catch (error) {
       console.error('Error generating S3 presigned URL:', error);
@@ -105,19 +157,23 @@ class StorageService {
 
   async getSignedDownloadUrl(key, expiresIn = 900) {
     await this.refreshConfig();
-    if (this.provider !== 's3' || !this.s3Config.bucket) {
+    if (!this.isObjectStorageProvider()) {
+      if (!this.isLocalStorageAllowed()) {
+        throw new Error('Local upload storage is disabled in production');
+      }
       return { url: key, provider: 'local', expiresIn: null };
+    }
+
+    if (!this.hasS3Config()) {
+      throw new Error('Object storage is selected but required bucket/credential settings are missing');
+    }
+    if (String(this.provider).toLowerCase() === 'r2' && !this.s3Config.endpoint) {
+      throw new Error('R2 storage is selected but STORAGE_ENDPOINT is missing');
     }
 
     const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
     const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
-    const client = new S3Client({
-      region: this.s3Config.region,
-      credentials: {
-        accessKeyId: this.s3Config.accessKeyId,
-        secretAccessKey: this.s3Config.secretAccessKey
-      }
-    });
+    const client = this.createS3Client(S3Client);
 
     const command = new GetObjectCommand({ Bucket: this.s3Config.bucket, Key: key });
     return {
@@ -132,7 +188,13 @@ class StorageService {
    */
   async uploadFile(fileBuffer, filename, contentType, folder = 'general') {
     await this.refreshConfig();
-    if (this.provider === 's3' && this.s3Config.bucket) {
+    if (this.isObjectStorageProvider()) {
+      if (!this.hasS3Config()) {
+        throw new Error('Object storage is selected but required bucket/credential settings are missing');
+      }
+      if (String(this.provider).toLowerCase() === 'r2' && !this.s3Config.endpoint) {
+        throw new Error('R2 storage is selected but STORAGE_ENDPOINT is missing');
+      }
       return this.uploadToS3(fileBuffer, filename, contentType, folder);
     }
 
@@ -140,8 +202,7 @@ class StorageService {
       return this.uploadToCloudinary(fileBuffer, filename, folder);
     }
 
-    // Default: local storage simulation (in production, use actual file system)
-    return this.simulateLocalUpload(filename, folder);
+    return this.uploadToLocal(fileBuffer, filename, folder);
   }
 
   /**
@@ -151,13 +212,7 @@ class StorageService {
     try {
       const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
 
-      const client = new S3Client({
-        region: this.s3Config.region,
-        credentials: {
-          accessKeyId: this.s3Config.accessKeyId,
-          secretAccessKey: this.s3Config.secretAccessKey
-        }
-      });
+      const client = this.createS3Client(S3Client);
 
       const key = `${folder}/${filename}`;
       await client.send(new PutObjectCommand({
@@ -169,9 +224,9 @@ class StorageService {
 
       return {
         success: true,
-        url: `https://${this.s3Config.bucket}.s3.${this.s3Config.region}.amazonaws.com/${key}`,
+        url: this.objectUrlForKey(key),
         key,
-        provider: 's3'
+        provider: this.provider
       };
     } catch (error) {
       console.error('S3 upload error:', error);
@@ -220,14 +275,20 @@ class StorageService {
     }
   }
 
-  /**
-   * Simulate local upload (for development)
-   */
-  simulateLocalUpload(filename, folder) {
-    const url = `${this.baseUrl}/${folder}/${filename}`;
+  uploadToLocal(fileBuffer, filename, folder) {
+    if (!this.isLocalStorageAllowed()) {
+      throw new Error('Local upload storage is disabled in production');
+    }
+
+    const uploadDir = path.join(process.cwd(), 'uploads', folder);
+    fs.mkdirSync(uploadDir, { recursive: true });
+    fs.writeFileSync(path.join(uploadDir, filename), fileBuffer);
+
+    const key = `${folder}/${filename}`;
     return {
       success: true,
-      url,
+      url: `/api/v1/uploads/${key}`,
+      key,
       provider: 'local'
     };
   }
@@ -237,7 +298,7 @@ class StorageService {
    */
   async deleteFile(fileUrl) {
     await this.refreshConfig();
-    if (this.provider === 's3') {
+    if (this.isObjectStorageProvider()) {
       return this.deleteFromS3(fileUrl);
     }
 
@@ -255,16 +316,19 @@ class StorageService {
     try {
       const { S3Client, DeleteObjectCommand } = await import('@aws-sdk/client-s3');
 
-      const key = fileUrl.split('.amazonaws.com/')[1];
+      let key = fileUrl;
+      if (fileUrl.includes('.amazonaws.com/')) {
+        key = fileUrl.split('.amazonaws.com/')[1];
+      } else if (this.baseUrl && this.baseUrl !== '/uploads' && fileUrl.startsWith(this.baseUrl)) {
+        key = fileUrl.slice(this.baseUrl.length).replace(/^\//, '');
+      } else if (fileUrl.startsWith('/api/v1/uploads/')) {
+        key = fileUrl.replace('/api/v1/uploads/', '');
+      } else if (fileUrl.startsWith('/uploads/')) {
+        key = fileUrl.replace('/uploads/', '');
+      }
       if (!key) return { success: false, error: 'Invalid URL' };
 
-      const client = new S3Client({
-        region: this.s3Config.region,
-        credentials: {
-          accessKeyId: this.s3Config.accessKeyId,
-          secretAccessKey: this.s3Config.secretAccessKey
-        }
-      });
+      const client = this.createS3Client(S3Client);
 
       await client.send(new DeleteObjectCommand({
         Bucket: this.s3Config.bucket,
@@ -342,7 +406,18 @@ class StorageService {
       }
     };
 
-    return configs[type] || configs['cargo_photo'];
+    const aliases = {
+      cargo: 'cargo_photo',
+      claims: 'claim',
+      documents: 'document',
+      pod: 'cargo_photo',
+      profiles: 'profile',
+      signatures: 'signature',
+      vehicles: 'vehicle',
+      verification: 'document'
+    };
+
+    return configs[aliases[type] || type] || configs['cargo_photo'];
   }
 
   /**

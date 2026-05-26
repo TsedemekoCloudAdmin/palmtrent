@@ -1,6 +1,16 @@
 // API Service for Palmtrent Web
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
 
+export const resolveApiUrl = (url) => {
+  if (!url) return '';
+  if (/^(https?:|blob:|data:)/i.test(url)) return url;
+
+  const apiOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/, '');
+  if (url.startsWith('/api/')) return `${apiOrigin}${url}`;
+  if (url.startsWith('/uploads/')) return `${apiOrigin}${url}`;
+  return `${API_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+};
+
 // Token management
 const getToken = () => localStorage.getItem('palmtrent_token');
 const setToken = (token) => localStorage.setItem('palmtrent_token', token);
@@ -13,6 +23,31 @@ const getUser = () => {
 };
 const setUser = (user) => localStorage.setItem('palmtrent_user', JSON.stringify(user));
 const removeUser = () => localStorage.removeItem('palmtrent_user');
+
+const authHeaders = () => {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+export const downloadAuthorizedBlob = async (url) => {
+  const response = await fetch(resolveApiUrl(url), {
+    headers: authHeaders(),
+  });
+
+  if (response.status === 401) {
+    removeToken();
+    removeUser();
+    window.location.href = '/login';
+    throw new Error('Session expired. Please login again.');
+  }
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.message || 'Unable to download file');
+  }
+
+  return response.blob();
+};
 
 // Base fetch wrapper
 const apiFetch = async (endpoint, options = {}) => {
@@ -57,9 +92,12 @@ export const authAPI = {
       body: JSON.stringify({ email, password }),
     });
 
-    if (response.token) {
-      setToken(response.token);
-      setUser(response.user);
+    const token = response.token || response.data?.token;
+    const user = response.user || response.data?.user;
+
+    if (token) {
+      setToken(token);
+      if (user) setUser(user);
     }
 
     return response;
@@ -71,9 +109,12 @@ export const authAPI = {
       body: JSON.stringify(userData),
     });
 
-    if (response.token) {
-      setToken(response.token);
-      setUser(response.user);
+    const token = response.token || response.data?.token;
+    const user = response.user || response.data?.user;
+
+    if (token) {
+      setToken(token);
+      if (user) setUser(user);
     }
 
     return response;
@@ -89,6 +130,21 @@ export const authAPI = {
     body: JSON.stringify({ token, password }),
   }),
 
+  sendVerificationCode: (phone) => apiFetch('/verification/send-code', {
+    method: 'POST',
+    body: JSON.stringify({ phone }),
+  }),
+
+  verifyCode: (phone, code) => apiFetch('/verification/verify', {
+    method: 'POST',
+    body: JSON.stringify({ phone, code }),
+  }),
+
+  resendVerificationCode: (phone) => apiFetch('/verification/resend-code', {
+    method: 'POST',
+    body: JSON.stringify({ phone }),
+  }),
+
   logout: () => {
     removeToken();
     removeUser();
@@ -97,10 +153,15 @@ export const authAPI = {
 
   getProfile: () => apiFetch('/auth/me'),
 
-  updateProfile: (data) => apiFetch('/auth/profile', {
-    method: 'PUT',
-    body: JSON.stringify(data),
-  }),
+  updateProfile: async (data) => {
+    const response = await apiFetch('/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+    const user = response.user || response.data?.user || response.data;
+    if (user) setUser(user);
+    return response;
+  },
 
   isAuthenticated: () => !!getToken(),
 
@@ -117,6 +178,11 @@ export const bookingsAPI = {
   getById: (id) => apiFetch(`/bookings/${id}`),
 
   create: (bookingData) => apiFetch('/bookings', {
+    method: 'POST',
+    body: JSON.stringify(bookingData),
+  }),
+
+  createWithPayment: (bookingData) => apiFetch('/bookings/create-with-payment', {
     method: 'POST',
     body: JSON.stringify(bookingData),
   }),
@@ -156,12 +222,6 @@ export const trackingAPI = {
 
   // Get tracking history
   getHistory: (bookingId) => apiFetch(`/tracking/${bookingId}`),
-
-  // Subscribe to live updates (returns WebSocket URL)
-  getLiveTrackingUrl: (bookingId) => {
-    const wsBase = API_BASE_URL.replace('http', 'ws').replace('/api/v1', '');
-    return `${wsBase}/tracking/${bookingId}`;
-  },
 };
 
 // Payments API
@@ -178,6 +238,11 @@ export const paymentsAPI = {
     body: JSON.stringify({ bookingId, paymentMethod, amount, customer }),
   }),
 
+  startCheckout: (paymentReference, customer = {}) => apiFetch('/payments/initiate', {
+    method: 'POST',
+    body: JSON.stringify({ paymentReference, customer }),
+  }),
+
   verify: (reference) => apiFetch(`/payments/status/${reference}`),
 };
 
@@ -191,6 +256,16 @@ export const ratingsAPI = {
   getForBooking: (bookingId) => apiFetch(`/ratings/booking/${bookingId}`),
 
   getForUser: (userId) => apiFetch(`/ratings/user/${userId}`),
+};
+
+// Shipments API
+export const shipmentsAPI = {
+  getPODDocument: (shipmentId) => apiFetch(`/shipments/${shipmentId}/proof-of-delivery/document`),
+
+  emailPODDocument: (shipmentId, email) => apiFetch(`/shipments/${shipmentId}/proof-of-delivery/email`, {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  }),
 };
 
 // Vehicles API
@@ -301,13 +376,67 @@ export const corporateAPI = {
     return apiFetch(`/corporate/analytics${queryString ? `?${queryString}` : ''}`);
   },
 
+  getReportSchedules: () => apiFetch('/corporate/report-schedules'),
+
+  saveReportSchedule: (data) => apiFetch('/corporate/report-schedules', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  updateReportSchedule: (id, data) => apiFetch(`/corporate/report-schedules/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
   getInvoices: () => apiFetch('/corporate/invoices'),
+
+  getInvoiceById: (id) => apiFetch(`/corporate/invoices/${id}`),
+
+  downloadInvoice: async (id) => {
+    const response = await fetch(`${API_BASE_URL}/corporate/invoices/${id}/download`, {
+      headers: authHeaders(),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.message || 'Unable to download invoice');
+    }
+
+    return response.blob();
+  },
 
   getUsers: () => apiFetch('/corporate/users'),
 
   inviteUser: (data) => apiFetch('/corporate/users/invite', {
     method: 'POST',
     body: JSON.stringify(data),
+  }),
+
+  updateUser: (userId, data) => apiFetch(`/corporate/users/${userId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
+  removeUser: (userId) => apiFetch(`/corporate/users/${userId}`, {
+    method: 'DELETE',
+  }),
+
+  getBillingInfo: () => apiFetch('/corporate/billing'),
+
+  updateBillingInfo: (data) => apiFetch('/corporate/billing', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
+  addPaymentMethod: (data) => apiFetch('/corporate/payment-methods', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  getApiAccess: () => apiFetch('/corporate/api-access'),
+
+  regenerateApiKey: () => apiFetch('/corporate/api-access/regenerate', {
+    method: 'POST',
   }),
 
   uploadDocument: (formData) => {
@@ -325,6 +454,8 @@ export const corporateAPI = {
 // Shipper API
 export const shipperAPI = {
   getDashboard: () => apiFetch('/shipper/dashboard'),
+
+  getDashboardStats: () => apiFetch('/shipper/dashboard-stats'),
 
   getActiveShipments: () => apiFetch('/shipper/shipments/active'),
 
@@ -378,10 +509,22 @@ export const adminAPI = {
     return apiFetch(`/admin/payments${queryString ? `?${queryString}` : ''}`);
   },
 
+  confirmPayment: (id, note = '') => apiFetch(`/admin/payments/${id}/confirm`, {
+    method: 'POST',
+    body: JSON.stringify({ note }),
+  }),
+
   getAuditLogs: (params = {}) => {
     const queryString = new URLSearchParams(params).toString();
     return apiFetch(`/admin/audit-logs${queryString ? `?${queryString}` : ''}`);
   },
+
+  getPreferences: () => apiFetch('/admin/preferences'),
+
+  updatePreferences: (data) => apiFetch('/admin/preferences', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
 
   getRentals: (params = {}) => {
     const queryString = new URLSearchParams(params).toString();
@@ -407,6 +550,63 @@ export const adminAPI = {
 
   testIntegration: (provider) => apiFetch(`/admin/integrations/${provider}/test`, {
     method: 'POST',
+  }),
+
+  getMonetization: () => apiFetch('/admin/monetization'),
+
+  savePlan: (data) => apiFetch('/admin/monetization/plans', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  updatePlan: (id, data) => apiFetch(`/admin/monetization/plans/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
+  saveCommissionRule: (data) => apiFetch('/admin/monetization/commission-rules', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  updateCommissionRule: (id, data) => apiFetch(`/admin/monetization/commission-rules/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
+  createSubscription: (data) => apiFetch('/admin/monetization/subscriptions', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  updateSubscription: (id, data) => apiFetch(`/admin/monetization/subscriptions/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
+  createPayout: (data) => apiFetch('/admin/monetization/payouts', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  updatePayout: (id, data) => apiFetch(`/admin/monetization/payouts/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
+  getSupportTickets: (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    return apiFetch(`/support/tickets${queryString ? `?${queryString}` : ''}`);
+  },
+
+  updateSupportTicket: (id, data) => apiFetch(`/support/tickets/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
+  replyToSupportTicket: (id, message, internal = false) => apiFetch(`/support/tickets/${id}/replies`, {
+    method: 'POST',
+    body: JSON.stringify({ message, internal }),
   }),
 };
 

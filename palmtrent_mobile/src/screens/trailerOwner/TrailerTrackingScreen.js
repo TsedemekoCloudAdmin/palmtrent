@@ -8,56 +8,100 @@ import {
   SafeAreaView,
   StatusBar,
   Dimensions,
-  Alert
+  Alert,
+  ActivityIndicator,
+  Linking
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import MapView, { Marker } from 'react-native-maps';
+import apiService from '../../services/apiService';
 
 const { width, height } = Dimensions.get('window');
 
 const TrailerTrackingScreen = ({ navigation, route }) => {
-  const { trailer } = route.params || {};
-  
-  const [trackingData, setTrackingData] = useState({
-    currentLocation: {
-      latitude: -17.824858,
-      longitude: 31.053028,
-      address: 'Bulawayo City Center'
-    },
-    lastUpdate: '2 minutes ago',
-    batteryLevel: 85,
-    speed: '0 km/h',
-    status: 'stationary',
-    estimatedReturn: 'Today, 17:00',
-    route: {
-      from: 'Harare',
-      to: 'Bulawayo',
-      progress: '85%'
-    }
-  });
+  const { trailer, rentalId } = route.params || {};
+  const [trackingData, setTrackingData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const [region, setRegion] = useState({
-    latitude: -17.824858,
-    longitude: 31.053028,
+    latitude: -17.8292,
+    longitude: 31.0522,
     latitudeDelta: 0.0922,
     longitudeDelta: 0.0421,
   });
 
-  const navigateTo = (screen, params = {}) => {
-    if (navigation) {
-      navigation.navigate(screen, params);
+  useEffect(() => {
+    loadTracking();
+  }, [rentalId, trailer?._id]);
+
+  const resolveRentalId = async () => {
+    if (rentalId) return rentalId;
+    if (trailer?.currentRental) return trailer.currentRental;
+    if (!trailer?._id) return null;
+
+    const response = await apiService.getActiveRentals();
+    const activeRental = (response.data || []).find(item =>
+      item.trailer?._id === trailer._id ||
+      item.trailer === trailer._id ||
+      item.vehicle?._id === trailer._id
+    );
+    return activeRental?._id || null;
+  };
+
+  const loadTracking = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const activeRentalId = await resolveRentalId();
+      if (!activeRentalId) {
+        setTrackingData(null);
+        setError('No active rental tracking record was found for this asset.');
+        return;
+      }
+
+      const response = await apiService.getRentalTracking(activeRentalId);
+      const data = response.data;
+      setTrackingData(data);
+
+      if (data?.currentLocation?.latitude && data?.currentLocation?.longitude) {
+        setRegion(prev => ({
+          ...prev,
+          latitude: data.currentLocation.latitude,
+          longitude: data.currentLocation.longitude
+        }));
+      }
+    } catch (err) {
+      setError(err.message || 'Unable to load trailer tracking.');
+    } finally {
+      setLoading(false);
     }
   };
 
   const refreshLocation = () => {
-    Alert.alert('Location Updated', 'Trailer location has been refreshed');
-    // In real app, this would call API to get latest location
+    loadTracking();
   };
 
   const contactDriver = () => {
-    Alert.alert('Contact Driver', 'Calling driver...');
-    // In real app, this would initiate a call
+    const phone = trackingData?.renter?.phone || trackingData?.owner?.phone;
+    if (!phone) {
+      Alert.alert('No phone number', 'No contact number is available for this rental.');
+      return;
+    }
+    Linking.openURL(`tel:${phone}`);
   };
+
+  const formatTimeAgo = (date) => {
+    if (!date) return 'unknown';
+    const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+    if (seconds < 60) return `${seconds}s ago`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    return `${Math.floor(seconds / 86400)}d ago`;
+  };
+
+  const currentLocation = trackingData?.currentLocation;
+  const progress = `${trackingData?.route?.progress || 0}%`;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -72,10 +116,26 @@ const TrailerTrackingScreen = ({ navigation, route }) => {
           <MaterialIcons name="arrow-back" size={24} color="white" />
           <Text style={styles.backButtonText}>Back</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Track {trailer?.name}</Text>
+        <Text style={styles.headerTitle}>Track {trackingData?.asset?.name || trailer?.name || trailer?.assetName || 'Asset'}</Text>
         <Text style={styles.headerSubtitle}>Live Location Tracking</Text>
       </View>
 
+      {loading ? (
+        <View style={styles.centerState}>
+          <ActivityIndicator size="large" color="#0C2D48" />
+          <Text style={styles.centerStateText}>Loading tracking...</Text>
+        </View>
+      ) : error ? (
+        <View style={styles.centerState}>
+          <MaterialIcons name="location-off" size={48} color="#9ca3af" />
+          <Text style={styles.centerStateTitle}>Tracking unavailable</Text>
+          <Text style={styles.centerStateText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={refreshLocation}>
+            <MaterialIcons name="refresh" size={18} color="white" />
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Map View */}
         <View style={styles.mapContainer}>
@@ -84,15 +144,17 @@ const TrailerTrackingScreen = ({ navigation, route }) => {
             region={region}
             onRegionChangeComplete={setRegion}
           >
-            <Marker
-              coordinate={trackingData.currentLocation}
-              title={trailer?.name}
-              description={trackingData.currentLocation.address}
-            >
-              <View style={styles.marker}>
-                <MaterialIcons name="local-shipping" size={24} color="#0C2D48" />
-              </View>
-            </Marker>
+            {currentLocation?.latitude && currentLocation?.longitude && (
+              <Marker
+                coordinate={currentLocation}
+                title={trackingData?.asset?.name || trailer?.name}
+                description={currentLocation.address}
+              >
+                <View style={styles.marker}>
+                  <MaterialIcons name="local-shipping" size={24} color="#0C2D48" />
+                </View>
+              </Marker>
+            )}
           </MapView>
           
           {/* Refresh Button */}
@@ -109,16 +171,18 @@ const TrailerTrackingScreen = ({ navigation, route }) => {
                 <View style={[styles.statusDot, styles.statusActive]} />
                 <Text style={styles.statusText}>Live Tracking Active</Text>
               </View>
-              <Text style={styles.lastUpdate}>Updated {trackingData.lastUpdate}</Text>
+              <Text style={styles.lastUpdate}>Updated {formatTimeAgo(trackingData.lastUpdate)}</Text>
             </View>
             
             <View style={styles.locationInfo}>
               <MaterialIcons name="location-on" size={20} color="#F37021" />
               <View style={styles.locationTexts}>
-                <Text style={styles.locationAddress}>{trackingData.currentLocation.address}</Text>
-                <Text style={styles.locationCoordinates}>
-                  {trackingData.currentLocation.latitude.toFixed(6)}, {trackingData.currentLocation.longitude.toFixed(6)}
-                </Text>
+                <Text style={styles.locationAddress}>{currentLocation?.address || 'No location reported yet'}</Text>
+                {currentLocation?.latitude && currentLocation?.longitude && (
+                  <Text style={styles.locationCoordinates}>
+                    {currentLocation.latitude.toFixed(6)}, {currentLocation.longitude.toFixed(6)}
+                  </Text>
+                )}
               </View>
             </View>
           </View>
@@ -128,13 +192,13 @@ const TrailerTrackingScreen = ({ navigation, route }) => {
             <DetailCard
               icon="battery-full"
               title="Battery"
-              value={`${trackingData.batteryLevel}%`}
+              value={trackingData.batteryLevel == null ? 'N/A' : `${trackingData.batteryLevel}%`}
               color="#16a34a"
             />
             <DetailCard
               icon="speed"
               title="Speed"
-              value={trackingData.speed}
+              value={trackingData.speed == null ? 'N/A' : `${trackingData.speed} km/h`}
               color="#F37021"
             />
             <DetailCard
@@ -146,7 +210,7 @@ const TrailerTrackingScreen = ({ navigation, route }) => {
             <DetailCard
               icon="timer"
               title="Est. Return"
-              value={trackingData.estimatedReturn}
+              value={trackingData.estimatedReturn ? new Date(trackingData.estimatedReturn).toLocaleString() : 'N/A'}
               color="#7c3aed"
             />
           </View>
@@ -159,21 +223,21 @@ const TrailerTrackingScreen = ({ navigation, route }) => {
                 <View style={styles.routePoint}>
                   <View style={[styles.routeDot, styles.routeStart]} />
                   <Text style={styles.routeLabel}>Pickup</Text>
-                  <Text style={styles.routeValue}>{trackingData.route.from}</Text>
+                  <Text style={styles.routeValue}>{trackingData.route?.from || 'Pickup'}</Text>
                 </View>
                 <View style={styles.routeLine} />
                 <View style={styles.routePoint}>
                   <View style={[styles.routeDot, styles.routeEnd]} />
                   <Text style={styles.routeLabel}>Delivery</Text>
-                  <Text style={styles.routeValue}>{trackingData.route.to}</Text>
+                  <Text style={styles.routeValue}>{trackingData.route?.to || 'Return'}</Text>
                 </View>
               </View>
               <View style={styles.progressBar}>
                 <View 
-                  style={[styles.progressFill, { width: trackingData.route.progress }]} 
+                  style={[styles.progressFill, { width: progress }]} 
                 />
               </View>
-              <Text style={styles.progressText}>Journey: {trackingData.route.progress} complete</Text>
+              <Text style={styles.progressText}>Journey: {progress} complete</Text>
             </View>
           </View>
 
@@ -204,27 +268,24 @@ const TrailerTrackingScreen = ({ navigation, route }) => {
           <View style={styles.historyCard}>
             <Text style={styles.cardTitle}>Recent Locations</Text>
             <View style={styles.historyList}>
-              <LocationHistoryItem 
-                time="30 minutes ago"
-                address="Gwanda Road, Bulawayo"
-                status="Stopped"
-              />
-              <LocationHistoryItem 
-                time="1 hour ago"
-                address="Matopos Road, Bulawayo"
-                status="Moving"
-              />
-              <LocationHistoryItem 
-                time="2 hours ago"
-                address="Masvingo Highway"
-                status="Moving"
-              />
+              {(trackingData.history || []).map(item => (
+                <LocationHistoryItem
+                  key={item._id || item.timestamp}
+                  time={formatTimeAgo(item.timestamp)}
+                  address={item.location?.address || 'Location update'}
+                  status={item.speed > 0 ? 'Moving' : 'Stopped'}
+                />
+              ))}
+              {!trackingData.history?.length && (
+                <Text style={styles.emptyHistory}>No location history has been reported yet.</Text>
+              )}
             </View>
           </View>
 
           <View style={styles.bottomPadding} />
         </View>
       </ScrollView>
+      )}
     </SafeAreaView>
   );
 };
@@ -291,6 +352,39 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+  },
+  centerState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  centerStateTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1f2937',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  centerStateText: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  retryButton: {
+    marginTop: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#0C2D48',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: 'white',
+    fontWeight: '600',
   },
   mapContainer: {
     height: 300,
@@ -516,6 +610,12 @@ const styles = StyleSheet.create({
   },
   historyList: {
     gap: 12,
+  },
+  emptyHistory: {
+    fontSize: 13,
+    color: '#6b7280',
+    textAlign: 'center',
+    paddingVertical: 12,
   },
   historyItem: {
     flexDirection: 'row',

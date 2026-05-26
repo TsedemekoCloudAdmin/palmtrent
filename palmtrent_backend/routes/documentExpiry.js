@@ -7,7 +7,10 @@ const {
   getUserDocumentSummary,
   getExpiringDocumentsDashboard
 } = require('../controllers/documentExpiryController');
-const { protect } = require('../middleware/auth');
+const { protect, authorize } = require('../middleware/auth');
+
+// Internal scheduler hook. Controller verifies x-internal-key against INTERNAL_JOB_KEY.
+router.post('/internal/run-check', runExpiryCheck);
 
 // All routes require authentication
 router.use(protect);
@@ -16,8 +19,8 @@ router.use(protect);
 router.get('/my-summary', getMyDocumentSummary);
 
 // Admin routes
-router.get('/admin/dashboard', getExpiringDocumentsDashboard);
-router.get('/admin/user/:userId', getUserDocumentSummary);
-router.post('/admin/run-check', runExpiryCheck);
+router.get('/admin/dashboard', authorize('admin'), getExpiringDocumentsDashboard);
+router.get('/admin/user/:userId', authorize('admin'), getUserDocumentSummary);
+router.post('/admin/run-check', authorize('admin'), runExpiryCheck);
 
 module.exports = router;

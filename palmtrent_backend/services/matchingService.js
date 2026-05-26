@@ -5,8 +5,86 @@
 const User = require('../models/User');
 const Vehicle = require('../models/Vehicle');
 const Booking = require('../models/Booking');
+const Shipment = require('../models/Shipment');
 const { assertBookingReadyForMatching, getVehicleComplianceIssues } = require('./flowControlService');
 const { recordAudit } = require('./auditService');
+
+const ACTIVE_SHIPMENT_STATUSES = [
+  'assigned',
+  'en_route_pickup',
+  'picked_up',
+  'in_transit',
+  'arrived_delivery'
+];
+
+function getBookingAvailabilityWindow(booking) {
+  const pickupAt = booking.route?.pickup?.date || booking.pickupDate;
+  if (!pickupAt || Number.isNaN(new Date(pickupAt).getTime())) return null;
+
+  const start = new Date(pickupAt);
+  const requestedEnd = booking.route?.delivery?.deadline || booking.deliveryDate;
+  const end = requestedEnd && !Number.isNaN(new Date(requestedEnd).getTime())
+    ? new Date(requestedEnd)
+    : new Date(start);
+
+  if (!requestedEnd) end.setHours(23, 59, 59, 999);
+  return { start, end: end < start ? start : end };
+}
+
+function buildVehicleConflictQuery(vehicleIds, booking) {
+  const query = {
+    vehicle: { $in: vehicleIds },
+    status: { $in: ACTIVE_SHIPMENT_STATUSES }
+  };
+  const window = getBookingAvailabilityWindow(booking);
+  if (!window) return query;
+
+  query.$or = [
+    { 'schedule.pickupDate': { $exists: false } },
+    {
+      'schedule.pickupDate': { $lte: window.end },
+      'schedule.deliveryDate': { $exists: false }
+    },
+    {
+      'schedule.pickupDate': { $lte: window.end },
+      'schedule.deliveryDate': { $gte: window.start }
+    }
+  ];
+  return query;
+}
+
+async function filterAvailableVehicles(vehicles, booking) {
+  const vehicleIds = vehicles.map(vehicle => vehicle._id).filter(Boolean);
+  if (vehicleIds.length === 0) return [];
+
+  const conflicts = await Shipment.find(buildVehicleConflictQuery(vehicleIds, booking))
+    .select('vehicle')
+    .lean();
+  const unavailableIds = new Set(conflicts
+    .map(shipment => shipment.vehicle?.toString())
+    .filter(Boolean));
+
+  return vehicles.filter(vehicle => !unavailableIds.has(vehicle._id.toString()));
+}
+
+async function recordTransporterOfferResponse(transporterId, response) {
+  const transporter = await User.findById(transporterId).select('stats');
+  if (!transporter) return null;
+
+  const stats = transporter.stats || {};
+  const acceptedOffers = Number(stats.acceptedOffers || 0) + (response === 'accepted' ? 1 : 0);
+  const declinedOffers = Number(stats.declinedOffers || 0) + (response === 'declined' ? 1 : 0);
+  const responseCount = acceptedOffers + declinedOffers;
+
+  transporter.stats = {
+    ...stats,
+    acceptedOffers,
+    declinedOffers,
+    acceptanceRate: responseCount ? Math.round((acceptedOffers / responseCount) * 100) : 0
+  };
+  await transporter.save();
+  return transporter.stats;
+}
 
 /**
  * Find eligible transporters for a booking
@@ -17,7 +95,6 @@ async function findEligibleTransporters(booking) {
   try {
     // Extract booking requirements
     const requiredVehicleType = booking.vehicleType || booking.vehicles?.[0]?.vehicleType;
-    const pickupDate = new Date(booking.route?.pickup?.date || booking.pickupDate);
     const pickupCoordinates = booking.route?.pickup?.coordinates?.coordinates || [0, 0];
 
     // Build base query for transporters
@@ -83,9 +160,10 @@ async function findEligibleTransporters(booking) {
         continue; // No eligible vehicles
       }
 
-      // Check availability on pickup date
-      // TODO: Integrate with booking calendar to check vehicle availability
-      // For now, assume available if vehicle status is 'available'
+      const availableVehicles = await filterAvailableVehicles(matchingVehicles, booking);
+      if (availableVehicles.length === 0) {
+        continue;
+      }
 
       // Calculate distance from pickup location (proximity check)
       const transporterLocation = transporter.location?.coordinates || [0, 0];
@@ -102,7 +180,7 @@ async function findEligibleTransporters(booking) {
       // Transporter is eligible
       eligibleTransporters.push({
         transporter,
-        vehicles: matchingVehicles,
+        vehicles: availableVehicles,
         distance,
         acceptanceRate: transporter.stats?.acceptanceRate || 0,
         avgResponseTime: transporter.stats?.avgResponseTime || 0,
@@ -121,7 +199,7 @@ async function findEligibleTransporters(booking) {
 
 /**
  * Calculate match score using weighted algorithm
- * Scoring: proximity (30%), rating (25%), acceptance rate (20%), price (15%), response time (10%)
+ * Scoring: proximity (30%), rating (25%), acceptance rate (20%), completion reliability (15%), response time (10%)
  *
  * @param {Object} transporterData - Transporter data with stats
  * @param {Object} booking - Booking document
@@ -147,13 +225,11 @@ function calculateMatchScore(transporterData, booking) {
   const acceptanceScore = acceptanceRate || 0;
   const acceptanceWeighted = (acceptanceScore * 0.20);
 
-  // 4. Price Competitiveness Score (15%)
-  // TODO: Implement when transporter can set custom pricing
-  // For now, use completion rate as proxy for reliability
+  // 4. Completion Reliability Score (15%)
   const completedJobs = transporter.stats?.completedJobs || 0;
   const totalJobs = transporter.stats?.totalJobs || 1;
   const completionRate = (completedJobs / totalJobs) * 100;
-  const priceWeighted = (completionRate * 0.15);
+  const reliabilityWeighted = (completionRate * 0.15);
 
   // 5. Response Time Score (10%) - Faster is better
   // Score: 100 for <5min, 50 for <15min, 25 for <30min, 0 for >30min
@@ -166,7 +242,7 @@ function calculateMatchScore(transporterData, booking) {
 
   // Total weighted score
   const totalScore = proximityWeighted + ratingWeighted + acceptanceWeighted +
-                     priceWeighted + responseWeighted;
+                     reliabilityWeighted + responseWeighted;
 
   return Math.round(totalScore * 100) / 100; // Round to 2 decimal places
 }
@@ -252,13 +328,14 @@ async function findAndNotifyTransporters(bookingId, count = 10) {
       // Continue even if WhatsApp fails
     }
 
-    // Send push notifications as backup
+    // Send in-app notifications and push when device tokens are available.
     try {
       for (const transporterData of topTransporters) {
-        await notificationService.sendPushNotification(
+        await notificationService.notify(
           transporterData.transporter._id,
+          'new_job',
           'New Job Available!',
-          `${booking.route.pickup.address} → ${booking.route.delivery.address}`,
+          `${booking.route.pickup.address} to ${booking.route.delivery.address}`,
           { bookingId: booking._id.toString(), type: 'new_job' }
         );
       }
@@ -376,6 +453,7 @@ async function getAvailableJobsForTransporter(transporterId) {
       }).populate('vehicleType', 'name code').lean();
 
       const matchingVehicles = vehicles.filter(vehicle => {
+        if (getVehicleComplianceIssues(vehicle).length > 0) return false;
         if (!requiredVehicleType) return true;
         const vehicleType = vehicle.vehicleType;
         const candidates = [
@@ -392,6 +470,11 @@ async function getAvailableJobsForTransporter(transporterId) {
         continue; // Skip if no matching vehicles
       }
 
+      const availableVehicles = await filterAvailableVehicles(matchingVehicles, booking);
+      if (availableVehicles.length === 0) {
+        continue;
+      }
+
       // Calculate match score
       const pickupCoordinates = booking.route?.pickup?.coordinates?.coordinates || [0, 0];
       const transporterLocation = transporter.location?.coordinates || [0, 0];
@@ -402,7 +485,7 @@ async function getAvailableJobsForTransporter(transporterId) {
 
       const transporterData = {
         transporter: transporter.toObject(),
-        vehicles: matchingVehicles,
+        vehicles: availableVehicles,
         distance,
         acceptanceRate: transporter.stats?.acceptanceRate || 0,
         avgResponseTime: transporter.stats?.avgResponseTime || 0
@@ -435,5 +518,9 @@ module.exports = {
   rankTransporters,
   findAndNotifyTransporters,
   getAvailableJobsForTransporter,
-  calculateDistance
+  calculateDistance,
+  filterAvailableVehicles,
+  getBookingAvailabilityWindow,
+  buildVehicleConflictQuery,
+  recordTransporterOfferResponse
 };

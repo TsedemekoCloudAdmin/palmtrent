@@ -10,10 +10,13 @@ import {
   StatusBar,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator
+  ActivityIndicator,
+  Alert
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../hook/useAuth';
+import apiService from '../services/apiService';
+import socketService from '../services/socketService';
 
 const ChatScreen = ({ navigation, route }) => {
   const { user } = useAuth();
@@ -21,61 +24,103 @@ const ChatScreen = ({ navigation, route }) => {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
   const flatListRef = useRef(null);
 
   useEffect(() => {
-    // Load initial messages - simulated for now
+    let mounted = true;
+
     loadMessages();
-  }, []);
 
-  const loadMessages = async () => {
-    // Simulate loading messages
-    setTimeout(() => {
-      setMessages([
-        {
-          id: '1',
-          text: 'Hello! I\'m your assigned transporter for this delivery.',
-          sender: 'other',
-          timestamp: new Date(Date.now() - 3600000),
-          senderName: recipientName || 'Driver'
-        },
-        {
-          id: '2',
-          text: 'Hi! Great, I\'ll have the cargo ready for pickup.',
-          sender: 'me',
-          timestamp: new Date(Date.now() - 3500000)
-        },
-        {
-          id: '3',
-          text: 'I\'m on my way to the pickup location. ETA 30 minutes.',
-          sender: 'other',
-          timestamp: new Date(Date.now() - 1800000),
-          senderName: recipientName || 'Driver'
-        }
-      ]);
-      setLoading(false);
-    }, 500);
-  };
+    const setupRealtime = async () => {
+      if (!bookingId) return;
 
-  const handleSend = () => {
-    if (!inputText.trim()) return;
+      if (!socketService.getConnectionStatus().isConnected) {
+        await socketService.connect();
+      }
 
-    const newMessage = {
-      id: Date.now().toString(),
-      text: inputText.trim(),
-      sender: 'me',
-      timestamp: new Date()
+      socketService.joinChat(bookingId);
+      socketService.onNewMessage((message) => {
+        if (!mounted || message.bookingId !== bookingId) return;
+        const normalized = normalizeMessage(message);
+        setMessages(prev => (
+          prev.some(item => item.id === normalized.id)
+            ? prev
+            : [...prev, normalized]
+        ));
+      });
     };
 
-    setMessages(prev => [...prev, newMessage]);
-    setInputText('');
+    setupRealtime();
 
-    // Scroll to bottom
+    return () => {
+      mounted = false;
+      if (bookingId) {
+        socketService.leaveChat(bookingId);
+      }
+      socketService.removeListener('chat:newMessage');
+    };
+  }, [bookingId]);
+
+  const normalizeMessage = (message) => {
+    const senderId = message.senderId || message.sender?._id || message.sender;
+    const currentUserId = user?._id || user?.id;
+
+    return {
+      id: message.id || message._id || `${senderId}-${message.createdAt || message.timestamp}`,
+      text: message.text || message.message || '',
+      sender: message.sender || (senderId && currentUserId && senderId.toString() === currentUserId.toString() ? 'me' : 'other'),
+      timestamp: message.timestamp || message.createdAt || new Date(),
+      senderName: message.senderName || message.sender?.fullName || recipientName || 'User'
+    };
+  };
+
+  const loadMessages = async () => {
+    if (!bookingId) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const response = await apiService.getChatMessages(bookingId);
+      setMessages((response.data || []).map(normalizeMessage));
+      await apiService.markChatRead(bookingId).catch(() => null);
+    } catch (error) {
+      console.error('Load chat messages error:', error);
+      Alert.alert('Chat unavailable', error.message || 'Unable to load messages for this booking.');
+      setMessages([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSend = async () => {
+    if (!inputText.trim()) return;
+
+    const messageText = inputText.trim();
+    setInputText('');
+    setSending(true);
+
+    try {
+      const response = await apiService.sendChatMessage(bookingId, messageText);
+      const savedMessage = normalizeMessage(response.data);
+      setMessages(prev => (
+        prev.some(item => item.id === savedMessage.id)
+          ? prev
+          : [...prev, savedMessage]
+      ));
+    } catch (error) {
+      console.error('Send chat message error:', error);
+      setInputText(messageText);
+      Alert.alert('Message not sent', error.message || 'Please try again.');
+    } finally {
+      setSending(false);
+    }
+
     setTimeout(() => {
       flatListRef.current?.scrollToEnd({ animated: true });
     }, 100);
-
-    // In a real app, send message via socket/API
   };
 
   const formatTime = (date) => {
@@ -205,9 +250,13 @@ const ChatScreen = ({ navigation, route }) => {
           <TouchableOpacity
             style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
             onPress={handleSend}
-            disabled={!inputText.trim()}
+            disabled={!inputText.trim() || sending || !bookingId}
           >
-            <MaterialIcons name="send" size={24} color={inputText.trim() ? 'white' : '#9ca3af'} />
+            {sending ? (
+              <ActivityIndicator size="small" color="white" />
+            ) : (
+              <MaterialIcons name="send" size={24} color={inputText.trim() && bookingId ? 'white' : '#9ca3af'} />
+            )}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>

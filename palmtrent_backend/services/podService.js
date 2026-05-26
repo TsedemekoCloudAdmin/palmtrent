@@ -1,5 +1,7 @@
 // services/podService.js
 const mongoose = require('mongoose');
+const storageService = require('./storageService');
+const notificationService = require('./notificationService');
 
 // POD Document model schema
 const podDocumentSchema = new mongoose.Schema({
@@ -7,6 +9,10 @@ const podDocumentSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Booking',
     required: true
+  },
+  shipment: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Shipment'
   },
   podReference: {
     type: String,
@@ -75,10 +81,13 @@ const podDocumentSchema = new mongoose.Schema({
     photoVerified: Boolean
   },
   pdfUrl: String,
+  pdfStorageKey: String,
+  pdfProvider: String,
   pdfGeneratedAt: Date,
   emailedTo: [{
     email: String,
-    sentAt: Date
+    sentAt: Date,
+    messageId: String
   }],
   shipper: {
     type: mongoose.Schema.Types.ObjectId,
@@ -93,7 +102,7 @@ const podDocumentSchema = new mongoose.Schema({
 });
 
 podDocumentSchema.index({ booking: 1 });
-podDocumentSchema.index({ podReference: 1 });
+podDocumentSchema.index({ shipment: 1 });
 podDocumentSchema.index({ shipper: 1 });
 podDocumentSchema.index({ transporter: 1 });
 
@@ -187,29 +196,31 @@ class PODService {
    */
   async generatePDF(podId) {
     try {
-      const pod = await PODDocument.findById(podId)
-        .populate('booking', 'bookingReference route cargoDetails pricing')
-        .populate('shipper', 'name email phone')
-        .populate('transporter', 'name email phone');
+      const pod = await this.getPopulatedPOD(podId);
 
       if (!pod) {
         throw new Error('POD not found');
       }
 
-      // Generate HTML content for PDF
-      const html = this.generatePODHTML(pod);
+      const pdfBuffer = this.generatePDFBuffer(pod);
+      const filename = storageService.generateFilename(`${pod.podReference}.pdf`, 'pod-document-');
+      const uploaded = await storageService.uploadFile(
+        pdfBuffer,
+        filename,
+        'application/pdf',
+        'pod-documents'
+      );
 
-      // In production, use a library like Puppeteer or PDFKit
-      // For now, we'll store the HTML and simulate PDF generation
-      const pdfUrl = await this.convertHTMLToPDF(html, pod.podReference);
-
-      pod.pdfUrl = pdfUrl;
+      pod.pdfUrl = uploaded.url;
+      pod.pdfStorageKey = uploaded.key;
+      pod.pdfProvider = uploaded.provider;
       pod.pdfGeneratedAt = new Date();
       await pod.save();
 
       return {
         success: true,
-        pdfUrl,
+        pdfUrl: pod.pdfUrl,
+        pdfStorageKey: pod.pdfStorageKey,
         podReference: pod.podReference
       };
     } catch (error) {
@@ -309,23 +320,219 @@ class PODService {
 </html>`;
   }
 
-  /**
-   * Convert HTML to PDF (placeholder - implement with Puppeteer in production)
-   */
-  async convertHTMLToPDF(html, reference) {
-    // In production, use Puppeteer:
-    // const puppeteer = require('puppeteer');
-    // const browser = await puppeteer.launch();
-    // const page = await browser.newPage();
-    // await page.setContent(html);
-    // const pdf = await page.pdf({ format: 'A4' });
-    // await browser.close();
-    // Upload to storage and return URL
+  async getPopulatedPOD(podId) {
+    return PODDocument.findById(podId)
+      .populate('booking', 'bookingReference route cargoDetails pricing')
+      .populate('shipper', 'fullName name email phone')
+      .populate('transporter', 'fullName name email phone');
+  }
 
-    // For now, return a placeholder URL
-    const storageService = require('./storageService');
-    const filename = storageService.generateFilename(`${reference}.pdf`, 'pod-');
-    return `/api/v1/pods/${reference}/download`;
+  cleanPDFText(value) {
+    return String(value || 'N/A')
+      .replace(/[^\x20-\x7E]/g, '?')
+      .replace(/\\/g, '\\\\')
+      .replace(/\(/g, '\\(')
+      .replace(/\)/g, '\\)');
+  }
+
+  getPODPDFLines(pod) {
+    const booking = pod.booking || {};
+    const shipperName = pod.shipper?.fullName || pod.shipper?.name || 'N/A';
+    const transporterName = pod.transporter?.fullName || pod.transporter?.name || 'N/A';
+    const receiver = pod.deliveryDetails?.receivedBy || {};
+    const duration = pod.timeline?.totalDuration
+      ? `${Math.floor(pod.timeline.totalDuration / 60)}h ${pod.timeline.totalDuration % 60}m`
+      : 'N/A';
+
+    return [
+      'Palmtrent Proof of Delivery',
+      `POD reference: ${pod.podReference}`,
+      `Booking reference: ${booking.bookingReference || 'N/A'}`,
+      '',
+      'Shipment',
+      `Pickup location: ${pod.timeline?.pickupLocation || 'N/A'}`,
+      `Delivery location: ${pod.timeline?.deliveryLocation || 'N/A'}`,
+      `Pickup time: ${pod.timeline?.pickupAt ? new Date(pod.timeline.pickupAt).toISOString() : 'N/A'}`,
+      `Delivery time: ${pod.timeline?.deliveryAt ? new Date(pod.timeline.deliveryAt).toISOString() : 'N/A'}`,
+      `Duration: ${duration}`,
+      '',
+      'Cargo',
+      `Description: ${pod.cargo?.description || 'N/A'}`,
+      `Quantity: ${pod.cargo?.quantity || 'N/A'}`,
+      `Condition: ${(pod.cargo?.condition || 'good').toUpperCase()}`,
+      `Condition notes: ${pod.cargo?.conditionNotes || 'N/A'}`,
+      '',
+      'Parties',
+      `Shipper: ${shipperName}`,
+      `Transporter: ${transporterName}`,
+      `Received by: ${receiver.name || 'N/A'}`,
+      `Recipient contact: ${receiver.contact || 'N/A'}`,
+      '',
+      'Verification',
+      `GPS verified: ${pod.verification?.gpsVerified ? 'YES' : 'NO'}`,
+      `Signature captured: ${pod.verification?.signatureVerified ? 'YES' : 'NO'}`,
+      `Photos attached: ${pod.photos?.length || 0}`,
+      '',
+      `Generated at: ${new Date().toISOString()}`
+    ];
+  }
+
+  generatePDFBuffer(pod) {
+    const lines = this.getPODPDFLines(pod).slice(0, 40);
+    const textOps = lines.map((line, index) => {
+      const fontSize = index === 0 ? 18 : 10;
+      const move = index === 0 ? '50 790 Td' : '0 -16 Td';
+      return `/F1 ${fontSize} Tf ${move} (${this.cleanPDFText(line)}) Tj`;
+    }).join('\n');
+    const stream = `BT\n${textOps}\nET`;
+    const objects = [
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+      `<< /Length ${Buffer.byteLength(stream, 'utf8')} >>\nstream\n${stream}\nendstream`,
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'
+    ];
+
+    let pdf = '%PDF-1.4\n';
+    const offsets = [0];
+    objects.forEach((object, index) => {
+      offsets.push(Buffer.byteLength(pdf, 'utf8'));
+      pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+    });
+
+    const xrefOffset = Buffer.byteLength(pdf, 'utf8');
+    pdf += `xref\n0 ${objects.length + 1}\n`;
+    pdf += '0000000000 65535 f \n';
+    offsets.slice(1).forEach(offset => {
+      pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
+    });
+    pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+
+    return Buffer.from(pdf, 'utf8');
+  }
+
+  async syncFromShipment(shipment, booking = shipment?.booking) {
+    if (!shipment || !booking) {
+      throw new Error('POD documents require a booking-backed shipment');
+    }
+
+    const bookingId = booking._id || shipment.booking || booking;
+    const shipper = shipment.shipper || booking.shipper || booking.user;
+    const deliveryEvidence = shipment.deliveryDetails || shipment.proofOfDelivery || {};
+    const photos = deliveryEvidence.photos || [];
+    let pod = await PODDocument.findOne({ shipment: shipment._id });
+
+    if (!pod) {
+      pod = await PODDocument.findOne({ booking: bookingId, shipment: { $exists: false } });
+    }
+
+    if (!pod) {
+      pod = new PODDocument({
+        booking: bookingId,
+        shipment: shipment._id,
+        podReference: this.generatePODReference()
+      });
+    }
+
+    pod.shipment = shipment._id;
+    pod.shipper = shipper;
+    pod.transporter = shipment.transporter || booking.transporter;
+    pod.deliveryDetails = {
+      completedAt: deliveryEvidence.confirmedAt || deliveryEvidence.receivedAt || new Date(),
+      receivedBy: {
+        name: deliveryEvidence.receiverName || deliveryEvidence.receivedBy,
+        contact: deliveryEvidence.receiverPhone
+      },
+      location: {
+        address: shipment.route?.delivery?.address || booking.route?.delivery?.address
+      }
+    };
+    pod.cargo = {
+      description: shipment.cargoDetails?.description || booking.cargoDetails?.description,
+      quantity: shipment.cargoDetails?.weight ? `${shipment.cargoDetails.weight} kg` : undefined,
+      condition: 'good',
+      conditionNotes: deliveryEvidence.notes
+    };
+    pod.signatures = {
+      ...pod.signatures,
+      receiver: deliveryEvidence.signature ? {
+        image: deliveryEvidence.signature,
+        signedAt: deliveryEvidence.confirmedAt || deliveryEvidence.receivedAt || new Date(),
+        name: deliveryEvidence.receiverName || deliveryEvidence.receivedBy
+      } : pod.signatures?.receiver
+    };
+    pod.photos = photos.map(url => ({
+      type: 'cargo_delivered',
+      url
+    }));
+    pod.timeline = {
+      pickupAt: shipment.schedule?.actualPickupTime || shipment.timeline?.pickedUpAt || booking.timeline?.pickedUpAt,
+      pickupLocation: shipment.route?.pickup?.address || booking.route?.pickup?.address,
+      deliveryAt: deliveryEvidence.confirmedAt || deliveryEvidence.receivedAt || shipment.timeline?.deliveredAt,
+      deliveryLocation: shipment.route?.delivery?.address || booking.route?.delivery?.address,
+      totalDuration: this.calculateDurationMinutes(
+        shipment.schedule?.actualPickupTime || shipment.timeline?.pickedUpAt || booking.timeline?.pickedUpAt,
+        deliveryEvidence.confirmedAt || deliveryEvidence.receivedAt || shipment.timeline?.deliveredAt
+      )
+    };
+    pod.verification = {
+      gpsVerified: Boolean(shipment.route?.delivery?.coordinates || booking.route?.delivery?.coordinates),
+      signatureVerified: Boolean(deliveryEvidence.signature),
+      photoVerified: photos.length > 0
+    };
+
+    await pod.save();
+    return pod;
+  }
+
+  calculateDurationMinutes(start, end) {
+    if (!start || !end) return 0;
+    return Math.max(0, Math.round((new Date(end) - new Date(start)) / (1000 * 60)));
+  }
+
+  async ensurePDFFromShipment(shipment, booking = shipment?.booking) {
+    const pod = await this.syncFromShipment(shipment, booking);
+    if (!pod.pdfUrl || !pod.pdfStorageKey) {
+      await this.generatePDF(pod._id);
+    }
+    return this.getPopulatedPOD(pod._id);
+  }
+
+  async getDownloadData(pod) {
+    if (!pod.pdfStorageKey) {
+      await this.generatePDF(pod._id);
+      pod = await this.getPopulatedPOD(pod._id);
+    }
+
+    const signed = await storageService.getSignedDownloadUrl(pod.pdfStorageKey);
+    if (signed.provider === 'local') {
+      signed.url = pod.pdfUrl;
+    }
+    return {
+      ...signed,
+      podReference: pod.podReference,
+      generatedAt: pod.pdfGeneratedAt
+    };
+  }
+
+  async canReadPDFUpload(user, filename) {
+    if (!user) return false;
+    if (user.userType === 'admin') return true;
+
+    const pod = await PODDocument.findOne({
+      $or: [
+        { pdfStorageKey: `pod-documents/${filename}` },
+        { pdfUrl: { $in: [
+          `/api/v1/uploads/pod-documents/${filename}`,
+          `/uploads/pod-documents/${filename}`
+        ] } }
+      ]
+    }).select('shipper transporter');
+
+    const userId = user._id?.toString() || user.id?.toString();
+    return Boolean(pod && [pod.shipper, pod.transporter]
+      .filter(Boolean)
+      .some(party => party.toString() === userId));
   }
 
   /**
@@ -409,7 +616,7 @@ class PODService {
    * Email POD to recipient
    */
   async emailPOD(podId, email) {
-    const pod = await PODDocument.findById(podId);
+    let pod = await this.getPopulatedPOD(podId);
 
     if (!pod) {
       throw new Error('POD not found');
@@ -418,13 +625,28 @@ class PODService {
     // Generate PDF if not already generated
     if (!pod.pdfUrl) {
       await this.generatePDF(podId);
+      pod = await this.getPopulatedPOD(podId);
     }
 
-    // In production, use email service to send
-    // For now, just record the attempt
+    const pdfBuffer = this.generatePDFBuffer(pod);
+    const emailResult = await notificationService.sendEmail({
+      to: email,
+      subject: `Proof of Delivery ${pod.podReference}`,
+      data: {
+        title: 'Proof of Delivery',
+        message: `Attached is the proof of delivery for booking ${pod.booking?.bookingReference || 'N/A'}.`
+      },
+      attachments: [{
+        filename: `${pod.podReference}.pdf`,
+        content: pdfBuffer,
+        contentType: 'application/pdf'
+      }]
+    });
+
     pod.emailedTo.push({
       email,
-      sentAt: new Date()
+      sentAt: new Date(),
+      messageId: emailResult.messageId
     });
 
     await pod.save();

@@ -1,31 +1,10 @@
 const Payment = require('../models/Payment');
 const Rental = require('../models/Rental');
 const openApiAfricaService = require('./openApiAfricaService');
+const monetizationService = require('./monetizationService');
 
-function calculateSettlement(rental) {
-  const total = Number(rental.pricing?.total || 0);
-  const deposit = Number(rental.pricing?.deposit || 0);
-  const damageFees = Number(rental.pricing?.damageFees || 0);
-  const lateFees = Number(rental.pricing?.lateFees || 0);
-  const cleaningFees = Number(rental.pricing?.cleaningFees || 0);
-  const extraKmFees = Number(rental.pricing?.extraKmFees || 0);
-  const platformFeeRate = Number(rental.settlement?.platformFeeRate ?? 0.10);
-  const usageCharges = damageFees + lateFees + cleaningFees + extraKmFees;
-  const depositForfeited = Math.min(deposit, usageCharges);
-  const renterRefund = Math.max(0, deposit - depositForfeited);
-  const platformFee = Math.round((total - deposit) * platformFeeRate * 100) / 100;
-  const ownerEarnings = Math.max(0, total - deposit - platformFee + depositForfeited);
-
-  return {
-    platformFeeRate,
-    platformFee,
-    ownerEarnings,
-    renterRefund,
-    depositHeld: deposit,
-    depositForfeited,
-    status: rental.status === 'completed' ? 'settled' : 'held',
-    settledAt: rental.status === 'completed' ? new Date() : undefined
-  };
+async function calculateSettlement(rental) {
+  return monetizationService.calculateRentalSettlement(rental);
 }
 
 async function createRentalPayment(rentalId, customer = {}) {
@@ -105,7 +84,7 @@ async function confirmRentalPayment(paymentReference, metadata = {}) {
   rental.payment.balance = 0;
   rental.settlement = {
     ...rental.settlement,
-    ...calculateSettlement(rental),
+    ...await calculateSettlement(rental),
     status: 'held'
   };
   rental.statusHistory.push({
@@ -113,6 +92,27 @@ async function confirmRentalPayment(paymentReference, metadata = {}) {
     notes: 'Rental payment confirmed and funds held for settlement'
   });
   await rental.save();
+
+  if (rental.settlement?.platformFee > 0) {
+    await monetizationService.recordLedgerEntryOnce(
+      { sourceType: 'rental', sourceId: rental._id, category: 'commission', status: 'posted' },
+      {
+        sourceType: 'rental',
+        sourceId: rental._id,
+        user: rental.owner,
+        direction: 'credit',
+        category: 'commission',
+        amount: rental.settlement.platformFee,
+        currency: rental.pricing?.currency || payment.currency || 'USD',
+        status: 'posted',
+        metadata: {
+          rentalReference: rental.rentalReference,
+          paymentReference: payment.paymentReference,
+          commissionRule: rental.settlement.commissionRule
+        }
+      }
+    );
+  }
 
   return rental;
 }
@@ -129,11 +129,64 @@ async function refreshRentalPaymentStatus(paymentReference) {
 async function settleRental(rental) {
   rental.settlement = {
     ...rental.settlement,
-    ...calculateSettlement(rental),
+    ...await calculateSettlement(rental),
     status: rental.status === 'disputed' ? 'disputed' : 'settled',
     settledAt: new Date()
   };
   await rental.save();
+
+  if (rental.settlement.ownerEarnings > 0) {
+    const payout = await monetizationService.createPayoutOnce(
+      { sourceType: 'rental', sourceId: rental._id, recipient: rental.owner },
+      {
+        recipient: rental.owner,
+        sourceType: 'rental',
+        sourceId: rental._id,
+        amount: rental.settlement.ownerEarnings,
+        currency: rental.pricing?.currency || 'USD',
+        method: 'openapi_africa',
+        status: 'pending',
+        metadata: {
+          rentalReference: rental.rentalReference,
+          renterRefund: rental.settlement.renterRefund,
+          depositForfeited: rental.settlement.depositForfeited
+        }
+      }
+    );
+
+    await monetizationService.recordLedgerEntryOnce(
+      { sourceType: 'payout', sourceId: payout._id, category: 'payout', status: 'posted' },
+      {
+        sourceType: 'payout',
+        sourceId: payout._id,
+        user: rental.owner,
+        direction: 'debit',
+        category: 'payout',
+        amount: payout.amount,
+        currency: payout.currency,
+        status: 'posted',
+        metadata: { sourceType: 'rental', rental: rental._id, rentalReference: rental.rentalReference }
+      }
+    );
+  }
+
+  if (rental.settlement.renterRefund > 0) {
+    await monetizationService.recordLedgerEntryOnce(
+      { sourceType: 'rental', sourceId: rental._id, category: 'refund', status: 'posted' },
+      {
+        sourceType: 'rental',
+        sourceId: rental._id,
+        user: rental.renter,
+        direction: 'debit',
+        category: 'refund',
+        amount: rental.settlement.renterRefund,
+        currency: rental.pricing?.currency || 'USD',
+        status: 'posted',
+        metadata: { rentalReference: rental.rentalReference }
+      }
+    );
+  }
+
   return rental;
 }
 

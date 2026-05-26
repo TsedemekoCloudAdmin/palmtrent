@@ -6,6 +6,25 @@ const { generateVerificationCode, generateRandomToken } = require('../utils/gene
 const { sendVerificationSMS } = require('../utils/sendSMS');
 const { sendPasswordResetEmail } = require('../utils/sendEmail');
 
+function normalizeZimbabwePhone(phone) {
+  if (phone === undefined || phone === null || phone === '') return undefined;
+  const digits = String(phone).replace(/\D/g, '');
+
+  if (digits.startsWith('263') && digits.length === 12) {
+    return `+${digits}`;
+  }
+  if (digits.startsWith('0') && digits.length === 10) {
+    return `+263${digits.slice(1)}`;
+  }
+  if (!digits.startsWith('0') && digits.length === 9) {
+    return `+263${digits}`;
+  }
+  if (String(phone).startsWith('+263') && digits.length === 12) {
+    return `+${digits}`;
+  }
+  return String(phone).trim();
+}
+
 // Register new user
 const register = async (req, res) => {
   try {
@@ -54,6 +73,8 @@ const register = async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'User registered successfully',
+      user,
+      token,
       data: {
         user,
         token
@@ -72,10 +93,13 @@ const register = async (req, res) => {
 // Login user
 const login = async (req, res) => {
   try {
-    const { phone, password } = req.body;
+    const { email, phone, password } = req.body;
+    const loginQuery = phone
+      ? { phone }
+      : { email: String(email || '').toLowerCase() };
 
     // Find user and include password for comparison
-    const user = await User.findOne({ phone }).select('+password');
+    const user = await User.findOne(loginQuery).select('+password');
 
     if (!user) {
       return res.status(401).json({
@@ -112,6 +136,8 @@ const login = async (req, res) => {
     res.json({
       success: true,
       message: 'Login successful',
+      user,
+      token,
       data: {
         user,
         token
@@ -309,18 +335,47 @@ const changePassword = async (req, res) => {
 // Update user profile
 const updateProfile = async (req, res) => {
   try {
-    const { fullName, email, companyName, address, preferences } = req.body;
+    const { fullName, email, phone, companyName, address, preferences } = req.body;
+    const updates = {};
+
+    if (fullName !== undefined) updates.fullName = String(fullName).trim();
+    if (companyName !== undefined) updates.companyName = String(companyName).trim();
+    if (address !== undefined) updates.address = address;
+    if (preferences !== undefined) updates.preferences = preferences;
+
+    if (email !== undefined) {
+      const normalizedEmail = String(email).trim().toLowerCase();
+      if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+        return res.status(400).json({ success: false, message: 'Please provide a valid email' });
+      }
+      const emailOwner = await User.findOne({ email: normalizedEmail, _id: { $ne: req.user.id } });
+      if (emailOwner) {
+        return res.status(409).json({ success: false, message: 'Email is already in use' });
+      }
+      updates.email = normalizedEmail;
+    }
+
+    if (phone !== undefined) {
+      const normalizedPhone = normalizeZimbabwePhone(phone);
+      if (!/^\+263[0-9]{9}$/.test(normalizedPhone)) {
+        return res.status(400).json({ success: false, message: 'Please provide a valid Zimbabwean phone number (+263 format)' });
+      }
+      const phoneOwner = await User.findOne({ phone: normalizedPhone, _id: { $ne: req.user.id } });
+      if (phoneOwner) {
+        return res.status(409).json({ success: false, message: 'Phone number is already in use' });
+      }
+      updates.phone = normalizedPhone;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ success: false, message: 'No profile fields provided' });
+    }
+
+    updates.profileCompleted = true;
 
     const user = await User.findByIdAndUpdate(
       req.user.id,
-      {
-        fullName,
-        email,
-        companyName,
-        address,
-        preferences,
-        profileCompleted: true
-      },
+      { $set: updates },
       { new: true, runValidators: true }
     );
 
@@ -349,26 +404,52 @@ const getActivityHistory = async (req, res) => {
     const { page = 1, limit = 20 } = req.query;
 
     const activities = [];
+    const bookingIds = new Set();
+    const addActivity = (activity) => {
+      const config = {
+        booking: { icon: 'local-shipping', color: '#0ea5e9' },
+        payment: { icon: 'payments', color: '#16a34a' },
+        rating: { icon: 'star', color: '#f59e0b' },
+        account: { icon: 'person', color: '#6366f1' }
+      }[activity.type] || { icon: 'history', color: '#6b7280' };
+
+      activities.push({
+        ...config,
+        ...activity,
+        id: String(activity.id),
+        timestamp: activity.timestamp || activity.date || new Date()
+      });
+    };
 
     // Get bookings based on user type
     const Booking = require('../models/Booking');
     const Rental = require('../models/Rental');
+    const Payment = require('../models/Payment');
+    const Rating = require('../models/Rating');
+    const AuditLog = require('../models/AuditLog');
 
     if (userType === 'shipper' || userType === 'corporate') {
-      const bookings = await Booking.find({ user: userId })
+      const bookings = await Booking.find({
+        $or: [
+          { user: userId },
+          { shipper: userId },
+          ...(req.user.corporateAccount ? [{ corporateAccount: req.user.corporateAccount }] : [])
+        ]
+      })
         .select('bookingReference status createdAt updatedAt totalPrice')
         .sort({ createdAt: -1 })
         .limit(10);
 
       bookings.forEach(booking => {
-        activities.push({
+        bookingIds.add(booking._id.toString());
+        addActivity({
           id: booking._id,
           type: 'booking',
           title: `Booking ${booking.bookingReference || booking._id.toString().slice(-8).toUpperCase()}`,
           description: `Status: ${booking.status}`,
           status: booking.status,
           amount: booking.totalPrice,
-          date: booking.createdAt
+          timestamp: booking.updatedAt || booking.createdAt
         });
       });
     }
@@ -376,19 +457,20 @@ const getActivityHistory = async (req, res) => {
     if (userType === 'transporter') {
       const Shipment = require('../models/Shipment');
       const shipments = await Shipment.find({ transporter: userId })
-        .select('bookingReference status createdAt transporterEarnings')
+        .select('booking bookingReference status createdAt updatedAt transporterEarnings')
         .sort({ createdAt: -1 })
         .limit(10);
 
       shipments.forEach(shipment => {
-        activities.push({
+        if (shipment.booking) bookingIds.add(shipment.booking.toString());
+        addActivity({
           id: shipment._id,
-          type: 'job',
+          type: 'booking',
           title: `Job ${shipment.bookingReference || shipment._id.toString().slice(-8).toUpperCase()}`,
           description: `Status: ${shipment.status}`,
           status: shipment.status,
           amount: shipment.transporterEarnings,
-          date: shipment.createdAt
+          timestamp: shipment.updatedAt || shipment.createdAt
         });
       });
     }
@@ -400,24 +482,82 @@ const getActivityHistory = async (req, res) => {
         .limit(10);
 
       rentals.forEach(rental => {
-        activities.push({
+        addActivity({
           id: rental._id,
-          type: 'rental',
+          type: 'booking',
           title: `Rental ${rental._id.toString().slice(-8).toUpperCase()}`,
           description: `Status: ${rental.status}`,
           status: rental.status,
           amount: rental.pricing?.total,
-          date: rental.createdAt
+          timestamp: rental.createdAt
         });
       });
     }
 
+    const payments = bookingIds.size
+      ? await Payment.find({ booking: { $in: [...bookingIds] } })
+        .select('paymentReference amount currency status paymentMethod createdAt updatedAt')
+        .sort({ createdAt: -1 })
+        .limit(10)
+      : [];
+
+    payments.forEach(payment => {
+      addActivity({
+        id: payment._id,
+        type: 'payment',
+        title: `Payment ${payment.paymentReference}`,
+        description: `${payment.status} ${payment.paymentMethod} payment`,
+        status: payment.status,
+        amount: payment.amount,
+        currency: payment.currency,
+        timestamp: payment.updatedAt || payment.createdAt
+      });
+    });
+
+    const ratings = await Rating.find({
+      $or: [
+        { 'rater.user': userId },
+        { 'ratee.user': userId }
+      ]
+    })
+      .select('overallRating rater ratee createdAt')
+      .sort({ createdAt: -1 })
+      .limit(10);
+
+    ratings.forEach(rating => {
+      const userIsRater = rating.rater?.user?.toString() === userId;
+      addActivity({
+        id: rating._id,
+        type: 'rating',
+        title: userIsRater ? 'Rating submitted' : 'Rating received',
+        description: `${rating.overallRating}/5 stars`,
+        timestamp: rating.createdAt
+      });
+    });
+
+    const auditLogs = await AuditLog.find({ actor: userId })
+      .select('action entityType entityRef createdAt')
+      .sort({ createdAt: -1 })
+      .limit(10);
+
+    auditLogs.forEach(log => {
+      addActivity({
+        id: log._id,
+        type: 'account',
+        title: log.action.replace(/\./g, ' '),
+        description: [log.entityType, log.entityRef].filter(Boolean).join(' '),
+        timestamp: log.createdAt
+      });
+    });
+
     // Sort by date
-    activities.sort((a, b) => new Date(b.date) - new Date(a.date));
+    activities.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    const start = (parseInt(page) - 1) * parseInt(limit);
+    const end = start + parseInt(limit);
 
     res.status(200).json({
       success: true,
-      data: activities.slice(0, parseInt(limit)),
+      data: activities.slice(start, end),
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),

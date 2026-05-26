@@ -6,6 +6,10 @@ const shipmentSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  booking: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Booking'
+  },
   shipper: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -319,6 +323,7 @@ shipmentSchema.pre('save', function(next) {
 
 // Indexes for better query performance
 shipmentSchema.index({ shipper: 1, status: 1 });
+shipmentSchema.index({ booking: 1 });
 shipmentSchema.index({ transporter: 1, status: 1 });
 shipmentSchema.index({ transporter: 1, status: 1, paymentStatus: 1 });  // ADDED for dashboard queries
 shipmentSchema.index({ transporter: 1, rating: 1 });  // ADDED for rating aggregation

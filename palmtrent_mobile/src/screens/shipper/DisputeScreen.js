@@ -17,12 +17,10 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import apiService from '../../services/apiService';
-import useAuth from '../../hook/useAuth';
 
 export const DisputeScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
-  const { token } = useAuth();
 
   const bookingId = route.params?.bookingId;
   const booking = route.params?.booking;
@@ -64,9 +62,7 @@ export const DisputeScreen = () => {
   const fetchBookingDetails = async () => {
     setLoading(true);
     try {
-      const response = await apiService.get(`/bookings/${bookingId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await apiService.get(`/bookings/${bookingId}`);
       if (response.success) {
         setBookingDetails(response.data);
       }
@@ -170,7 +166,7 @@ export const DisputeScreen = () => {
         });
       });
 
-      const response = await apiService.uploadRequest('/claims', formData);
+      const response = await apiService.submitDispute(formData);
 
       if (response.success) {
         Alert.alert(

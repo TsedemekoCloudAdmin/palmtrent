@@ -17,8 +17,17 @@ import {
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../services/apiService';
 import WebView from 'react-native-webview'; // For handling redirects
+import useAuth from '../hook/useAuth';
+
+const normalizeLocalPhone = (phone = '') => {
+  const value = String(phone).replace(/\s|-/g, '');
+  if (value.startsWith('+263')) return `0${value.slice(4)}`;
+  if (value.startsWith('263')) return `0${value.slice(3)}`;
+  return value;
+};
 
 const CardPaymentScreen = ({ route, navigation, onNavigate, bookingData, updateBookingData, onExit }) => {
+  const { user } = useAuth();
   // Support both navigation patterns:
   // 1. From AppNavigator: route.params contains the data
   // 2. From BookingFlowManager: bookingData prop contains the data
@@ -27,6 +36,7 @@ const CardPaymentScreen = ({ route, navigation, onNavigate, bookingData, updateB
   const bookingReference = routeParams.bookingReference || bookingData?.bookingReference;
   const amount = routeParams.amount || bookingData?.amount || bookingData?.pricing?.totals?.total;
   const paymentMethod = routeParams.paymentMethod || bookingData?.paymentMethod || 'bank_transfer';
+  const existingPaymentReference = routeParams.paymentReference || bookingData?.paymentReference;
 
   const navigateTo = (screen, params = {}) => {
     if (onNavigate) {
@@ -48,14 +58,23 @@ const CardPaymentScreen = ({ route, navigation, onNavigate, bookingData, updateB
   const [redirectUrl, setRedirectUrl] = useState('');
   
   // Form state
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [email, setEmail] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState(normalizeLocalPhone(user?.phone));
+  const [email, setEmail] = useState(user?.email || '');
 
   const isEcocash = paymentMethod === 'ecocash';
 
   useEffect(() => {
     initializePayment();
   }, []);
+
+  useEffect(() => {
+    if (!email && user?.email) {
+      setEmail(user.email);
+    }
+    if (!phoneNumber && user?.phone) {
+      setPhoneNumber(normalizeLocalPhone(user.phone));
+    }
+  }, [email, phoneNumber, user?.email, user?.phone]);
 
   const initializePayment = async () => {
     try {
@@ -101,24 +120,28 @@ const CardPaymentScreen = ({ route, navigation, onNavigate, bookingData, updateB
 
       console.log('Creating payment for booking:', bookingId);
 
-      // Step 1: Create payment record first
-      const createResponse = await apiService.post('/payments/create', {
-        bookingId,
-        amount,
-        paymentMethod: isEcocash ? 'ecocash' : 'card',
-        customer: customerData
-      });
+      let paymentReferenceToInitiate = existingPaymentReference;
 
-      if (!createResponse.success) {
-        throw new Error(createResponse.message || 'Failed to create payment');
+      if (!paymentReferenceToInitiate) {
+        const createResponse = await apiService.post('/payments/create', {
+          bookingId,
+          amount,
+          paymentMethod: isEcocash ? 'ecocash' : 'card',
+          customer: customerData
+        });
+
+        if (!createResponse.success) {
+          throw new Error(createResponse.message || 'Failed to create payment');
+        }
+
+        paymentReferenceToInitiate = createResponse.data.paymentReference;
       }
 
-      const { paymentReference: newPaymentReference } = createResponse.data;
-      console.log('Payment created with reference:', newPaymentReference);
+      console.log('Initiating payment with reference:', paymentReferenceToInitiate);
 
-      // Step 2: Initiate Paynow payment with the payment reference
-      const initiateResponse = await apiService.post('/payments/initiate-paynow', {
-        paymentReference: newPaymentReference,
+      // Step 2: Initiate ClicknPay checkout with the payment reference
+      const initiateResponse = await apiService.post('/payments/initiate', {
+        paymentReference: paymentReferenceToInitiate,
         customer: customerData
       });
 
@@ -268,7 +291,7 @@ const CardPaymentScreen = ({ route, navigation, onNavigate, bookingData, updateB
     console.log('WebView navigating to:', url);
     
     // Check if we're being redirected back to our app (payment completion)
-    if (url.includes(process.env.PAYNOW_RETURN_URL) || url.includes('payment-complete')) {
+    if (url.includes('payment/return') || url.includes('payment-complete')) {
       setShowWebView(false);
 
       // Start polling for payment status
@@ -352,7 +375,7 @@ const CardPaymentScreen = ({ route, navigation, onNavigate, bookingData, updateB
           <Text style={styles.headerTitle}>
             {isEcocash ? 'EcoCash Payment' : 'Card/EFT Payment'}
           </Text>
-          <Text style={styles.headerSubtitle}>Secure payment via Paynow</Text>
+          <Text style={styles.headerSubtitle}>Secure payment via ClicknPay</Text>
         </View>
       </View>
 
@@ -377,7 +400,7 @@ const CardPaymentScreen = ({ route, navigation, onNavigate, bookingData, updateB
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Payment Method</Text>
                 <Text style={styles.summaryValue}>
-                  {isEcocash ? 'EcoCash' : 'Card/EFT'} • Paynow
+                  {isEcocash ? 'EcoCash' : 'Card/EFT'} • ClicknPay
                 </Text>
               </View>
             </View>

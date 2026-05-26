@@ -45,9 +45,16 @@ const LandingPage = () => {
     confirmPassword: '',
     userType: 'shipper'
   });
+  const [verificationCode, setVerificationCode] = useState('');
+  const [verificationPhone, setVerificationPhone] = useState('');
+  const [verificationSent, setVerificationSent] = useState(false);
+  const [verificationVerified, setVerificationVerified] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [authSuccess, setAuthSuccess] = useState('');
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
 
   // Tracking states
   const [trackingId, setTrackingId] = useState('');
@@ -62,7 +69,7 @@ const LandingPage = () => {
 
     try {
       const response = await authAPI.login(loginForm.email, loginForm.password);
-      if (response.token) {
+      if (response.token || response.data?.token) {
         setShowLoginModal(false);
         navigate(getRoleHomePath(authAPI.getCurrentUser()));
       }
@@ -73,35 +80,128 @@ const LandingPage = () => {
     }
   };
 
-  const handleRegister = async (e) => {
-    e.preventDefault();
+  const normalizeZimbabwePhone = (phone) => {
+    const cleaned = String(phone || '').replace(/[\s-]/g, '');
+    if (cleaned.startsWith('+263')) return cleaned;
+    if (cleaned.startsWith('263')) return `+${cleaned}`;
+    if (cleaned.startsWith('0')) return `+263${cleaned.slice(1)}`;
+    return cleaned;
+  };
+
+  const validateRegisterForm = () => {
     setAuthError('');
 
     if (registerForm.password !== registerForm.confirmPassword) {
       setAuthError('Passwords do not match');
-      return;
+      return false;
     }
 
-    if (registerForm.password.length < 6) {
-      setAuthError('Password must be at least 6 characters');
+    if (registerForm.password.length < 8) {
+      setAuthError('Password must be at least 8 characters');
+      return false;
+    }
+
+    const phone = normalizeZimbabwePhone(registerForm.phone);
+    if (!/^\+263[0-9]{9}$/.test(phone)) {
+      setAuthError('Please enter a valid Zimbabwean phone number in +263 format');
+      return false;
+    }
+
+    return true;
+  };
+
+  const sendRegistrationCode = async () => {
+    if (!validateRegisterForm()) return;
+
+    const phone = normalizeZimbabwePhone(registerForm.phone);
+    setAuthLoading(true);
+
+    try {
+      await authAPI.sendVerificationCode(phone);
+      setVerificationPhone(phone);
+      setVerificationSent(true);
+      setVerificationVerified(false);
+      setVerificationCode('');
+    } catch (error) {
+      setAuthError(error.message || 'Could not send verification code.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const verifyRegistrationCode = async () => {
+    setAuthError('');
+    if (!verificationCode.trim()) {
+      setAuthError('Enter the verification code sent to your phone');
       return;
     }
 
     setAuthLoading(true);
 
     try {
-      const response = await authAPI.register({
-        fullName: registerForm.fullName,
-        email: registerForm.email,
-        phone: registerForm.phone,
-        password: registerForm.password,
-        userType: registerForm.userType
-      });
+      await authAPI.verifyCode(verificationPhone, verificationCode.trim());
+      setVerificationVerified(true);
+      await submitRegistration();
+    } catch (error) {
+      setAuthError(error.message || 'Could not verify phone number.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
 
-      if (response.token) {
-        setShowRegisterModal(false);
-        navigate(getRoleHomePath(authAPI.getCurrentUser()));
-      }
+  const resendRegistrationCode = async () => {
+    setAuthError('');
+    setAuthLoading(true);
+
+    try {
+      await authAPI.resendVerificationCode(verificationPhone || normalizeZimbabwePhone(registerForm.phone));
+      setVerificationCode('');
+    } catch (error) {
+      setAuthError(error.message || 'Could not resend verification code.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const submitRegistration = async () => {
+    const phone = verificationPhone || normalizeZimbabwePhone(registerForm.phone);
+    const response = await authAPI.register({
+      fullName: registerForm.fullName,
+      email: registerForm.email,
+      phone,
+      password: registerForm.password,
+      userType: registerForm.userType
+    });
+
+    if (response.token || response.data?.token) {
+      setShowRegisterModal(false);
+      setVerificationSent(false);
+      setVerificationVerified(false);
+      setVerificationCode('');
+      navigate(getRoleHomePath(authAPI.getCurrentUser()));
+    }
+  };
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+
+    if (!validateRegisterForm()) return;
+
+    if (!verificationSent || verificationPhone !== normalizeZimbabwePhone(registerForm.phone)) {
+      await sendRegistrationCode();
+      return;
+    }
+
+    if (!verificationVerified) {
+      await verifyRegistrationCode();
+      return;
+    }
+
+    setAuthLoading(true);
+
+    try {
+      await submitRegistration();
     } catch (error) {
       setAuthError(error.message || 'Registration failed. Please try again.');
     } finally {
@@ -109,16 +209,24 @@ const LandingPage = () => {
     }
   };
 
-  const handleForgotPassword = async () => {
-    const email = window.prompt('Enter your account email address');
-    if (!email) return;
+  const handleForgotPassword = async (event) => {
+    event.preventDefault();
+    const email = (forgotEmail || loginForm.email).trim();
+    setAuthError('');
+    setAuthSuccess('');
+    if (!email) {
+      setAuthError('Enter your account email address.');
+      return;
+    }
 
     try {
       setAuthLoading(true);
       await authAPI.forgotPassword(email);
-      window.alert('If an account with that email exists, a password reset link has been sent.');
+      setAuthSuccess('If an account with that email exists, a password reset link has been sent.');
+      setForgotEmail('');
+      setShowForgotPassword(false);
     } catch (error) {
-      window.alert(error.message || 'Could not send reset link.');
+      setAuthError(error.message || 'Could not send reset link.');
     } finally {
       setAuthLoading(false);
     }
@@ -148,18 +256,28 @@ const LandingPage = () => {
 
   const openRegisterWithType = (type) => {
     setRegisterForm(prev => ({ ...prev, userType: type }));
+    setVerificationSent(false);
+    setVerificationVerified(false);
+    setVerificationCode('');
+    setAuthError('');
     setShowRegisterModal(true);
   };
 
   const switchToRegister = () => {
     setShowLoginModal(false);
     setAuthError('');
+    setAuthSuccess('');
+    setShowForgotPassword(false);
+    setVerificationSent(false);
+    setVerificationVerified(false);
+    setVerificationCode('');
     setShowRegisterModal(true);
   };
 
   const switchToLogin = () => {
     setShowRegisterModal(false);
     setAuthError('');
+    setAuthSuccess('');
     setShowLoginModal(true);
   };
 
@@ -522,18 +640,17 @@ const LandingPage = () => {
               <div className="footer-links">
                 <h3>Company</h3>
                 <ul>
-                  <li><a href="#">About Us</a></li>
-                  <li><a href="#">Careers</a></li>
-                  <li><a href="#">Blog</a></li>
+                  <li><a href="#features">About Us</a></li>
+                  <li><a href="mailto:careers@palmtrent.co.zw">Careers</a></li>
                 </ul>
               </div>
 
               <div className="footer-links">
                 <h3>Support</h3>
                 <ul>
-                  <li><a href="#">Help Center</a></li>
-                  <li><a href="#">Contact Us</a></li>
-                  <li><a href="#">Terms of Service</a></li>
+                  <li><a href="mailto:support@palmtrent.co.zw">Help Center</a></li>
+                  <li><a href="mailto:hello@palmtrent.co.zw">Contact Us</a></li>
+                  <li><a href="/terms">Terms of Service</a></li>
                 </ul>
               </div>
 
@@ -574,6 +691,12 @@ const LandingPage = () => {
               <div className="auth-error">
                 <AlertCircle className="icon" />
                 <span>{authError}</span>
+              </div>
+            )}
+            {authSuccess && (
+              <div className="auth-success">
+                <Check className="icon" />
+                <span>{authSuccess}</span>
               </div>
             )}
 
@@ -618,8 +741,31 @@ const LandingPage = () => {
                   <input type="checkbox" />
                   <span>Remember me</span>
                 </label>
-                <button type="button" className="forgot-password" onClick={handleForgotPassword}>Forgot password?</button>
+                <button type="button" className="forgot-password" onClick={() => {
+                  setAuthError('');
+                  setAuthSuccess('');
+                  setShowForgotPassword(value => !value);
+                  setForgotEmail(loginForm.email);
+                }}>Forgot password?</button>
               </div>
+
+              {showForgotPassword && (
+                <div className="forgot-password-panel">
+                  <label>Reset Email</label>
+                  <div className="input-with-icon">
+                    <Mail className="icon" />
+                    <input
+                      type="email"
+                      placeholder="Enter your account email"
+                      value={forgotEmail}
+                      onChange={(event) => setForgotEmail(event.target.value)}
+                    />
+                  </div>
+                  <button type="button" className="btn-secondary auth-inline-btn" onClick={handleForgotPassword} disabled={authLoading}>
+                    {authLoading ? <Loader className="icon spinning" /> : 'Send Reset Link'}
+                  </button>
+                </div>
+              )}
 
               <button type="submit" className="auth-submit-btn" disabled={authLoading}>
                 {authLoading ? <Loader className="icon spinning" /> : 'Sign In'}
@@ -760,15 +906,38 @@ const LandingPage = () => {
                 </div>
               </div>
 
+              {verificationSent && (
+                <div className="form-group">
+                  <label>Phone Verification Code</label>
+                  <div className="input-with-icon">
+                    <Phone className="icon" />
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="Enter the 6-digit code"
+                      value={verificationCode}
+                      onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      required
+                    />
+                  </div>
+                  <div className="verification-actions">
+                    <span>{verificationVerified ? 'Phone verified' : `Code sent to ${verificationPhone}`}</span>
+                    <button type="button" onClick={resendRegistrationCode} disabled={authLoading}>
+                      Resend code
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="form-options">
                 <label className="checkbox-label">
                   <input type="checkbox" required />
-                  <span>I agree to the <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a></span>
+                  <span>I agree to the <a href="/terms" target="_blank" rel="noreferrer">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noreferrer">Privacy Policy</a></span>
                 </label>
               </div>
 
               <button type="submit" className="auth-submit-btn" disabled={authLoading}>
-                {authLoading ? <Loader className="icon spinning" /> : 'Create Account'}
+                {authLoading ? <Loader className="icon spinning" /> : verificationSent && !verificationVerified ? 'Verify & Create Account' : 'Send Verification Code'}
               </button>
             </form>
 

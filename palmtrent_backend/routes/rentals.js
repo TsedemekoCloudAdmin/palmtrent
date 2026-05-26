@@ -12,6 +12,8 @@ const {
   confirmPickup,
   confirmReturn,
   getRentalById,
+  getRentalTracking,
+  updateRentalLocation,
   initiateRentalPayment,
   confirmRentalPayment,
   checkRentalPaymentStatus
@@ -30,6 +32,8 @@ router.post('/request', createRentalRequest);
 router.get('/my-rentals', getMyRentals);
 router.get('/my-listings', getMyListings);
 router.get('/active', getActiveRentals);
+router.get('/:id/tracking', getRentalTracking);
+router.put('/:id/location', updateRentalLocation);
 router.get('/:id', getRentalById);
 
 // Owner actions

@@ -10,6 +10,7 @@ const {
   getDisputes,
   resolveDispute,
   getPayments,
+  confirmPayment,
   getRentals,
   getRatings,
   getReports,
@@ -19,8 +20,11 @@ const {
   getAuditLogs,
   getIntegrationSettings,
   updateIntegrationSetting,
-  testIntegrationSetting
+  testIntegrationSetting,
+  getPreferences,
+  updatePreferences
 } = require('../controllers/adminController');
+const monetizationController = require('../controllers/monetizationController');
 const { protect, authorize } = require('../middleware/auth');
 
 // All routes require authentication and admin role
@@ -43,6 +47,8 @@ router.put('/vehicles/:id/verify', verifyVehicle);
 router.get('/audit-logs', getAuditLogs);
 
 // Integration settings
+router.get('/preferences', getPreferences);
+router.put('/preferences', updatePreferences);
 router.get('/integrations', getIntegrationSettings);
 router.put('/integrations/:provider', updateIntegrationSetting);
 router.post('/integrations/:provider/test', testIntegrationSetting);
@@ -56,6 +62,7 @@ router.post('/disputes/:id/resolve', resolveDispute);
 
 // Payments
 router.get('/payments', getPayments);
+router.post('/payments/:id/confirm', confirmPayment);
 
 // Fleet rentals
 router.get('/rentals', getRentals);
@@ -65,5 +72,17 @@ router.get('/ratings', getRatings);
 
 // Reports
 router.get('/reports/:type', getReports);
+
+// Monetization: plans, subscriptions, commission rules, ledger, payouts
+router.get('/monetization', monetizationController.getMonetizationOverview);
+router.post('/monetization/plans', monetizationController.upsertPlan);
+router.put('/monetization/plans/:id', monetizationController.updatePlan);
+router.post('/monetization/commission-rules', monetizationController.upsertCommissionRule);
+router.put('/monetization/commission-rules/:id', monetizationController.updateCommissionRule);
+router.post('/monetization/subscriptions', monetizationController.createSubscription);
+router.put('/monetization/subscriptions/:id', monetizationController.updateSubscription);
+router.post('/monetization/ledger', monetizationController.recordLedgerEntry);
+router.post('/monetization/payouts', monetizationController.createPayout);
+router.put('/monetization/payouts/:id', monetizationController.updatePayout);
 
 module.exports = router;

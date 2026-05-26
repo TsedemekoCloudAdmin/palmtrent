@@ -60,6 +60,11 @@ const corporateAccountSchema = new mongoose.Schema({
     enum: ['bank_transfer', 'corporate_credit', 'monthly_invoice'],
     default: 'monthly_invoice'
   },
+  plan: {
+    type: String,
+    enum: ['standard', 'premium', 'enterprise'],
+    default: 'standard'
+  },
   status: {
     type: String,
     enum: ['pending', 'active', 'suspended', 'inactive'],
@@ -69,6 +74,9 @@ const corporateAccountSchema = new mongoose.Schema({
     documents: [{
       type: String, // URL to document
       documentType: String,
+      originalName: String,
+      storageKey: String,
+      storageProvider: String,
       uploadedAt: Date,
       verified: { type: Boolean, default: false }
     }],
@@ -83,8 +91,22 @@ const corporateAccountSchema = new mongoose.Schema({
     maxBookingValue: { type: Number, default: 10000 },
     allowedUsers: [{
       user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-      role: { type: String, enum: ['admin', 'manager', 'viewer'] }
+      role: { type: String, enum: ['admin', 'manager', 'viewer'] },
+      permissions: [{
+        type: String,
+        enum: ['create_bookings', 'view_all_bookings', 'manage_team', 'view_reports']
+      }]
     }]
+  },
+  apiAccess: {
+    keyHash: String,
+    keyPrefix: String,
+    keyLastFour: String,
+    generatedAt: Date,
+    generatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    }
   }
 }, {
   timestamps: true

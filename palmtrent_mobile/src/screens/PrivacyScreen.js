@@ -95,7 +95,7 @@ You can disable location services in your device settings, but this may limit ap
           <MaterialIcons name="arrow-back" size={24} color="#0C2D48" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Privacy Policy</Text>
-        <View style={styles.placeholder} />
+        <View style={styles.headerSpacer} />
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -148,7 +148,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#0C2D48',
   },
-  placeholder: {
+  headerSpacer: {
     width: 40,
   },
   content: {

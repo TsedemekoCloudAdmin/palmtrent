@@ -9,6 +9,11 @@ const whatsappController = require('./whatsappController');
 const { formatRelativeTime } = require('../utils/formatDate');
 const { recordAudit } = require('../services/auditService');
 const tractorTrailerMatchingService = require('../services/tractorTrailerMatchingService');
+const monetizationService = require('../services/monetizationService');
+const { validateShipmentEvidence } = require('../services/shipmentEvidenceService');
+const podService = require('../services/podService');
+const matchingService = require('../services/matchingService');
+const { finalizeUploadedFile } = require('../services/uploadFinalizationService');
 const {
   assertBookingTransition,
   assertShipmentTransition,
@@ -16,6 +21,39 @@ const {
   assertVehicleAssignable,
   isPaymentConfirmed
 } = require('../services/flowControlService');
+
+const ACTIVE_SHIPMENT_STATUSES = ['assigned', 'en_route_pickup', 'picked_up', 'in_transit', 'arrived_delivery'];
+
+function parseStatusFilter(status) {
+  if (!status) return [];
+
+  const values = Array.isArray(status)
+    ? status
+    : String(status).split(',');
+
+  const normalized = values
+    .flatMap(value => String(value).split(','))
+    .map(value => value.trim())
+    .filter(Boolean);
+
+  if (normalized.includes('active')) {
+    return ACTIVE_SHIPMENT_STATUSES;
+  }
+
+  return [...new Set(normalized)];
+}
+
+function applyStatusFilter(query, status) {
+  const statuses = parseStatusFilter(status);
+
+  if (statuses.length === 1) {
+    query.status = statuses[0];
+  } else if (statuses.length > 1) {
+    query.status = { $in: statuses };
+  }
+
+  return query;
+}
 
 exports.submitVerification = async (req, res) => {
   try {
@@ -47,17 +85,20 @@ exports.submitVerification = async (req, res) => {
     };
 
     const uploadedDocuments = [];
-    Object.entries(req.files || {}).forEach(([fieldName, files]) => {
+    for (const [fieldName, files] of Object.entries(req.files || {})) {
       const documentType = documentTypeByField[fieldName] || 'other';
-      files.forEach(file => {
+      for (const file of files) {
+        const finalized = await finalizeUploadedFile(file, 'verification');
         uploadedDocuments.push({
           type: documentType,
-          url: `/uploads/verification/${file.filename}`,
-          originalName: file.originalname,
-          uploadedAt: new Date()
+          url: finalized.url,
+          originalName: finalized.originalName,
+          uploadedAt: new Date(),
+          storageKey: finalized.key,
+          storageProvider: finalized.provider
         });
-      });
-    });
+      }
+    }
 
     const parsedLicenseClasses = (() => {
       if (!licenseClasses) return [];
@@ -123,7 +164,7 @@ exports.getDashboardStats = async (req, res) => {
     // Get active jobs count
     const activeJobs = await Shipment.countDocuments({
       transporter: transporterId,
-      status: { $in: ['assigned', 'in_transit', 'picked_up'] }
+      status: { $in: ACTIVE_SHIPMENT_STATUSES }
     });
 
     // Get pending payment count
@@ -172,6 +213,14 @@ exports.getDashboardStats = async (req, res) => {
     ]);
 
     const ratingData = ratingsAgg[0] || { avgRating: 0, totalRatings: 0 };
+    const onTimeShipments = completedShipments.filter((shipment) => {
+      const actualDelivery = shipment.schedule?.actualDeliveryTime || shipment.timeline?.deliveredAt || shipment.completedAt;
+      const scheduledDelivery = shipment.schedule?.scheduledDeliveryTime || shipment.schedule?.estimatedDelivery;
+      return actualDelivery && scheduledDelivery && new Date(actualDelivery) <= new Date(scheduledDelivery);
+    });
+    const onTimeDelivery = completedShipments.length
+      ? Math.round((onTimeShipments.length / completedShipments.length) * 100)
+      : 0;
 
     res.status(200).json({
       success: true,
@@ -181,7 +230,8 @@ exports.getDashboardStats = async (req, res) => {
         earnings: parseFloat(earnings.toFixed(2)),
         totalTrips,
         rating: parseFloat(ratingData.avgRating.toFixed(1)),
-        totalRatings: ratingData.totalRatings
+        totalRatings: ratingData.totalRatings,
+        onTimeDelivery
       }
     });
   } catch (error) {
@@ -287,9 +337,7 @@ exports.getMyJobs = async (req, res) => {
     const { status, page = 1, limit = 10 } = req.query;
 
     const query = { transporter: transporterId };
-    if (status) {
-      query.status = status;
-    }
+    applyStatusFilter(query, status);
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
@@ -297,7 +345,7 @@ exports.getMyJobs = async (req, res) => {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
-      .populate('shipper', 'name email phone')
+      .populate('shipper', 'fullName email phone')
       .lean();
 
     const total = await Shipment.countDocuments(query);
@@ -448,6 +496,7 @@ exports.acceptJob = async (req, res) => {
 
     // Create or update shipment(s). Multiple-vehicle bookings create one shipment per vehicle.
     let shipments = await Shipment.find({ booking: booking._id });
+    const earningsSplit = await calculateEarningsSplit(booking, linkedRentals);
 
     if (shipments.length > 0) {
       shipments = await Promise.all(shipments.map(async (shipment, index) => {
@@ -463,7 +512,7 @@ exports.acceptJob = async (req, res) => {
           owner: rental.owner,
           amount: rental.pricing?.total || 0
         }));
-        shipment.earningsSplit = calculateEarningsSplit(booking, linkedRentals);
+        shipment.earningsSplit = earningsSplit;
         shipment.status = 'assigned';
         await shipment.save();
         return shipment;
@@ -508,7 +557,7 @@ exports.acceptJob = async (req, res) => {
           owner: rental.owner,
           amount: rental.pricing?.total || 0
         })),
-        earningsSplit: calculateEarningsSplit(booking, linkedRentals),
+        earningsSplit,
         schedule: {
           pickupDate: booking.route?.pickup?.date,
           deliveryDate: booking.route?.delivery?.date
@@ -554,6 +603,12 @@ exports.acceptJob = async (req, res) => {
       console.error('Push notification error:', notifyError);
     }
 
+    try {
+      await matchingService.recordTransporterOfferResponse(transporterId, 'accepted');
+    } catch (statsError) {
+      console.error('Transporter acceptance stats error:', statsError);
+    }
+
     // Send WhatsApp notification to shipper
     try {
       await whatsappController.sendBookingStatusUpdate(booking, 'matched');
@@ -596,9 +651,15 @@ exports.acceptJob = async (req, res) => {
   }
 };
 
-function calculateEarningsSplit(booking, rentals = []) {
+async function calculateEarningsSplit(booking, rentals = []) {
   const shipmentTotal = Number(booking.pricing?.totals?.total || booking.totalAmount || 0);
-  const platformFee = Number(booking.pricing?.totals?.platformTotal || Math.round(shipmentTotal * 0.15 * 100) / 100);
+  const calculatedFees = booking.pricing?.totals?.platformTotal
+    ? null
+    : await monetizationService.calculateShipmentFees(shipmentTotal, shipmentTotal, {
+      audience: booking.corporateAccount ? 'corporate' : 'all',
+      paymentMethod: booking.payment?.method || 'openapi_africa'
+    });
+  const platformFee = Number(booking.pricing?.totals?.platformTotal || calculatedFees?.platformFee || 0);
   const baseTransporterEarnings = Number(booking.pricing?.totals?.transporterTotal || Math.max(0, shipmentTotal - platformFee));
   const rentalCosts = rentals.reduce((sum, rental) => sum + Number(rental.pricing?.total || 0), 0);
   return {
@@ -652,7 +713,10 @@ exports.rejectJob = async (req, res) => {
     // Just log the rejection - job stays available for others
     console.log(`Transporter ${transporterId} rejected job ${jobId}: ${reason}`);
 
-    await Booking.findByIdAndUpdate(jobId, {
+    const booking = await Booking.findOneAndUpdate({
+      _id: jobId,
+      'declines.transporter': { $ne: transporterId }
+    }, {
       $push: {
         declines: {
           transporter: transporterId,
@@ -660,7 +724,11 @@ exports.rejectJob = async (req, res) => {
           declinedAt: new Date()
         }
       }
-    });
+    }, { new: true });
+
+    if (booking) {
+      await matchingService.recordTransporterOfferResponse(transporterId, 'declined');
+    }
 
     await recordAudit({
       actor: req.user,
@@ -769,6 +837,19 @@ exports.confirmPickup = async (req, res) => {
       });
     }
 
+    const evidence = validateShipmentEvidence({
+      photos,
+      signature,
+      user: req.user
+    });
+    if (!evidence.valid) {
+      return res.status(400).json({
+        success: false,
+        message: evidence.errors[0],
+        errors: evidence.errors
+      });
+    }
+
     assertShipmentTransition(shipment.status, 'picked_up');
     shipment.status = 'picked_up';
     shipment.timeline = {
@@ -776,9 +857,9 @@ exports.confirmPickup = async (req, res) => {
       pickedUpAt: new Date()
     };
     shipment.pickupDetails = {
-      photos: photos || [],
+      photos: evidence.photos,
       notes,
-      signature,
+      signature: evidence.signature,
       confirmedAt: new Date()
     };
     await shipment.save();
@@ -808,7 +889,7 @@ exports.confirmPickup = async (req, res) => {
       entityType: 'Shipment',
       entityId: shipment._id,
       entityRef: shipment.bookingReference,
-      after: { status: shipment.status, hasSignature: Boolean(signature), photoCount: (photos || []).length },
+      after: { status: shipment.status, hasSignature: Boolean(evidence.signature), photoCount: evidence.photos.length },
       req
     });
 
@@ -1005,6 +1086,19 @@ exports.confirmDelivery = async (req, res) => {
       });
     }
 
+    const evidence = validateShipmentEvidence({
+      photos,
+      signature,
+      user: req.user
+    });
+    if (!evidence.valid) {
+      return res.status(400).json({
+        success: false,
+        message: evidence.errors[0],
+        errors: evidence.errors
+      });
+    }
+
     assertShipmentTransition(shipment.status, 'delivered');
     shipment.status = 'delivered';
     shipment.timeline = {
@@ -1012,9 +1106,9 @@ exports.confirmDelivery = async (req, res) => {
       deliveredAt: new Date()
     };
     shipment.deliveryDetails = {
-      photos: photos || [],
+      photos: evidence.photos,
       notes,
-      signature,
+      signature: evidence.signature,
       receiverName,
       receiverPhone,
       confirmedAt: new Date()
@@ -1038,6 +1132,15 @@ exports.confirmDelivery = async (req, res) => {
       } catch (escrowError) {
         console.error('Escrow delivery confirmation error:', escrowError);
       }
+    }
+
+    let podDocument = null;
+    try {
+      if (booking) {
+        podDocument = await podService.ensurePDFFromShipment(shipment, booking);
+      }
+    } catch (podError) {
+      console.error('POD document generation error:', podError);
     }
 
     // Notify shipper via push notification
@@ -1066,15 +1169,19 @@ exports.confirmDelivery = async (req, res) => {
         status: shipment.status,
         receiverName,
         receiverPhone,
-        hasSignature: Boolean(signature),
-        photoCount: (photos || []).length
+        hasSignature: Boolean(evidence.signature),
+        photoCount: evidence.photos.length
       },
       req
     });
 
     res.status(200).json({
       success: true,
-      data: { status: shipment.status },
+      data: {
+        status: shipment.status,
+        podReference: podDocument?.podReference,
+        podDocumentReady: Boolean(podDocument?.pdfUrl)
+      },
       message: 'Delivery confirmed successfully'
     });
   } catch (error) {
@@ -1092,20 +1199,36 @@ exports.getEarnings = async (req, res) => {
     const transporterId = req.user.id;
     const { period = 'month' } = req.query;
 
-    let startDate = new Date();
-    if (period === 'week') {
+    const normalizedPeriod = ['week', 'month', 'year', 'all'].includes(period) ? period : 'month';
+    let startDate = null;
+    if (normalizedPeriod !== 'all') {
+      startDate = new Date();
+    }
+
+    if (normalizedPeriod === 'week') {
       startDate.setDate(startDate.getDate() - 7);
-    } else if (period === 'month') {
+    } else if (normalizedPeriod === 'month') {
       startDate.setMonth(startDate.getMonth() - 1);
-    } else if (period === 'year') {
+    } else if (normalizedPeriod === 'year') {
       startDate.setFullYear(startDate.getFullYear() - 1);
     }
 
-    const completedShipments = await Shipment.find({
+    const completedQuery = {
       transporter: transporterId,
-      status: 'completed',
-      'timeline.completedAt': { $gte: startDate }
-    }).sort({ 'timeline.completedAt': -1 });
+      status: 'completed'
+    };
+
+    if (startDate) {
+      completedQuery.$or = [
+        { completedAt: { $gte: startDate } },
+        { 'timeline.completedAt': { $gte: startDate } }
+      ];
+    }
+
+    const completedShipments = await Shipment.find(completedQuery).sort({
+      completedAt: -1,
+      'timeline.completedAt': -1
+    });
 
     const totalEarnings = completedShipments.reduce((sum, s) =>
       sum + (s.transporterEarnings || s.pricing?.totals?.transporterTotal || 0), 0
@@ -1137,7 +1260,8 @@ exports.getEarnings = async (req, res) => {
           id: s._id,
           reference: s.bookingReference,
           amount: s.transporterEarnings || s.pricing?.totals?.transporterTotal || 0,
-          date: s.timeline?.completedAt
+          route: [s.origin, s.destination].filter(Boolean).join(' to '),
+          date: s.completedAt || s.timeline?.completedAt
         }))
       }
     });

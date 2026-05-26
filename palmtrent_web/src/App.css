@@ -59,3 +59,252 @@ body {
 .read-the-docs {
   color: #888;
 }
+
+.payment-return-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.payment-return-panel {
+  width: min(520px, 100%);
+  padding: 32px;
+  border: 1px solid #dbe4ea;
+  border-radius: 8px;
+  background: var(--white);
+  box-shadow: 0 18px 48px rgba(12, 45, 72, 0.12);
+}
+
+.payment-return-panel h1 {
+  margin: 0 0 10px;
+  font-size: 32px;
+  letter-spacing: 0;
+}
+
+.payment-return-reference {
+  margin: 0 0 18px;
+  color: var(--text-light);
+}
+
+.payment-return-status {
+  margin: 0 0 24px;
+  padding: 16px;
+  border-left: 4px solid #4b8fc5;
+  background: #edf6fc;
+  line-height: 1.5;
+}
+
+.payment-return-status.status-confirmed {
+  border-left-color: #0f8a5f;
+  background: #ebfaf3;
+}
+
+.payment-return-status.status-failed,
+.payment-return-status.status-cancelled,
+.payment-return-status.status-missing {
+  border-left-color: #c94242;
+  background: #fff1f1;
+}
+
+.payment-return-panel .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 6px;
+  background: var(--primary);
+  color: var(--white);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.public-tracking-page,
+.legal-page {
+  min-height: 100vh;
+  padding: 32px 20px;
+  box-sizing: border-box;
+  background: #edf3f7;
+}
+
+.public-tracking-shell,
+.legal-panel {
+  width: min(960px, 100%);
+  margin: 0 auto;
+  padding: 32px;
+  border: 1px solid #dbe4ea;
+  border-radius: 8px;
+  background: var(--white);
+  box-shadow: 0 18px 48px rgba(12, 45, 72, 0.12);
+}
+
+.public-tracking-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--primary);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.public-tracking-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin: 28px 0;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: #567086;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.public-tracking-header h1,
+.legal-panel h1 {
+  margin: 0;
+  font-size: 36px;
+  letter-spacing: 0;
+}
+
+.public-tracking-status {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #ebfaf3;
+  color: #0f8a5f;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.public-tracking-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 180px;
+  color: #567086;
+  font-weight: 700;
+}
+
+.public-tracking-state.error {
+  color: #b42318;
+}
+
+.spinning {
+  animation: logo-spin 1s linear infinite;
+}
+
+.public-tracking-route {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 28px;
+}
+
+.route-summary-card {
+  display: flex;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid #dbe4ea;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.route-summary-card span {
+  display: block;
+  margin-bottom: 4px;
+  color: #567086;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.route-summary-card strong {
+  color: var(--text-dark);
+  line-height: 1.35;
+}
+
+.public-tracking-events h2,
+.legal-sections h2 {
+  margin: 0 0 14px;
+  font-size: 20px;
+  letter-spacing: 0;
+}
+
+.public-tracking-events ol {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.public-tracking-events li {
+  padding: 16px;
+  border-left: 4px solid var(--accent);
+  background: #fff7f1;
+}
+
+.public-tracking-events li strong,
+.public-tracking-events li span,
+.public-tracking-events li time {
+  display: block;
+}
+
+.public-tracking-events li span,
+.public-tracking-events li time,
+.public-tracking-empty,
+.legal-intro,
+.legal-sections p {
+  color: var(--text-light);
+  line-height: 1.6;
+}
+
+.public-tracking-events li time {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.legal-intro {
+  max-width: 760px;
+  margin: 14px 0 28px;
+  font-size: 18px;
+}
+
+.legal-sections {
+  display: grid;
+  gap: 22px;
+}
+
+.legal-sections p {
+  margin: 0;
+}
+
+@media (max-width: 760px) {
+  .public-tracking-shell,
+  .legal-panel {
+    padding: 22px;
+  }
+
+  .public-tracking-header {
+    display: block;
+  }
+
+  .public-tracking-header h1,
+  .legal-panel h1 {
+    font-size: 28px;
+    overflow-wrap: anywhere;
+  }
+
+  .public-tracking-status {
+    display: inline-flex;
+    margin-top: 14px;
+  }
+
+  .public-tracking-route {
+    grid-template-columns: 1fr;
+  }
+}

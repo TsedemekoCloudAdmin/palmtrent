@@ -28,7 +28,7 @@ const ActivityHistoryScreen = ({ navigation }) => {
 
   const fetchActivities = useCallback(async () => {
     try {
-      const response = await apiService.request('/auth/activity-history');
+      const response = await apiService.getActivityHistory({ limit: 50 });
       if (response.success) {
         setActivities(response.data || []);
       }
@@ -58,7 +58,9 @@ const ActivityHistoryScreen = ({ navigation }) => {
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
 
-    if (diffMins < 60) {
+    if (diffMins < 1) {
+      return 'Just now';
+    } else if (diffMins < 60) {
       return `${diffMins} min${diffMins !== 1 ? 's' : ''} ago`;
     } else if (diffHours < 24) {
       return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
@@ -111,7 +113,7 @@ const ActivityHistoryScreen = ({ navigation }) => {
             <MaterialIcons name="arrow-back" size={24} color="#0C2D48" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Activity History</Text>
-          <View style={styles.placeholder} />
+          <View style={styles.headerSpacer} />
         </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#0C2D48" />
@@ -130,7 +132,7 @@ const ActivityHistoryScreen = ({ navigation }) => {
           <MaterialIcons name="arrow-back" size={24} color="#0C2D48" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Activity History</Text>
-        <View style={styles.placeholder} />
+        <View style={styles.headerSpacer} />
       </View>
 
       {/* Filter Tabs */}
@@ -203,7 +205,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#0C2D48',
   },
-  placeholder: {
+  headerSpacer: {
     width: 40,
   },
   loadingContainer: {

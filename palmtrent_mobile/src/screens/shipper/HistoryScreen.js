@@ -104,7 +104,7 @@ const HistoryScreen = ({ navigation }) => {
         }
       } else {
         // For shippers (default), fetch their bookings
-        response = await apiService.request('/bookings/my-bookings');
+        response = await apiService.getMyBookings({ limit: 50 });
         if (response.success) {
           const bookings = response.data || [];
           // Transform booking data to ensure consistent price field

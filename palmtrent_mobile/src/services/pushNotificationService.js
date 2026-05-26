@@ -47,9 +47,10 @@ class PushNotificationService {
       }
 
       // Get Expo push token
-      const tokenData = await Notifications.getExpoPushTokenAsync({
-        projectId: process.env.EXPO_PROJECT_ID // Set in app.json or .env
-      });
+      const tokenOptions = process.env.EXPO_PROJECT_ID
+        ? { projectId: process.env.EXPO_PROJECT_ID }
+        : undefined;
+      const tokenData = await Notifications.getExpoPushTokenAsync(tokenOptions);
 
       this.expoPushToken = tokenData.data;
       console.log('Expo Push Token:', this.expoPushToken);
@@ -116,19 +117,18 @@ class PushNotificationService {
   // Send token to backend
   async sendTokenToServer(token) {
     try {
-      const authToken = await AsyncStorage.getItem('token');
+      const authToken = await apiService.getToken();
       if (!authToken) return;
 
-      await apiService.post('/notifications/register-device', {
+      await apiService.registerNotificationDevice({
         pushToken: token,
+        expoPushToken: token,
         platform: Platform.OS,
         deviceInfo: {
           brand: Device.brand,
           model: Device.modelName,
           osVersion: Device.osVersion
         }
-      }, {
-        headers: { Authorization: `Bearer ${authToken}` }
       });
 
       console.log('Push token registered with server');
@@ -273,13 +273,11 @@ class PushNotificationService {
   // Unregister device from push notifications
   async unregister() {
     try {
-      const authToken = await AsyncStorage.getItem('token');
-      if (authToken && this.expoPushToken) {
-        await apiService.post('/notifications/unregister-device', {
-          pushToken: this.expoPushToken
-        }, {
-          headers: { Authorization: `Bearer ${authToken}` }
-        });
+      const authToken = await apiService.getToken();
+      const storedToken = this.expoPushToken || await AsyncStorage.getItem('expoPushToken');
+
+      if (authToken && storedToken) {
+        await apiService.unregisterNotificationDevice(storedToken);
       }
 
       await AsyncStorage.removeItem('expoPushToken');

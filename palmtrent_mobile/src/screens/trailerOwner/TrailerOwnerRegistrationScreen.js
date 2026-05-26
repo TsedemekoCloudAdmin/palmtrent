@@ -15,6 +15,7 @@ import {
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import * as ImagePicker from 'expo-image-picker';
 import useAuth from '../../hook/useAuth';
+import apiService from '../../services/apiService';
 
 const TrailerOwnerRegistrationScreen = ({ navigation }) => {
   const { user } = useAuth();
@@ -25,6 +26,7 @@ const TrailerOwnerRegistrationScreen = ({ navigation }) => {
   const [step, setStep] = useState(hasUserInfo ? 2 : 1);
   const [ownerType, setOwnerType] = useState('individual'); // 'individual' or 'company'
   const [images, setImages] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     // Owner Information - pre-populate from user data if available
     ownerName: user?.fullName || '',
@@ -210,20 +212,71 @@ const TrailerOwnerRegistrationScreen = ({ navigation }) => {
     return formData.bankName && formData.accountNumber && formData.accountName;
   };
 
-  const handleSubmit = () => {
-    // Here you would typically send the data to your backend
+  const handleSubmit = async () => {
     const submissionData = {
-      ownerType,
-      ...formData,
-      images
+      assetType: 'trailer',
+      assetName: `${formData.make} ${formData.model}`.trim(),
+      registrationNumber: formData.licensePlate,
+      year: Number(formData.year),
+      capacity: {
+        weight: {
+          value: Number(formData.capacity),
+          unit: 'kg'
+        }
+      },
+      features: {
+        refrigeration: formData.trailerType === 'Refrigerated',
+        liftGate: formData.features.includes('Lift Gate'),
+        tarpaulin: formData.features.includes('Tarpaulin Cover'),
+        sideLoader: formData.features.includes('Side Loading'),
+        gps: formData.features.includes('GPS Tracking'),
+        lighting: formData.features.includes('Lighting'),
+        tieDowns: formData.features.includes('Tie-down Points')
+      },
+      insurance: {
+        provider: formData.insuranceProvider,
+        policyNumber: formData.policyNumber,
+        expiryDate: formData.insuranceExpiry
+      },
+      documents: {
+        registration: {
+          number: formData.registrationNumber || formData.licensePlate
+        }
+      },
+      status: formData.availability,
+      rentalSettings: {
+        availableForRental: true,
+        dailyRate: Number(formData.dailyRate),
+        weeklyRate: Number(formData.weeklyRate || 0),
+        monthlyRate: Number(formData.monthlyRate || 0),
+        minimumRentalPeriod: {
+          value: Number(formData.minRentalPeriod),
+          unit: 'days'
+        },
+        deliveryAvailable: formData.deliveryOption,
+        deliveryFee: Number(formData.deliveryRadius || 0)
+      },
+      images: images.map((uri, index) => ({
+        url: uri,
+        caption: index === 0 ? 'Primary trailer photo' : 'Trailer photo',
+        isPrimary: index === 0
+      })),
+      description: `${formData.condition} ${formData.trailerType} trailer listed by ${ownerType === 'company' ? formData.companyName : formData.ownerName}`.trim()
     };
-    
-    console.log('Trailer owner registration:', submissionData);
-    Alert.alert(
-      'Registration Submitted!',
-      'Your trailer has been submitted for review. We will contact you within 24 hours.',
-      [{ text: 'OK', onPress: () => navigateTo('Home') }]
-    );
+
+    setSubmitting(true);
+    try {
+      await apiService.createTrailer(submissionData);
+      Alert.alert(
+        'Trailer Listed',
+        'Your trailer has been added to your fleet and is available for rental management.',
+        [{ text: 'OK', onPress: () => navigateTo('TrailerList') }]
+      );
+    } catch (error) {
+      Alert.alert('Unable to list trailer', error.message || 'Please check the details and try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -872,7 +925,7 @@ const TrailerOwnerRegistrationScreen = ({ navigation }) => {
               (step === 1 && !isStep1Valid()) || 
               (step === 2 && !isStep2Valid()) || 
               (step === 3 && !isStep3Valid()) || 
-              (step === 4 && !isStep4Valid()) 
+              (step === 4 && (!isStep4Valid() || submitting))
                 ? styles.continueButtonDisabled : null
             ]}
             onPress={() => {
@@ -886,11 +939,11 @@ const TrailerOwnerRegistrationScreen = ({ navigation }) => {
               (step === 1 && !isStep1Valid()) || 
               (step === 2 && !isStep2Valid()) || 
               (step === 3 && !isStep3Valid()) || 
-              (step === 4 && !isStep4Valid())
+              (step === 4 && (!isStep4Valid() || submitting))
             }
           >
             <Text style={styles.continueButtonText}>
-              {step < 4 ? 'Continue' : 'Submit Registration'}
+              {submitting ? 'Submitting...' : step < 4 ? 'Continue' : 'Submit Registration'}
             </Text>
           </TouchableOpacity>
         </View>

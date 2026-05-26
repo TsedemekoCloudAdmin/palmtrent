@@ -98,6 +98,19 @@ const HomeScreen = ({ navigation }) => {
     navigation.navigate('Booking');
   }, [navigation]);
 
+  const handleActivityPress = useCallback((activity) => {
+    const id = activity.bookingId || activity.shipmentId || activity.rentalId || activity.id;
+    if (activity.rentalId || isTrailerOwner) {
+      navigation.navigate('TrailerTracking', { rentalId: id });
+      return;
+    }
+    if (isTransporter) {
+      navigation.navigate('JobDetails', { jobId: id, job: activity.rawData || activity });
+      return;
+    }
+    navigation.navigate('TrackShipment', { bookingId: id, shipmentId: activity.shipmentId });
+  }, [navigation, isTrailerOwner, isTransporter]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -438,7 +451,7 @@ const HomeScreen = ({ navigation }) => {
                       ? 'green' 
                       : 'blue'
                   }
-                  onPress={() => console.log('Activity Details', activity.id)}
+                  onPress={() => handleActivityPress(activity)}
                 />
               ))}
             </View>

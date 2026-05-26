@@ -164,32 +164,17 @@ escrowSchema.methods.raiseDispute = function(userId, reason, description) {
 // Static method to find escrows ready for release
 escrowSchema.statics.findReadyForRelease = function() {
   return this.find({
-    status: 'held',
+    status: { $in: ['held', 'pending_release'] },
     'releaseConditions.deliveryConfirmed': true,
     'releaseConditions.noActiveDispute': true,
     gracePeriodEndsAt: { $lte: new Date() }
   });
 };
 
-// Static method to get commission rate based on payment method
-escrowSchema.statics.getCommissionRate = function(paymentMethod) {
-  const rates = {
-    'ecocash': 0.12,        // 12% digital
-    'digital': 0.12,        // 12% digital
-    'onemoney': 0.12,       // 12% digital
-    'card': 0.12,           // 12% digital
-    'bank_transfer': 0.12,  // 12% digital
-    'cash_agent': 0.12,     // 12% via agent
-    'cash_on_pickup': 0.15, // 15% cash on pickup
-    'cash_on_delivery': 0.18, // 18% cash on delivery
-    'corporate': 0.12
-  };
-  return rates[paymentMethod] || 0.12;
-};
-
 // Indexes
 escrowSchema.index({ booking: 1 });
 escrowSchema.index({ payment: 1 });
+escrowSchema.index({ booking: 1, payment: 1 }, { unique: true });
 escrowSchema.index({ status: 1 });
 escrowSchema.index({ transporter: 1 });
 escrowSchema.index({ shipper: 1 });

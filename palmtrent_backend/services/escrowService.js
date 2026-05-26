@@ -2,6 +2,7 @@
 const Escrow = require('../models/Escrow');
 const Payment = require('../models/Payment');
 const Booking = require('../models/Booking');
+const monetizationService = require('./monetizationService');
 
 class EscrowService {
 
@@ -16,10 +17,27 @@ class EscrowService {
       throw new Error('Payment or booking not found');
     }
 
-    // Get commission rate based on payment method
-    const commissionRate = Escrow.getCommissionRate(payment.paymentMethod);
-    const platformFee = payment.amount * commissionRate;
-    const transporterPayout = payment.amount - platformFee;
+    const existingEscrow = await Escrow.findOne({ booking: bookingId, payment: paymentId });
+    if (existingEscrow) return existingEscrow;
+
+    const pricing = booking.pricing || {};
+    const monetizationFees = pricing.totals?.platformTotal || pricing.breakdown?.platformFee
+      ? null
+      : await monetizationService.calculateShipmentFees(payment.amount, payment.amount, {
+        audience: booking.corporateAccount ? 'corporate' : 'all',
+        paymentMethod: payment.paymentMethod
+      });
+    const platformFee = Number(
+      pricing.totals?.platformTotal ||
+      pricing.breakdown?.platformFee ||
+      monetizationFees?.platformFee ||
+      0
+    );
+    const transporterPayout = Number(
+      pricing.totals?.transporterTotal ||
+      Math.max(0, payment.amount - platformFee)
+    );
+    const commissionRate = payment.amount > 0 ? platformFee / payment.amount : 0;
 
     const escrow = new Escrow({
       booking: bookingId,
@@ -35,7 +53,20 @@ class EscrowService {
       heldAt: new Date()
     });
 
-    await escrow.save();
+    try {
+      await escrow.save();
+    } catch (error) {
+      if (error?.code === 11000) {
+        const createdByConcurrentConfirmation = await Escrow.findOne({
+          booking: bookingId,
+          payment: paymentId
+        });
+        if (createdByConcurrentConfirmation) return createdByConcurrentConfirmation;
+      }
+      throw error;
+    }
+
+    await this.recordShipmentLedger(booking, payment, escrow);
 
     // Update booking with escrow reference
     booking.escrow = escrow._id;
@@ -43,6 +74,51 @@ class EscrowService {
     await booking.save();
 
     return escrow;
+  }
+
+  async recordShipmentLedger(booking, payment, escrow) {
+    const platformFee = Number(booking.pricing?.breakdown?.platformFee || escrow.platformFee || 0);
+    const transporterCommission = Number(booking.pricing?.breakdown?.transporterCommission || 0);
+    const baseMetadata = {
+      bookingReference: booking.bookingReference,
+      paymentReference: payment.paymentReference,
+      escrowReference: escrow.escrowReference,
+      paymentMethod: payment.paymentMethod
+    };
+
+    if (platformFee > 0) {
+      await monetizationService.recordLedgerEntryOnce(
+        { sourceType: 'booking', sourceId: booking._id, category: 'platform_fee', status: 'posted' },
+        {
+          sourceType: 'booking',
+          sourceId: booking._id,
+          user: booking.shipper,
+          direction: 'credit',
+          category: 'platform_fee',
+          amount: platformFee,
+          currency: payment.currency || 'USD',
+          status: 'posted',
+          metadata: baseMetadata
+        }
+      );
+    }
+
+    if (transporterCommission > 0) {
+      await monetizationService.recordLedgerEntryOnce(
+        { sourceType: 'booking', sourceId: booking._id, category: 'commission', status: 'posted' },
+        {
+          sourceType: 'booking',
+          sourceId: booking._id,
+          user: booking.transporter,
+          direction: 'credit',
+          category: 'commission',
+          amount: transporterCommission,
+          currency: payment.currency || 'USD',
+          status: 'posted',
+          metadata: baseMetadata
+        }
+      );
+    }
   }
 
   /**
@@ -92,6 +168,10 @@ class EscrowService {
 
     if (!escrow) {
       throw new Error('Escrow not found for this booking');
+    }
+
+    if (escrow.status === 'disputed') {
+      return escrow;
     }
 
     if (!['held', 'pending_release'].includes(escrow.status)) {
@@ -167,7 +247,20 @@ class EscrowService {
       status: 'cancelled'
     });
 
-    // TODO: Trigger actual refund via payment gateway
+    await monetizationService.recordLedgerEntryOnce(
+      { sourceType: 'booking', sourceId: escrow.booking, category: 'refund', status: 'posted' },
+      {
+        sourceType: 'booking',
+        sourceId: escrow.booking,
+        user: escrow.shipper,
+        direction: 'debit',
+        category: 'refund',
+        amount,
+        currency: escrow.currency || 'USD',
+        status: 'posted',
+        metadata: { escrowReference: escrow.escrowReference, reason }
+      }
+    );
 
     return escrow;
   }
@@ -193,6 +286,21 @@ class EscrowService {
     escrow.transporterPayout = escrow.amount - escrow.platformFee - refundAmount;
 
     await escrow.save();
+
+    await monetizationService.recordLedgerEntryOnce(
+      { sourceType: 'booking', sourceId: escrow.booking, category: 'refund', status: 'posted' },
+      {
+        sourceType: 'booking',
+        sourceId: escrow.booking,
+        user: escrow.shipper,
+        direction: 'debit',
+        category: 'refund',
+        amount: refundAmount,
+        currency: escrow.currency || 'USD',
+        status: 'posted',
+        metadata: { escrowReference: escrow.escrowReference, reason }
+      }
+    );
 
     return escrow;
   }
@@ -227,9 +335,66 @@ class EscrowService {
       paymentStatus: 'released'
     });
 
-    // TODO: Trigger actual payout to transporter via payment gateway
+    await this.ensureReleasedEscrowPayout(escrow);
 
     return escrow;
+  }
+
+  async ensureReleasedEscrowPayout(escrow) {
+    if (!escrow?.transporter || Number(escrow.transporterPayout || 0) <= 0) {
+      return null;
+    }
+
+    const payout = await monetizationService.createPayoutOnce(
+      { sourceType: 'booking', sourceId: escrow.booking, recipient: escrow.transporter },
+      {
+        recipient: escrow.transporter,
+        sourceType: 'booking',
+        sourceId: escrow.booking,
+        amount: escrow.transporterPayout,
+        currency: escrow.currency || 'USD',
+        method: 'openapi_africa',
+        status: 'pending',
+        metadata: { escrowReference: escrow.escrowReference }
+      }
+    );
+
+    await monetizationService.recordLedgerEntryOnce(
+      { sourceType: 'payout', sourceId: payout._id, category: 'payout', status: 'posted' },
+      {
+        sourceType: 'payout',
+        sourceId: payout._id,
+        user: escrow.transporter,
+        direction: 'debit',
+        category: 'payout',
+        amount: payout.amount,
+        currency: payout.currency,
+        status: 'posted',
+        metadata: { sourceType: 'booking', booking: escrow.booking, escrowReference: escrow.escrowReference }
+      }
+    );
+
+    return payout;
+  }
+
+  async backfillReleasedEscrowPayouts() {
+    const releasedEscrows = await Escrow.find({
+      status: 'released',
+      transporter: { $exists: true, $ne: null },
+      transporterPayout: { $gt: 0 }
+    });
+    const results = [];
+
+    for (const escrow of releasedEscrows) {
+      try {
+        const payout = await this.ensureReleasedEscrowPayout(escrow);
+        results.push({ escrowId: escrow._id, payoutId: payout?._id, status: payout ? 'ensured' : 'skipped' });
+      } catch (error) {
+        results.push({ escrowId: escrow._id, status: 'failed', error: error.message });
+      }
+    }
+
+    return results;
   }
 
   /**

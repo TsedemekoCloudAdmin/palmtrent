@@ -45,6 +45,19 @@ const insuranceClaimSchema = new mongoose.Schema({
       required: true
     }
   },
+  respondent: {
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    name: String,
+    email: String,
+    phone: String,
+    role: {
+      type: String,
+      enum: ['shipper', 'transporter']
+    }
+  },
   incident: {
     type: {
       type: String,
@@ -87,6 +100,8 @@ const insuranceClaimSchema = new mongoose.Schema({
     },
     name: String,
     url: String,
+    storageKey: String,
+    storageProvider: String,
     uploadedAt: { type: Date, default: Date.now },
     verified: { type: Boolean, default: false }
   }],
@@ -158,7 +173,7 @@ const insuranceClaimSchema = new mongoose.Schema({
   communication: [{
     from: {
       type: String,
-      enum: ['claimant', 'provider', 'platform']
+      enum: ['claimant', 'respondent', 'provider', 'platform']
     },
     message: String,
     attachments: [{
@@ -303,6 +318,7 @@ insuranceClaimSchema.statics.getStatistics = async function(dateFrom, dateTo) {
 // Indexes
 insuranceClaimSchema.index({ booking: 1 });
 insuranceClaimSchema.index({ 'claimant.user': 1 });
+insuranceClaimSchema.index({ 'respondent.user': 1 });
 insuranceClaimSchema.index({ status: 1 });
 insuranceClaimSchema.index({ 'policy.providerId': 1 });
 insuranceClaimSchema.index({ createdAt: -1 });

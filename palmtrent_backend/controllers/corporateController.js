@@ -2,8 +2,11 @@
 const User = require('../models/User');
 const Booking = require('../models/Booking');
 const CorporateAccount = require('../models/CorporateAccount');
+const CorporateReportSchedule = require('../models/CorporateReportSchedule');
 const Invoice = require('../models/Invoice');
+const crypto = require('crypto');
 const { recordAudit } = require('../services/auditService');
+const { finalizeUploadedFile } = require('../services/uploadFinalizationService');
 
 const getCorporateAccountForUser = async (userId) => {
   return CorporateAccount.findOne({
@@ -12,6 +15,34 @@ const getCorporateAccountForUser = async (userId) => {
       { 'settings.allowedUsers.user': userId }
     ]
   });
+};
+
+const CORPORATE_PERMISSIONS = ['create_bookings', 'view_all_bookings', 'manage_team', 'view_reports'];
+const ROLE_PERMISSION_DEFAULTS = {
+  admin: CORPORATE_PERMISSIONS,
+  manager: ['create_bookings', 'view_all_bookings', 'view_reports'],
+  viewer: ['view_all_bookings']
+};
+
+function normalizeCorporateRole(role) {
+  return ['admin', 'manager', 'viewer'].includes(role) ? role : 'manager';
+}
+
+function normalizeCorporatePermissions(role, permissions) {
+  if (!Array.isArray(permissions)) return ROLE_PERMISSION_DEFAULTS[role] || ROLE_PERMISSION_DEFAULTS.manager;
+  const allowed = permissions.filter(permission => CORPORATE_PERMISSIONS.includes(permission));
+  return [...new Set(allowed)];
+}
+
+const getNextReportRun = (frequency) => {
+  const next = new Date();
+  if (frequency === 'weekly') {
+    next.setDate(next.getDate() + 7);
+  } else {
+    next.setMonth(next.getMonth() + 1);
+  }
+  next.setHours(8, 0, 0, 0);
+  return next;
 };
 
 // Register corporate account
@@ -34,6 +65,8 @@ exports.registerCorporateAccount = async (req, res) => {
       address,
       billingAddress,
       contactPerson,
+      billing,
+      plan,
       paymentTerms,
       creditLimit
     } = req.body;
@@ -51,7 +84,8 @@ exports.registerCorporateAccount = async (req, res) => {
       numberOfEmployees: numberOfEmployees || companySize,
       billingAddress: billingAddress || address,
       contactPerson: contactPerson || { name: req.user.fullName, email: req.user.email, phone: req.user.phone },
-      paymentTerms: paymentTerms || 'net_15',
+      paymentTerms: paymentTerms || billing?.paymentTerms || 'net_15',
+      plan: plan || billing?.plan || 'standard',
       creditLimit: Number(creditLimit || 0),
       settings: {
         allowedUsers: [{ user: userId, role: 'admin' }]
@@ -86,13 +120,17 @@ exports.uploadDocument = async (req, res) => {
       return res.status(400).json({ success: false, message: 'No document uploaded' });
     }
 
-    const documentUrl = `/uploads/corporate/${req.file.filename}`;
+    const finalized = await finalizeUploadedFile(req.file, 'corporate');
+    const documentUrl = finalized.url;
 
     corporateAccount.verification.documents.push({
       type: documentUrl,
       documentType,
       uploadedAt: new Date(),
-      verified: false
+      verified: false,
+      storageKey: finalized.key,
+      storageProvider: finalized.provider,
+      originalName: finalized.originalName
     });
 
     if (corporateAccount.status === 'pending') {
@@ -370,7 +408,9 @@ exports.getUsers = async (req, res) => {
 
 exports.inviteUser = async (req, res) => {
   try {
-    const { userId, email, role = 'manager' } = req.body;
+    const { userId, email, role = 'manager', permissions } = req.body;
+    const normalizedRole = normalizeCorporateRole(role);
+    const normalizedPermissions = normalizeCorporatePermissions(normalizedRole, permissions);
     const corporateAccount = await getCorporateAccountForUser(req.user.id);
     if (!corporateAccount) {
       return res.status(404).json({ success: false, message: 'Corporate account not found' });
@@ -386,7 +426,11 @@ exports.inviteUser = async (req, res) => {
     );
 
     if (!alreadyAdded) {
-      corporateAccount.settings.allowedUsers.push({ user: user._id, role });
+      corporateAccount.settings.allowedUsers.push({
+        user: user._id,
+        role: normalizedRole,
+        permissions: normalizedPermissions
+      });
       await corporateAccount.save();
     }
 
@@ -394,7 +438,11 @@ exports.inviteUser = async (req, res) => {
     if (user.userType === 'shipper') user.userType = 'corporate';
     await user.save();
 
-    res.status(200).json({ success: true, message: 'Corporate user added', data: { user: user._id, role } });
+    res.status(200).json({
+      success: true,
+      message: 'Corporate user added',
+      data: { user: user._id, role: normalizedRole, permissions: normalizedPermissions }
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error adding corporate user', error: error.message });
   }
@@ -403,7 +451,7 @@ exports.inviteUser = async (req, res) => {
 exports.updateUser = async (req, res) => {
   try {
     const { userId } = req.params;
-    const { role } = req.body;
+    const { role, permissions } = req.body;
     const corporateAccount = await getCorporateAccountForUser(req.user.id);
     if (!corporateAccount) {
       return res.status(404).json({ success: false, message: 'Corporate account not found' });
@@ -414,9 +462,21 @@ exports.updateUser = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Corporate user not found' });
     }
 
-    allowedUser.role = role || allowedUser.role;
+    const normalizedRole = role ? normalizeCorporateRole(role) : allowedUser.role;
+    allowedUser.role = normalizedRole;
+    if (permissions !== undefined || role) {
+      allowedUser.permissions = normalizeCorporatePermissions(normalizedRole, permissions);
+    }
     await corporateAccount.save();
-    res.json({ success: true, message: 'Corporate user updated' });
+    res.json({
+      success: true,
+      message: 'Corporate user updated',
+      data: {
+        user: allowedUser.user,
+        role: allowedUser.role,
+        permissions: allowedUser.permissions || []
+      }
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error updating corporate user', error: error.message });
   }
@@ -512,6 +572,68 @@ exports.addPaymentMethod = async (req, res) => {
     res.json({ success: true, message: 'Payment method saved', data: { method: corporateAccount.preferredPaymentMethod } });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error saving payment method', error: error.message });
+  }
+};
+
+exports.getApiAccess = async (req, res) => {
+  try {
+    const corporateAccount = await getCorporateAccountForUser(req.user.id);
+    if (!corporateAccount) {
+      return res.status(404).json({ success: false, message: 'Corporate account not found' });
+    }
+
+    const apiAccess = corporateAccount.apiAccess || {};
+    res.json({
+      success: true,
+      data: {
+        hasKey: Boolean(apiAccess.keyHash),
+        keyPrefix: apiAccess.keyPrefix,
+        keyLastFour: apiAccess.keyLastFour,
+        generatedAt: apiAccess.generatedAt
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error fetching API access', error: error.message });
+  }
+};
+
+exports.regenerateApiKey = async (req, res) => {
+  try {
+    const corporateAccount = await getCorporateAccountForUser(req.user.id);
+    if (!corporateAccount) {
+      return res.status(404).json({ success: false, message: 'Corporate account not found' });
+    }
+
+    const rawKey = `pt_corp_${crypto.randomBytes(24).toString('hex')}`;
+    corporateAccount.apiAccess = {
+      keyHash: crypto.createHash('sha256').update(rawKey).digest('hex'),
+      keyPrefix: rawKey.slice(0, 12),
+      keyLastFour: rawKey.slice(-4),
+      generatedAt: new Date(),
+      generatedBy: req.user._id
+    };
+    await corporateAccount.save();
+
+    await recordAudit({
+      action: 'corporate.api_key_regenerated',
+      actor: req.user._id,
+      entityType: 'CorporateAccount',
+      entityId: corporateAccount._id,
+      metadata: { keyPrefix: corporateAccount.apiAccess.keyPrefix }
+    }).catch(() => {});
+
+    res.json({
+      success: true,
+      message: 'API key regenerated. Store it now; it will not be shown again.',
+      data: {
+        apiKey: rawKey,
+        keyPrefix: corporateAccount.apiAccess.keyPrefix,
+        keyLastFour: corporateAccount.apiAccess.keyLastFour,
+        generatedAt: corporateAccount.apiAccess.generatedAt
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error regenerating API key', error: error.message });
   }
 };
 
@@ -657,5 +779,130 @@ exports.updateInvoiceStatus = async (req, res) => {
     res.json({ success: true, message: 'Invoice updated', data: invoice });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error updating invoice', error: error.message });
+  }
+};
+
+exports.getReportSchedules = async (req, res) => {
+  try {
+    const corporateAccount = await getCorporateAccountForUser(req.user.id);
+    if (!corporateAccount) {
+      return res.status(404).json({ success: false, message: 'Corporate account not found' });
+    }
+
+    const schedules = await CorporateReportSchedule.find({ corporateAccount: corporateAccount._id })
+      .sort({ createdAt: -1 });
+
+    res.json({ success: true, data: schedules });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error loading report schedules', error: error.message });
+  }
+};
+
+exports.upsertReportSchedule = async (req, res) => {
+  try {
+    const corporateAccount = await getCorporateAccountForUser(req.user.id);
+    if (!corporateAccount) {
+      return res.status(404).json({ success: false, message: 'Corporate account not found' });
+    }
+
+    const allowedReportTypes = ['bookings', 'spending', 'team', 'routes', 'invoices', 'analytics'];
+    const reportType = String(req.body.reportType || req.body.type || '').trim();
+    if (!allowedReportTypes.includes(reportType)) {
+      return res.status(400).json({ success: false, message: 'A valid report type is required' });
+    }
+
+    const frequency = ['weekly', 'monthly'].includes(req.body.frequency) ? req.body.frequency : 'monthly';
+    const recipients = Array.isArray(req.body.recipients) && req.body.recipients.length
+      ? req.body.recipients
+      : [req.user.email].filter(Boolean);
+
+    const invalidRecipient = recipients.find(email => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim()));
+    if (invalidRecipient) {
+      return res.status(400).json({ success: false, message: 'All report recipients must be valid email addresses' });
+    }
+
+    const update = {
+      corporateAccount: corporateAccount._id,
+      createdBy: req.user.id,
+      reportType,
+      reportName: req.body.reportName || req.body.name || `${reportType} report`,
+      frequency,
+      format: 'csv',
+      recipients,
+      status: req.body.status === 'paused' ? 'paused' : 'active',
+      nextRunAt: getNextReportRun(frequency)
+    };
+
+    const schedule = await CorporateReportSchedule.findOneAndUpdate(
+      { corporateAccount: corporateAccount._id, reportType, frequency },
+      update,
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+
+    await recordAudit({
+      actor: req.user,
+      action: 'corporate.report_schedule_saved',
+      entityType: 'CorporateReportSchedule',
+      entityId: schedule._id,
+      entityRef: schedule.reportName,
+      after: {
+        reportType: schedule.reportType,
+        frequency: schedule.frequency,
+        status: schedule.status,
+        nextRunAt: schedule.nextRunAt
+      },
+      req
+    });
+
+    res.status(201).json({ success: true, message: 'Report schedule saved', data: schedule });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error saving report schedule', error: error.message });
+  }
+};
+
+exports.updateReportSchedule = async (req, res) => {
+  try {
+    const corporateAccount = await getCorporateAccountForUser(req.user.id);
+    if (!corporateAccount) {
+      return res.status(404).json({ success: false, message: 'Corporate account not found' });
+    }
+
+    const updates = {};
+    if (['active', 'paused'].includes(req.body.status)) updates.status = req.body.status;
+    if (['weekly', 'monthly'].includes(req.body.frequency)) {
+      updates.frequency = req.body.frequency;
+      updates.nextRunAt = getNextReportRun(req.body.frequency);
+    }
+    if (Array.isArray(req.body.recipients)) {
+      const invalidRecipient = req.body.recipients.find(email => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim()));
+      if (invalidRecipient) {
+        return res.status(400).json({ success: false, message: 'All report recipients must be valid email addresses' });
+      }
+      updates.recipients = req.body.recipients;
+    }
+
+    const schedule = await CorporateReportSchedule.findOneAndUpdate(
+      { _id: req.params.id, corporateAccount: corporateAccount._id },
+      updates,
+      { new: true }
+    );
+
+    if (!schedule) {
+      return res.status(404).json({ success: false, message: 'Report schedule not found' });
+    }
+
+    await recordAudit({
+      actor: req.user,
+      action: 'corporate.report_schedule_updated',
+      entityType: 'CorporateReportSchedule',
+      entityId: schedule._id,
+      entityRef: schedule.reportName,
+      after: updates,
+      req
+    });
+
+    res.json({ success: true, message: 'Report schedule updated', data: schedule });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error updating report schedule', error: error.message });
   }
 };

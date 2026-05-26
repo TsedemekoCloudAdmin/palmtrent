@@ -1117,6 +1117,28 @@ input:checked + .toggle-slider:before {
   color: #dc2626;
 }
 
+.auth-success {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: #dcfce7;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+}
+
+.auth-success .icon {
+  width: 20px;
+  height: 20px;
+  color: #15803d;
+  flex-shrink: 0;
+}
+
+.auth-success span {
+  font-size: 0.875rem;
+  color: #15803d;
+}
+
 .auth-form {
   display: flex;
   flex-direction: column;
@@ -1199,6 +1221,33 @@ input:checked + .toggle-slider:before {
   gap: 0.5rem;
 }
 
+.verification-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1e40af;
+  font-size: 0.875rem;
+}
+
+.verification-actions button {
+  border: none;
+  background: transparent;
+  color: #F37021;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.verification-actions button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .checkbox-label {
   display: flex;
   align-items: flex-start;
@@ -1229,6 +1278,25 @@ input:checked + .toggle-slider:before {
 
 .forgot-password:hover {
   text-decoration: underline;
+}
+
+.forgot-password-panel {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f9fafb;
+}
+
+.forgot-password-panel label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.auth-inline-btn {
+  width: fit-content;
 }
 
 .auth-submit-btn {

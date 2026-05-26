@@ -4,6 +4,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const {
   createDispute,
   createClaim,
@@ -26,10 +27,14 @@ const evidenceUpload = multer({
     destination: (req, file, cb) => cb(null, claimsDir),
     filename: (req, file, cb) => {
       const ext = path.extname(file.originalname || '') || '.jpg';
-      cb(null, `${req.user.id}-evidence-${Date.now()}-${Math.round(Math.random() * 1e6)}${ext}`);
+      cb(null, `${req.user.id}-evidence-${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`);
     }
   }),
-  limits: { fileSize: 8 * 1024 * 1024, files: 10 }
+  limits: { fileSize: 8 * 1024 * 1024, files: 10 },
+  fileFilter: (req, file, cb) => {
+    if (/^image\/(jpeg|jpg|png|webp)$|^application\/pdf$/.test(file.mimetype)) return cb(null, true);
+    cb(new Error('Only JPEG, PNG, WebP, and PDF evidence files are allowed'));
+  }
 });
 
 // All routes require authentication

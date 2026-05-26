@@ -24,7 +24,10 @@ const BookingFlowManager = ({ navigation, route }) => {
     trailerRental: null
   });
 
-  const navigateTo = (screen) => {
+  const navigateTo = (screen, params = {}) => {
+    if (params && Object.keys(params).length > 0) {
+      updateBookingData(params);
+    }
     setCurrentScreen(screen);
   };
 

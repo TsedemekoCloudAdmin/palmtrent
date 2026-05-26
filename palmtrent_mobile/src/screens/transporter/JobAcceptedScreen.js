@@ -66,7 +66,7 @@ const JobAcceptedScreen = ({ navigation, route }) => {
         <View style={styles.actionButtons}>
           <TouchableOpacity 
             style={styles.primaryButton}
-            onPress={() => navigation.navigate('JobPreparation', { job: jobData })}
+            onPress={() => navigation.navigate('JobDetails', { job: jobData, jobId: jobData?._id || jobData?.id })}
           >
             <Text style={styles.primaryButtonText}>View Job Details</Text>
           </TouchableOpacity>

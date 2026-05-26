@@ -1,6 +1,6 @@
 import React, { createContext, useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiService from '../services/apiService'; // Import the service directly
+import pushNotificationService from '../services/pushNotificationService';
 
 // Create Auth Context
 const AuthContext = createContext();
@@ -14,12 +14,28 @@ export const AuthProvider = ({ children }) => {
     loadUser();
   }, []);
 
+  useEffect(() => {
+    if (!user) return;
+
+    const syncPushNotifications = async () => {
+      const pushEnabled = user.preferences?.notifications?.push !== false;
+
+      if (pushEnabled) {
+        await pushNotificationService.registerForPushNotifications();
+      } else {
+        await pushNotificationService.unregister();
+      }
+    };
+
+    syncPushNotifications();
+  }, [user?._id, user?.preferences?.notifications?.push]);
+
   const loadUser = async () => {
     try {
       setIsLoading(true);
       const response = await apiService.getCurrentUser();
       if (response.success) {
-        setUser(response.data.user);
+        setUser(response.data?.user || response.data);
       }
     } catch (error) {
       console.error('Error loading user:', error);
@@ -104,6 +120,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = async () => {
+    await pushNotificationService.unregister();
     await apiService.removeToken();
     setUser(null);
   };

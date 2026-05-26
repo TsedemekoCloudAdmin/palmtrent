@@ -1,0 +1,4 @@
+# Local environment files may contain deployment or provider secrets.
+**/.env
+**/.env.*
+!**/.env.example

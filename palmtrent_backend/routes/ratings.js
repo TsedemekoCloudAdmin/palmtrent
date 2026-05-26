@@ -21,6 +21,21 @@ router.use(protect);
 router.get('/me', getMyRatings);
 router.get('/me/given', getMyGivenRatings);
 
+// Backward-compatible generic rating submission.
+router.post('/', (req, res) => {
+  const bookingId = req.body.bookingId || req.body.booking;
+
+  if (!bookingId) {
+    return res.status(400).json({
+      success: false,
+      message: 'bookingId is required to submit a rating'
+    });
+  }
+
+  req.params.bookingId = bookingId;
+  return submitRating(req, res);
+});
+
 // Submit a rating for a booking
 router.post('/booking/:bookingId', submitRating);
 

@@ -4,10 +4,62 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Booking = require('../models/Booking');
+const Shipment = require('../models/Shipment');
+const chatService = require('../services/chatService');
 
 // Store active connections
 const connections = new Map();
 const transporterLocations = new Map();
+
+const isObjectId = (value) => /^[a-f\d]{24}$/i.test(String(value || ''));
+
+const trackingLookupFor = (identifier) => ({
+  $or: [
+    { bookingReference: identifier },
+    ...(isObjectId(identifier) ? [{ _id: identifier }] : [])
+  ]
+});
+
+const resolveTrackingTarget = async (identifier) => {
+  let booking = await Booking.findOne(trackingLookupFor(identifier))
+    .select('shipper transporter status bookingReference');
+
+  const shipmentQuery = booking
+    ? { bookingReference: booking.bookingReference }
+    : {
+        $or: [
+          { bookingReference: identifier },
+          ...(isObjectId(identifier) ? [{ _id: identifier }, { booking: identifier }] : [])
+        ]
+      };
+
+  const shipment = await Shipment.findOne(shipmentQuery)
+    .select('booking bookingReference shipper transporter status');
+
+  if (!booking && shipment?.booking) {
+    booking = await Booking.findById(shipment.booking)
+      .select('shipper transporter status bookingReference');
+  }
+
+  if (!booking && shipment?.bookingReference) {
+    booking = await Booking.findOne({ bookingReference: shipment.bookingReference })
+      .select('shipper transporter status bookingReference');
+  }
+
+  return { booking, shipment };
+};
+
+const trackingRoomsFor = (identifier, booking, shipment) => {
+  const rooms = [
+    identifier,
+    booking?._id?.toString(),
+    booking?.bookingReference,
+    shipment?._id?.toString(),
+    shipment?.bookingReference
+  ].filter(Boolean);
+
+  return [...new Set(rooms)].map(room => `tracking:${room}`);
+};
 
 const setupSocketHandler = (io) => {
   // Authentication middleware
@@ -37,6 +89,7 @@ const setupSocketHandler = (io) => {
   io.on('connection', (socket) => {
     const userId = socket.user._id.toString();
     const userRole = socket.user.userType;
+    socket.data.trackingSubscriptions = new Map();
 
     console.log(`User connected: ${userId} (${userRole})`);
 
@@ -70,9 +123,9 @@ const setupSocketHandler = (io) => {
         // Store latest location
         transporterLocations.set(userId, locationData);
 
-        // If tracking a specific booking, notify the shipper
+        // If tracking a specific booking or shipment reference, notify the shipper
         if (bookingId) {
-          const booking = await Booking.findById(bookingId).select('shipper');
+          const { booking, shipment } = await resolveTrackingTarget(bookingId);
           if (booking && booking.shipper) {
             io.to(`user:${booking.shipper.toString()}`).emit('tracking:location', {
               bookingId,
@@ -80,9 +133,19 @@ const setupSocketHandler = (io) => {
             });
           }
 
-          // Also broadcast to tracking room
-          io.to(`tracking:${bookingId}`).emit('tracking:location', {
+          trackingRoomsFor(bookingId, booking, shipment).forEach(room => {
+            io.to(room).emit('tracking:location', {
+              bookingId,
+              reference: booking?.bookingReference || shipment?.bookingReference || bookingId,
+              bookingObjectId: booking?._id?.toString(),
+              shipmentObjectId: shipment?._id?.toString(),
+              ...locationData
+            });
+          });
+
+          io.to(`user:${userId}`).emit('tracking:location', {
             bookingId,
+            reference: booking?.bookingReference || shipment?.bookingReference || bookingId,
             ...locationData
           });
         }
@@ -99,36 +162,47 @@ const setupSocketHandler = (io) => {
       try {
         const { bookingId } = data;
 
-        const booking = await Booking.findById(bookingId)
-          .select('shipper transporter status');
+        const { booking, shipment } = await resolveTrackingTarget(bookingId);
 
-        if (!booking) {
-          return socket.emit('error', { message: 'Booking not found' });
+        if (!booking && !shipment) {
+          return socket.emit('error', { message: 'Tracking record not found' });
         }
 
         // Verify user has access to this booking
-        const isShipper = booking.shipper?.toString() === userId;
-        const isTransporter = booking.transporter?.toString() === userId;
+        const isShipper = booking?.shipper?.toString() === userId || shipment?.shipper?.toString() === userId;
+        const isTransporter = booking?.transporter?.toString() === userId || shipment?.transporter?.toString() === userId;
 
         if (!isShipper && !isTransporter) {
           return socket.emit('error', { message: 'Access denied' });
         }
 
-        // Join tracking room
-        socket.join(`tracking:${bookingId}`);
+        // Join every room alias clients may use: booking id, booking reference, shipment id.
+        const rooms = trackingRoomsFor(bookingId, booking, shipment);
+        rooms.forEach(room => socket.join(room));
+        socket.data.trackingSubscriptions.set(bookingId, rooms);
 
         // Send current transporter location if available
-        if (booking.transporter) {
-          const currentLocation = transporterLocations.get(booking.transporter.toString());
+        const transporterId = booking?.transporter || shipment?.transporter;
+        if (transporterId) {
+          const currentLocation = transporterLocations.get(transporterId.toString());
           if (currentLocation) {
             socket.emit('tracking:location', {
               bookingId,
+              reference: booking?.bookingReference || shipment?.bookingReference || bookingId,
+              bookingObjectId: booking?._id?.toString(),
+              shipmentObjectId: shipment?._id?.toString(),
               ...currentLocation
             });
           }
         }
 
-        socket.emit('tracking:subscribed', { bookingId, status: booking.status });
+        socket.emit('tracking:subscribed', {
+          bookingId,
+          reference: booking?.bookingReference || shipment?.bookingReference || bookingId,
+          bookingObjectId: booking?._id?.toString(),
+          shipmentObjectId: shipment?._id?.toString(),
+          status: shipment?.status || booking?.status
+        });
       } catch (error) {
         console.error('Tracking subscribe error:', error);
         socket.emit('error', { message: 'Failed to subscribe to tracking' });
@@ -137,7 +211,9 @@ const setupSocketHandler = (io) => {
 
     socket.on('tracking:unsubscribe', (data) => {
       const { bookingId } = data;
-      socket.leave(`tracking:${bookingId}`);
+      const rooms = socket.data.trackingSubscriptions?.get(bookingId) || [`tracking:${bookingId}`];
+      rooms.forEach(room => socket.leave(room));
+      socket.data.trackingSubscriptions?.delete(bookingId);
       socket.emit('tracking:unsubscribed', { bookingId });
     });
 
@@ -206,31 +282,35 @@ const setupSocketHandler = (io) => {
     });
 
     // ============ CHAT/MESSAGING ============
-    socket.on('chat:join', (data) => {
-      const { bookingId } = data;
-      socket.join(`chat:${bookingId}`);
-      socket.emit('chat:joined', { bookingId });
+    socket.on('chat:join', async (data) => {
+      try {
+        const { bookingId } = data;
+        await chatService.assertBookingChatAccess(bookingId, socket.user);
+        socket.join(`chat:${bookingId}`);
+        socket.emit('chat:joined', { bookingId });
+      } catch (error) {
+        socket.emit('error', { message: error.message || 'Failed to join chat' });
+      }
     });
 
     socket.on('chat:message', async (data) => {
       try {
         const { bookingId, message } = data;
 
-        const chatMessage = {
-          senderId: userId,
-          senderName: socket.user.fullName,
-          senderRole: userRole,
-          message,
-          timestamp: new Date()
-        };
+        const chatMessage = await chatService.sendMessage({
+          bookingId,
+          user: socket.user,
+          message
+        });
 
         // Broadcast to chat room
         io.to(`chat:${bookingId}`).emit('chat:newMessage', {
-          bookingId,
-          ...chatMessage
+          ...chatMessage,
+          sender: undefined
         });
       } catch (error) {
         console.error('Chat message error:', error);
+        socket.emit('error', { message: error.message || 'Failed to send chat message' });
       }
     });
 

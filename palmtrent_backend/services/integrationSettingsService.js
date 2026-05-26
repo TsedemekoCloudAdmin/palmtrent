@@ -1,10 +1,11 @@
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 const IntegrationSetting = require('../models/IntegrationSetting');
 
 const definitions = {
   paynow: {
     provider: 'paynow',
-    label: 'Paynow',
+    label: 'Optional Paynow Direct EcoCash/OneMoney Rail',
     category: 'payments',
     requiredFields: ['integrationId', 'integrationKey'],
     secretFields: ['integrationKey'],
@@ -42,12 +43,13 @@ const definitions = {
     provider: 'whatsapp',
     label: 'WhatsApp Business',
     category: 'messaging',
-    requiredFields: ['phoneNumberId', 'accessToken', 'verifyToken'],
-    secretFields: ['accessToken', 'verifyToken'],
+    requiredFields: ['phoneNumberId', 'accessToken', 'verifyToken', 'appSecret'],
+    secretFields: ['accessToken', 'verifyToken', 'appSecret'],
     envMap: {
       phoneNumberId: 'WHATSAPP_PHONE_NUMBER_ID',
       accessToken: 'WHATSAPP_ACCESS_TOKEN',
       verifyToken: 'WHATSAPP_VERIFY_TOKEN',
+      appSecret: 'WHATSAPP_APP_SECRET',
       businessAccountId: 'WHATSAPP_BUSINESS_ACCOUNT_ID'
     }
   },
@@ -73,6 +75,7 @@ const definitions = {
       region: 'STORAGE_REGION',
       accessKeyId: 'STORAGE_ACCESS_KEY_ID',
       secretAccessKey: 'STORAGE_SECRET_ACCESS_KEY',
+      endpoint: 'STORAGE_ENDPOINT',
       baseUrl: 'STORAGE_BASE_URL'
     }
   },
@@ -336,6 +339,9 @@ async function testIntegrationSetting(provider) {
 async function getIntegrationConfig(provider) {
   const definition = definitions[provider];
   if (!definition) return {};
+  if (mongoose.connection.readyState !== 1) {
+    return envSettings(definition);
+  }
   const doc = await IntegrationSetting.findOne({ provider });
   return doc ? getEffectiveSettings(doc, { includeSecrets: true }) : envSettings(definition);
 }

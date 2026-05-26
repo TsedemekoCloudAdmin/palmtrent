@@ -33,8 +33,8 @@ router.get('/bookings/:bookingId/compliance', getBookingCompliance);
 router.post('/bookings/:bookingId/documents', uploadBookingDocument);
 
 // Admin routes
-router.patch('/bookings/:bookingId/documents/:documentId/review', reviewBookingDocument);
-router.patch('/border-status/:countryCode/:borderPostName', updateBorderStatus);
-router.post('/seed', seedDestinations);
+router.patch('/bookings/:bookingId/documents/:documentId/review', authorize('admin'), reviewBookingDocument);
+router.patch('/border-status/:countryCode/:borderPostName', authorize('admin'), updateBorderStatus);
+router.post('/seed', authorize('admin'), seedDestinations);
 
 module.exports = router;

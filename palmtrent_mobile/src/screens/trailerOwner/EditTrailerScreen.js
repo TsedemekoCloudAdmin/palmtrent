@@ -11,12 +11,89 @@ import {
   Alert,
   Switch,
   Modal,
-  FlatList
+  FlatList,
+  ActivityIndicator
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import apiService from '../../services/apiService';
+
+const featureLabels = {
+  refrigeration: 'Refrigeration Unit',
+  liftGate: 'Lift Gate',
+  loadingRamp: 'Loading Ramp',
+  tarpaulin: 'Tarpaulin Cover',
+  sideLoader: 'Side Loader',
+  gps: 'GPS Tracking',
+  lighting: 'Lighting',
+  tieDowns: 'Tie Downs'
+};
+
+const featureKeysByLabel = Object.fromEntries(
+  Object.entries(featureLabels).map(([key, label]) => [label, key])
+);
+
+const formatAssetType = (assetType) => String(assetType || 'trailer')
+  .replace(/_/g, ' ')
+  .replace(/\b\w/g, char => char.toUpperCase());
+
+const normalizeTrailer = (trailer) => {
+  const features = Array.isArray(trailer.features)
+    ? trailer.features
+    : Object.entries(trailer.features || {})
+      .filter(([, enabled]) => Boolean(enabled))
+      .map(([key]) => featureLabels[key] || formatAssetType(key));
+  const capacityValue = trailer.capacity?.weight?.value;
+  const capacityUnit = trailer.capacity?.weight?.unit || 'kg';
+  const type = trailer.trailerType?.name || formatAssetType(trailer.assetType);
+  const location = trailer.currentLocation?.address ||
+    trailer.operatingAreas?.[0]?.city ||
+    trailer.rentalSettings?.pickupLocations?.[0]?.city ||
+    '';
+
+  return {
+    id: trailer._id || trailer.id || '',
+    name: trailer.assetName || `${type} ${trailer.registrationNumber || ''}`.trim(),
+    type,
+    capacity: capacityValue ? `${capacityValue} ${capacityUnit}` : '',
+    licensePlate: trailer.registrationNumber || '',
+    vin: trailer.tractorUnit?.chassisNumber || trailer.documents?.registration?.number || '',
+    make: trailer.tractorUnit?.make || '',
+    model: trailer.tractorUnit?.model || '',
+    year: trailer.year ? String(trailer.year) : '',
+    condition: trailer.status === 'maintenance' ? 'Needs Maintenance' : 'Good',
+    features,
+    dailyRate: trailer.rentalSettings?.dailyRate?.toString() || '',
+    weeklyRate: trailer.rentalSettings?.weeklyRate?.toString() || '',
+    monthlyRate: trailer.rentalSettings?.monthlyRate?.toString() || '',
+    status: trailer.status || 'available',
+    location,
+    currentRental: trailer.currentRental || null,
+    maintenanceHistory: trailer.maintenanceHistory || []
+  };
+};
+
+const parseCapacity = (capacity) => {
+  const match = String(capacity || '').match(/([\d.]+)\s*([a-zA-Z]+)?/);
+  return {
+    value: match ? Number(match[1]) || 1 : 1,
+    unit: match?.[2] || 'kg'
+  };
+};
+
+const mapFeaturesToBackend = (features) => {
+  const payload = {};
+  Object.keys(featureLabels).forEach(key => {
+    payload[key] = false;
+  });
+  features.forEach(label => {
+    const key = featureKeysByLabel[label];
+    if (key) payload[key] = true;
+  });
+  return payload;
+};
 
 const EditTrailerScreen = ({ navigation, route }) => {
-  const { trailer, onSave } = route.params || {};
+  const { trailer, trailerId, onSave } = route.params || {};
   
   const [formData, setFormData] = useState({
     id: '',
@@ -40,6 +117,8 @@ const EditTrailerScreen = ({ navigation, route }) => {
   });
 
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
   const [isModified, setIsModified] = useState(false);
   const [showFeatureModal, setShowFeatureModal] = useState(false);
   const [newFeature, setNewFeature] = useState('');
@@ -64,30 +143,35 @@ const EditTrailerScreen = ({ navigation, route }) => {
   ];
 
   useEffect(() => {
-    if (trailer) {
-      setFormData({
-        id: trailer.id || '',
-        name: trailer.name || '',
-        type: trailer.type || 'Flatbed',
-        capacity: trailer.capacity || '',
-        licensePlate: trailer.licensePlate || '',
-        vin: trailer.vin || '',
-        make: trailer.make || '',
-        model: trailer.model || '',
-        year: trailer.year || '',
-        condition: trailer.condition || 'Excellent',
-        features: trailer.features || [],
-        dailyRate: trailer.dailyRate?.toString() || '',
-        weeklyRate: trailer.weeklyRate?.toString() || '',
-        monthlyRate: trailer.monthlyRate?.toString() || '',
-        status: trailer.status || 'available',
-        location: trailer.location || '',
-        currentRental: trailer.currentRental || null,
-        maintenanceHistory: trailer.maintenanceHistory || []
-      });
-    }
-    setLoading(false);
-  }, [trailer]);
+    let mounted = true;
+
+    const loadTrailer = async () => {
+      const id = trailerId || trailer?._id || trailer?.id;
+      try {
+        setLoading(true);
+        setError('');
+        if (trailer) {
+          setFormData(normalizeTrailer(trailer));
+          return;
+        }
+        if (!id) {
+          setError('Trailer record is missing.');
+          return;
+        }
+        const response = await apiService.getTrailerById(id);
+        if (mounted) setFormData(normalizeTrailer(response.data));
+      } catch (err) {
+        if (mounted) setError(err.message || 'Unable to load trailer details.');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    loadTrailer();
+    return () => {
+      mounted = false;
+    };
+  }, [trailer, trailerId]);
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({
@@ -137,7 +221,7 @@ const EditTrailerScreen = ({ navigation, route }) => {
     setIsModified(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     // Basic validation
     if (!formData.name.trim()) {
       Alert.alert('Validation Error', 'Please enter a trailer name');
@@ -154,28 +238,68 @@ const EditTrailerScreen = ({ navigation, route }) => {
       return;
     }
 
-    // Convert rates to numbers
-    const updatedData = {
-      ...formData,
-      dailyRate: parseFloat(formData.dailyRate) || 0,
-      weeklyRate: parseFloat(formData.weeklyRate) || 0,
-      monthlyRate: parseFloat(formData.monthlyRate) || 0,
-    };
-
-    // Pass the updated data back
-    if (onSave) {
-      onSave(updatedData);
+    const id = formData.id || trailerId;
+    if (!id) {
+      Alert.alert('Error', 'Trailer record is missing.');
+      return;
     }
 
-    // Also pass via navigation params
-    navigation.navigate({
-      name: 'TrailerDetail',
-      params: { trailer: updatedData },
-      merge: true
-    });
+    const capacity = parseCapacity(formData.capacity);
+    const payload = {
+      assetName: formData.name.trim(),
+      registrationNumber: formData.licensePlate.trim().toUpperCase(),
+      year: Number(formData.year) || undefined,
+      capacity: {
+        weight: {
+          value: capacity.value,
+          unit: capacity.unit
+        }
+      },
+      tractorUnit: {
+        make: formData.make,
+        model: formData.model,
+        chassisNumber: formData.vin
+      },
+      documents: {
+        registration: {
+          number: formData.vin
+        }
+      },
+      features: mapFeaturesToBackend(formData.features),
+      rentalSettings: {
+        dailyRate: parseFloat(formData.dailyRate) || 0,
+        weeklyRate: parseFloat(formData.weeklyRate) || 0,
+        monthlyRate: parseFloat(formData.monthlyRate) || 0,
+        pickupLocations: formData.location ? [{ city: formData.location, address: formData.location }] : []
+      },
+      operatingAreas: formData.location ? [{ city: formData.location, country: 'Zimbabwe' }] : []
+    };
 
-    Alert.alert('Success', 'Trailer details updated successfully');
-    setIsModified(false);
+    setSaving(true);
+    try {
+      const response = await apiService.updateTrailer(id, payload);
+      let updatedTrailer = response.data;
+      if (formData.status !== (trailer?.status || updatedTrailer?.status)) {
+        const statusResponse = await apiService.updateTrailerStatus(id, formData.status);
+        updatedTrailer = statusResponse.data;
+      }
+      const normalized = normalizeTrailer(updatedTrailer);
+      if (onSave) onSave(normalized);
+      setIsModified(false);
+      Alert.alert('Success', 'Trailer details updated successfully', [
+        {
+          text: 'OK',
+          onPress: () => navigation.navigate('TrailerDetail', {
+            trailerId: id,
+            trailer: normalized
+          })
+        }
+      ]);
+    } catch (err) {
+      Alert.alert('Error', err.message || 'Failed to update trailer. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleCancel = () => {
@@ -206,7 +330,22 @@ const EditTrailerScreen = ({ navigation, route }) => {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <Text>Loading...</Text>
+          <ActivityIndicator color="#0C2D48" />
+          <Text style={styles.loadingText}>Loading...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (error) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <MaterialIcons name="error-outline" size={32} color="#dc2626" />
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => navigation.goBack()}>
+            <Text style={styles.retryButtonText}>Go Back</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -229,9 +368,9 @@ const EditTrailerScreen = ({ navigation, route }) => {
         <TouchableOpacity 
           style={[styles.saveButton, !isModified && styles.saveButtonDisabled]}
           onPress={handleSave}
-          disabled={!isModified}
+          disabled={!isModified || saving}
         >
-          <Text style={styles.saveButtonText}>Save</Text>
+          <Text style={styles.saveButtonText}>{saving ? 'Saving...' : 'Save'}</Text>
         </TouchableOpacity>
       </View>
 
@@ -607,6 +746,32 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  loadingText: {
+    marginTop: 12,
+    color: '#475569',
+  },
+  errorText: {
+    color: '#991b1b',
+    marginTop: 12,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#0C2D48',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  retryButtonText: {
+    color: 'white',
+    fontWeight: '700',
   },
   content: {
     padding: 16,

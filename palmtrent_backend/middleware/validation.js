@@ -33,16 +33,31 @@ const validateRegistration = [
     // Removed the complex password validation for now to simplify
   
   body('userType')
-    .isIn(['shipper', 'transporter', 'trailer_owner'])
-    .withMessage('User type must be shipper, transporter, or trailer_owner'),
+    .isIn(['shipper', 'transporter', 'trailer_owner', 'corporate'])
+    .withMessage('User type must be shipper, transporter, trailer_owner, or corporate'),
   
   handleValidationErrors
 ];
 
 const validateLogin = [
-  body('phone')
-    .matches(/^\+263[0-9]{9}$/)
-    .withMessage('Please provide a valid Zimbabwean phone number'),
+  body().custom((_, { req }) => {
+    const phone = req.body.phone;
+    const email = req.body.email;
+
+    if (!phone && !email) {
+      throw new Error('Please provide an email address or Zimbabwean phone number');
+    }
+
+    if (phone && !/^\+263[0-9]{9}$/.test(phone)) {
+      throw new Error('Please provide a valid Zimbabwean phone number');
+    }
+
+    if (email && !/^\S+@\S+\.\S+$/.test(email)) {
+      throw new Error('Please provide a valid email');
+    }
+
+    return true;
+  }),
   
   body('password')
     .notEmpty()

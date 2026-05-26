@@ -32,8 +32,13 @@ router.route('/:id')
   .delete(deleteTrailer);
 
 // Status and settings
-router.patch('/:id/status', authorize('trailer_owner', 'transporter', 'admin'), updateTrailerStatus);
-router.patch('/:id/rental-settings', authorize('trailer_owner', 'transporter', 'admin'), updateRentalSettings);
+router.route('/:id/status')
+  .patch(authorize('trailer_owner', 'transporter', 'admin'), updateTrailerStatus)
+  .put(authorize('trailer_owner', 'transporter', 'admin'), updateTrailerStatus);
+
+router.route('/:id/rental-settings')
+  .patch(authorize('trailer_owner', 'transporter', 'admin'), updateRentalSettings)
+  .put(authorize('trailer_owner', 'transporter', 'admin'), updateRentalSettings);
 
 // Trailer rentals
 router.get('/:id/rentals', getTrailerRentals);

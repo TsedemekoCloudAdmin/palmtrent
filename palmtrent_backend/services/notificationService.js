@@ -1,6 +1,8 @@
 // services/notificationService.js
 const mongoose = require('mongoose');
 const axios = require('axios');
+const nodemailer = require('nodemailer');
+const { getIntegrationConfig } = require('./integrationSettingsService');
 
 // Expo Push Notification URL
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
@@ -433,11 +435,11 @@ class NotificationService {
   async notifyTransporterAssigned(booking, transporter) {
     const template = this.getTemplate('transporter_assigned', {
       bookingReference: booking.bookingReference,
-      transporterName: transporter.name
+      transporterName: transporter.fullName || transporter.name || 'A transporter'
     });
 
     return this.notify(
-      booking.user,
+      booking.user || booking.shipper,
       'transporter_assigned',
       template.title,
       template.body,
@@ -611,31 +613,70 @@ class NotificationService {
     }
   }
 
+  buildEmailContent(template, data = {}) {
+    const title = data.title || data.documentType || 'Palmtrent Update';
+    const message = data.message ||
+      (template === 'document-expiry'
+        ? `A ${data.documentType || 'document'} needs attention.`
+        : 'You have a new Palmtrent notification.');
+
+    return {
+      text: `${title}\n\n${message}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #1f2937;">
+          <h2 style="color: #0C2D48;">${title}</h2>
+          <p>${message}</p>
+          ${data.actionUrl ? `<p><a href="${data.actionUrl}">Open in Palmtrent</a></p>` : ''}
+          <p style="font-size: 12px; color: #6b7280;">Palmtrent transactional notification.</p>
+        </div>
+      `
+    };
+  }
+
   /**
-   * Send email notification (placeholder - integrate with email service)
+   * Send transactional email via configured SMTP credentials.
    */
-  async sendEmail({ to, subject, template, data = {} }) {
-    // This is a placeholder for email integration
-    // Integrate with SendGrid, Mailgun, AWS SES, etc.
-    console.log('Email notification:', { to, subject, template, data });
+  async sendEmail({ to, subject, template, data = {}, html, text, attachments = [] }) {
+    if (!to || !subject) {
+      throw new Error('Email recipient and subject are required');
+    }
 
-    // For now, just log the email
-    // TODO: Implement actual email sending
-    /*
-    Example with SendGrid:
-    const sgMail = require('@sendgrid/mail');
-    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+    const config = await getIntegrationConfig('email');
+    if (!config.host || !config.user || !config.pass) {
+      const message = 'Email provider is not configured';
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error(message);
+      }
 
-    await sgMail.send({
-      to,
-      from: process.env.EMAIL_FROM,
-      subject,
-      templateId: process.env[`SENDGRID_TEMPLATE_${template.toUpperCase()}`],
-      dynamicTemplateData: data
+      console.warn(`${message}; skipping email to ${to}`);
+      return { success: false, reason: message };
+    }
+
+    const content = this.buildEmailContent(template, data);
+    const port = Number(config.port || 587);
+    const transporter = nodemailer.createTransport({
+      host: config.host,
+      port,
+      secure: port === 465 || process.env.EMAIL_SECURE === 'true',
+      auth: {
+        user: config.user,
+        pass: config.pass
+      }
     });
-    */
 
-    return { success: true, message: 'Email logged (integration pending)' };
+    const result = await transporter.sendMail({
+      from: config.from || process.env.EMAIL_FROM || `"Palmtrent" <${config.user}>`,
+      to,
+      subject,
+      text: text || content.text,
+      html: html || content.html,
+      attachments
+    });
+
+    return {
+      success: true,
+      messageId: result.messageId
+    };
   }
 
   /**

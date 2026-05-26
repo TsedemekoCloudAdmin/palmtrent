@@ -129,6 +129,31 @@ const rentalSchema = new mongoose.Schema({
       photos: [String]
     }]
   },
+
+  tracking: [{
+    location: {
+      latitude: Number,
+      longitude: Number,
+      address: String
+    },
+    speed: Number,
+    heading: Number,
+    batteryLevel: Number,
+    source: {
+      type: String,
+      enum: ['gps', 'driver_app', 'pickup', 'return', 'manual'],
+      default: 'manual'
+    },
+    note: String,
+    recordedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    timestamp: {
+      type: Date,
+      default: Date.now
+    }
+  }],
   
   // Pricing and payment
   pricing: {
@@ -239,7 +264,7 @@ const rentalSchema = new mongoose.Schema({
   },
 
   settlement: {
-    platformFeeRate: { type: Number, default: 0.10 },
+    platformFeeRate: { type: Number, default: 0 },
     platformFee: { type: Number, default: 0 },
     ownerEarnings: { type: Number, default: 0 },
     renterRefund: { type: Number, default: 0 },
@@ -500,7 +525,7 @@ rentalSchema.methods.isOverdue = function() {
 };
 
 // Method to calculate total earnings for owner
-rentalSchema.methods.calculateOwnerEarnings = function(platformFeeRate = 0.15) {
+rentalSchema.methods.calculateOwnerEarnings = function(platformFeeRate = this.settlement?.platformFeeRate || 0) {
   const totalRevenue = this.pricing.total;
   const platformFee = totalRevenue * platformFeeRate;
   return totalRevenue - platformFee;

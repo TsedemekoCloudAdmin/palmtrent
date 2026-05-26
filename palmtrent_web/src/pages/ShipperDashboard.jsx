@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Package, MapPin, TrendingUp, TrendingDown, Clock, DollarSign, Plus,
   Filter, Search, Download, FileText, Star, Truck, Menu,
@@ -8,15 +8,110 @@ import {
   Navigation, Eye, RefreshCw, ChevronLeft, ChevronRight,
   CreditCard, Loader, Check, Upload, Image
 } from 'lucide-react';
-import { bookingsAPI, trackingAPI, authAPI, paymentsAPI, ratingsAPI, shipperAPI, referenceAPI } from '../services/api';
+import {
+  bookingsAPI,
+  trackingAPI,
+  authAPI,
+  paymentsAPI,
+  ratingsAPI,
+  shipperAPI,
+  shipmentsAPI,
+  resolveApiUrl,
+  downloadAuthorizedBlob
+} from '../services/api';
 import './styles/ShipperDashboard.css';
+
+const loadSocketService = () => import('../services/socket').then(module => module.default);
+
+const getBookingId = (booking) => booking.bookingReference || booking.bookingId || booking._id;
+const getRecordId = (record) => record?._id || record?.recordId || record?.id;
+const getShipmentId = (booking) => {
+  const shipment = booking?.shipments?.[0] || booking?.shipment;
+  return shipment?._id || shipment?.id || shipment;
+};
+const getRouteLabel = (booking) => {
+  const pickup = booking.route?.pickup?.address || booking.route?.pickup?.city || booking.pickup?.city || booking.origin || 'N/A';
+  const delivery = booking.route?.delivery?.address || booking.route?.delivery?.city || booking.delivery?.city || booking.destination || 'N/A';
+  return `${pickup} -> ${delivery}`;
+};
+const getBookingAmount = (booking) => booking.totalAmount || booking.pricing?.totals?.total || booking.pricing?.total || 0;
+const getUserDisplayName = (user = {}) => user.fullName || user.name || user.email || 'Shipper';
+const getUserFirstName = (user = {}) => {
+  const displayName = getUserDisplayName(user);
+  return displayName.includes('@') ? displayName.split('@')[0] : displayName.split(' ')[0];
+};
+const getUserInitials = (user = {}) => {
+  const displayName = getUserDisplayName(user).trim();
+  const parts = displayName.includes('@') ? [displayName[0]] : displayName.split(/\s+/).filter(Boolean);
+  return parts.slice(0, 2).map(part => part[0]?.toUpperCase()).join('') || 'S';
+};
+const getProgress = (status) => ({
+  pending_payment: 5,
+  payment_confirmed: 10,
+  finding_transporter: 15,
+  matched: 25,
+  transporter_assigned: 35,
+  confirmed: 40,
+  en_route_pickup: 50,
+  pickup_started: 60,
+  picked_up: 70,
+  in_progress: 75,
+  in_transit: 80,
+  arrived_delivery: 90,
+  delivered: 100,
+  completed: 100
+}[status] || 10);
+
+const openPODDownload = async (download) => {
+  const url = download?.url || download?.pdfUrl;
+  if (!url) {
+    throw new Error('Proof of delivery document is not available yet.');
+  }
+
+  if (download.provider === 'local' || url.startsWith('/api/') || url.startsWith('/uploads/')) {
+    const blob = await downloadAuthorizedBlob(url);
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = `${download.podReference || 'proof-of-delivery'}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+    return;
+  }
+
+  window.open(resolveApiUrl(url), '_blank', 'noopener,noreferrer');
+};
+
+const downloadPODForBooking = async (booking) => {
+  const bookingRecordId = getRecordId(booking);
+  let source = booking;
+
+  if (!getShipmentId(source)) {
+    if (!bookingRecordId) {
+      throw new Error('Booking record is missing.');
+    }
+    const bookingResponse = await bookingsAPI.getById(bookingRecordId);
+    source = bookingResponse.data || bookingResponse;
+  }
+
+  const shipmentId = getShipmentId(source);
+  if (!shipmentId) {
+    throw new Error('This booking does not have a shipment record yet.');
+  }
+
+  const response = await shipmentsAPI.getPODDocument(shipmentId);
+  await openPODDownload(response.data || response);
+};
 
 export const ShipperDashboard = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [activeNav, setActiveNav] = useState('overview');
-  const [timeRange, setTimeRange] = useState('today');
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const currentUser = authAPI.getCurrentUser() || {};
+  const userDisplayName = getUserDisplayName(currentUser);
+  const userInitials = getUserInitials(currentUser);
 
   const userDropdownRef = useRef(null);
 
@@ -41,12 +136,21 @@ export const ShipperDashboard = () => {
   ];
 
   const userMenuItems = [
-    { id: 'profile', label: 'My Profile', icon: <User className="shipper-dropdown-icon" /> },
-    { id: 'messages', label: 'Messages', icon: <MessageCircle className="shipper-dropdown-icon" /> },
-    { id: 'settings', label: 'Settings', icon: <Settings className="shipper-dropdown-icon" /> },
-    { id: 'help', label: 'Help & Support', icon: <HelpCircle className="shipper-dropdown-icon" /> },
+    { id: 'overview', label: 'Dashboard', icon: <Home className="shipper-dropdown-icon" /> },
+    { id: 'bookings', label: 'My Bookings', icon: <FileText className="shipper-dropdown-icon" /> },
+    { id: 'payments', label: 'Payments', icon: <CreditCard className="shipper-dropdown-icon" /> },
+    { id: 'track', label: 'Track Shipments', icon: <MapPin className="shipper-dropdown-icon" /> },
     { id: 'logout', label: 'Logout', icon: <LogOut className="shipper-dropdown-icon" /> },
   ];
+
+  const handleUserMenuClick = (itemId) => {
+    setUserDropdownOpen(false);
+    if (itemId === 'logout') {
+      authAPI.logout();
+      return;
+    }
+    setActiveNav(itemId);
+  };
 
   const renderContent = () => {
     switch (activeNav) {
@@ -61,7 +165,7 @@ export const ShipperDashboard = () => {
       case 'payments':
         return <PaymentsTab />;
       case 'favorites':
-        return <FavoritesTab />;
+        return <FavoritesTab setActiveNav={setActiveNav} />;
       case 'reviews':
         return <ReviewsTab />;
       default:
@@ -113,24 +217,18 @@ export const ShipperDashboard = () => {
                 {activeNav === 'favorites' && 'Favorite Transporters'}
                 {activeNav === 'reviews' && 'My Reviews'}
               </h1>
-              <p className="shipper-page-subtitle">Welcome back, John</p>
+              <p className="shipper-page-subtitle">Welcome back, {getUserFirstName(currentUser)}</p>
             </div>
             <div className="shipper-topbar-right">
-              <div className="shipper-search-container">
-                <Search className="shipper-search-icon" />
-                <input type="text" placeholder="Search..." className="shipper-search-input" />
-              </div>
-
-              <button className="shipper-notification-btn">
+              <button className="shipper-notification-btn" onClick={() => setActiveNav('track')}>
                 <Bell className="icon" />
-                <span className="shipper-notification-badge"></span>
               </button>
 
               <div className={`shipper-user-dropdown ${userDropdownOpen ? 'open' : ''}`} ref={userDropdownRef}>
                 <button className="shipper-user-trigger" onClick={() => setUserDropdownOpen(!userDropdownOpen)}>
-                  <div className="shipper-user-avatar"><span className="shipper-user-avatar-text">JM</span></div>
+                  <div className="shipper-user-avatar"><span className="shipper-user-avatar-text">{userInitials}</span></div>
                   <div className="shipper-user-info">
-                    <p className="shipper-user-name">{currentUser.fullName || currentUser.email || ''}</p>
+                    <p className="shipper-user-name">{userDisplayName}</p>
                     <p className="shipper-user-role">Premium Shipper</p>
                   </div>
                   <ChevronDown className="shipper-dropdown-arrow" size={16} />
@@ -139,17 +237,17 @@ export const ShipperDashboard = () => {
                 <div className="shipper-dropdown-menu">
                   <div className="shipper-dropdown-header">
                     <div className="shipper-dropdown-user">
-                      <div className="shipper-dropdown-avatar"><span className="shipper-dropdown-avatar-text">JM</span></div>
+                      <div className="shipper-dropdown-avatar"><span className="shipper-dropdown-avatar-text">{userInitials}</span></div>
                       <div className="shipper-dropdown-user-info">
-                        <p className="shipper-dropdown-user-name">{currentUser.fullName || currentUser.email || ''}</p>
-                        <p className="shipper-dropdown-user-email">john.moyo@example.com</p>
+                        <p className="shipper-dropdown-user-name">{userDisplayName}</p>
+                        <p className="shipper-dropdown-user-email">{currentUser.email || currentUser.phone || 'Signed in'}</p>
                       </div>
                     </div>
                   </div>
                   <div className="shipper-dropdown-items">
                     {userMenuItems.map((item, index) => (
                       <React.Fragment key={item.id}>
-                        <button className="shipper-dropdown-item" onClick={() => setUserDropdownOpen(false)}>
+                        <button className="shipper-dropdown-item" onClick={() => handleUserMenuClick(item.id)}>
                           {item.icon}
                           <span>{item.label}</span>
                         </button>
@@ -179,50 +277,55 @@ const OverviewTab = ({ setActiveNav }) => {
   const [activeShipments, setActiveShipments] = useState([]);
   const [recentBookings, setRecentBookings] = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
+  const [podMessage, setPodMessage] = useState('');
 
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
         setLoading(true);
 
-        // Fetch bookings
-        const bookingsRes = await bookingsAPI.getAll({ limit: 10 });
+        const [dashboardRes, bookingsRes, activityRes] = await Promise.all([
+          shipperAPI.getDashboardStats(),
+          bookingsAPI.getAll({ limit: 10 }),
+          shipperAPI.getRecentActivity()
+        ]);
+        const dashboard = dashboardRes.data || {};
         const bookings = bookingsRes.data || [];
-
-        // Calculate stats from bookings
-        const active = bookings.filter(b => ['pending', 'accepted', 'in_transit', 'picked_up'].includes(b.status));
-        const completed = bookings.filter(b => b.status === 'delivered');
-        const totalSpent = bookings.reduce((sum, b) => sum + (b.pricing?.total || 0), 0);
+        const active = bookings.filter(b => !['delivered', 'completed', 'cancelled'].includes(b.status));
 
         setStats({
-          activeShipments: active.length,
-          completed: completed.length,
-          totalSpent,
-          avgRating: 4.8 // TODO: fetch from user profile
+          activeShipments: dashboard.activeShipments || dashboard.activeJobs || 0,
+          completed: dashboard.completed || dashboard.totalShipments || 0,
+          totalSpent: dashboard.totalSpent || dashboard.spending || 0,
+          avgRating: dashboard.avgRating || 0
         });
 
-        setGrowth({ shipments: 12, completed: 8, spending: 15 }); // TODO: calculate from API
+        setGrowth(dashboard.growth || { shipments: 0, completed: 0, spending: 0 });
 
         // Format active shipments
         setActiveShipments(active.slice(0, 3).map(b => ({
-          id: b.bookingId || b._id,
-          route: `${b.pickup?.city || 'N/A'} → ${b.delivery?.city || 'N/A'}`,
+          id: getBookingId(b),
+          recordId: b._id,
+          shipmentId: getShipmentId(b),
           status: b.status,
-          progress: b.status === 'in_transit' ? 50 : b.status === 'picked_up' ? 75 : 10,
+          progress: getProgress(b.status),
+          route: getRouteLabel(b),
           driver: b.transporter?.fullName || 'Pending Assignment',
-          eta: b.estimatedDelivery ? new Date(b.estimatedDelivery).toLocaleTimeString() : 'TBD'
+          phone: b.transporter?.phone || '',
+          eta: b.route?.delivery?.deadline ? new Date(b.route.delivery.deadline).toLocaleTimeString() : 'TBD'
         })));
 
         // Format recent bookings
         setRecentBookings(bookings.slice(0, 5).map(b => ({
-          id: b.bookingId || b._id,
+          id: getBookingId(b),
+          recordId: b._id,
+          shipments: b.shipments || [],
           date: new Date(b.createdAt).toLocaleDateString(),
-          route: `${b.pickup?.city || 'N/A'} → ${b.delivery?.city || 'N/A'}`,
           status: b.status,
-          amount: b.pricing?.total || 0
+          route: getRouteLabel(b),
+          amount: getBookingAmount(b)
         })));
 
-        const activityRes = await shipperAPI.getRecentActivity();
         setRecentActivity((activityRes.data || []).map(item => ({
           time: item.date || '',
           event: item.title || item.status || 'Activity',
@@ -248,6 +351,15 @@ const OverviewTab = ({ setActiveNav }) => {
       </div>
     );
   }
+
+  const downloadPODWithMessage = async (booking) => {
+    setPodMessage('');
+    try {
+      await downloadPODForBooking(booking);
+    } catch (error) {
+      setPodMessage(error.message || 'Unable to download proof of delivery.');
+    }
+  };
 
   return (
     <>
@@ -276,7 +388,11 @@ const OverviewTab = ({ setActiveNav }) => {
           </div>
           <div className="shipper-shipments-list">
             {activeShipments.map((shipment) => (
-              <ShipperShipmentCard key={shipment.id} shipment={shipment} />
+              <ShipperShipmentCard
+                key={shipment.id}
+                shipment={shipment}
+                onTrack={() => setActiveNav('track')}
+              />
             ))}
           </div>
         </div>
@@ -298,6 +414,7 @@ const OverviewTab = ({ setActiveNav }) => {
           <h3 className="shipper-section-title">Recent Bookings</h3>
           <button className="shipper-view-all-btn" onClick={() => setActiveNav('bookings')}>View All →</button>
         </div>
+        {podMessage && <div className="shipper-modal-error">{podMessage}</div>}
         <table className="shipper-bookings-table">
           <thead>
             <tr><th>Job ID</th><th>Date</th><th>Route</th><th>Status</th><th>Amount</th><th>Actions</th></tr>
@@ -310,7 +427,15 @@ const OverviewTab = ({ setActiveNav }) => {
                 <td>{booking.route}</td>
                 <td><span className="shipper-booking-status shipper-status-delivered">{booking.status}</span></td>
                 <td>${booking.amount}</td>
-                <td><button className="shipper-booking-action">View POD</button></td>
+                <td>
+                  <button
+                    className="shipper-booking-action"
+                    disabled={!['delivered', 'completed'].includes(booking.status)}
+                    onClick={() => downloadPODWithMessage(booking)}
+                  >
+                    View POD
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -333,6 +458,7 @@ const NewBookingTab = ({ setActiveNav }) => {
     paymentMethod: 'openapi_africa'
   });
   const [quote, setQuote] = useState(null);
+  const [bookingMessage, setBookingMessage] = useState('');
 
   const cargoTypes = ['General Goods', 'Furniture', 'Electronics', 'Agricultural', 'Building Materials', 'Machinery', 'Other'];
   const vehicleTypes = ['Small Truck (1-2 tons)', 'Medium Truck (3-5 tons)', 'Large Truck (6-10 tons)', 'Flatbed Trailer', 'Container Truck'];
@@ -344,6 +470,7 @@ const NewBookingTab = ({ setActiveNav }) => {
 
   const calculateQuote = async () => {
     setLoading(true);
+    setBookingMessage('');
     try {
       const quoteData = {
         pickup: { city: bookingData.pickupCity, address: bookingData.pickupAddress },
@@ -357,49 +484,23 @@ const NewBookingTab = ({ setActiveNav }) => {
       const response = await bookingsAPI.getQuote(quoteData);
 
       if (response.success && response.data) {
-        setQuote(response.data);
-      } else {
-        // Fallback to client-side calculation
-        const basePrice = 150;
-        const weightFactor = parseFloat(bookingData.cargoWeight) || 1;
-        const vehicleFactor = vehicleTypes.indexOf(bookingData.vehicleType) + 1;
-        const distance = Math.random() * 400 + 100;
-        const subtotal = basePrice + (weightFactor * 10) + (vehicleFactor * 50) + (distance * 0.5);
-        const insuranceCost = bookingData.insurance ? (parseFloat(bookingData.insuranceValue) || 0) * 0.02 : 0;
-        const platformFee = subtotal * 0.15;
-        const total = subtotal + insuranceCost + platformFee;
-
+        const pricing = response.data;
         setQuote({
-          subtotal: subtotal.toFixed(2),
-          insurance: insuranceCost.toFixed(2),
-          platformFee: platformFee.toFixed(2),
-          total: total.toFixed(2),
-          estimatedDistance: distance.toFixed(0),
-          estimatedTime: `${Math.ceil(distance / 60)} hours`
+          ...pricing,
+          subtotal: pricing.totals?.subtotal || pricing.subtotal || 0,
+          insurance: pricing.breakdown?.insurance || pricing.insurance || 0,
+          platformFee: pricing.breakdown?.platformFee || pricing.platformFee || 0,
+          total: pricing.totals?.total || pricing.total || 0,
+          estimatedDistance: pricing.route?.distance || pricing.estimatedDistance || 0,
+          estimatedTime: pricing.route?.estimatedDuration || pricing.estimatedTime || 'TBD'
         });
+      } else {
+        throw new Error(response.message || 'Unable to calculate quote');
       }
       setStep(4);
     } catch (error) {
       console.error('Quote error:', error);
-      // Fallback calculation on error
-      const basePrice = 150;
-      const weightFactor = parseFloat(bookingData.cargoWeight) || 1;
-      const vehicleFactor = vehicleTypes.indexOf(bookingData.vehicleType) + 1;
-      const distance = 250;
-      const subtotal = basePrice + (weightFactor * 10) + (vehicleFactor * 50) + (distance * 0.5);
-      const insuranceCost = bookingData.insurance ? (parseFloat(bookingData.insuranceValue) || 0) * 0.02 : 0;
-      const platformFee = subtotal * 0.15;
-      const total = subtotal + insuranceCost + platformFee;
-
-      setQuote({
-        subtotal: subtotal.toFixed(2),
-        insurance: insuranceCost.toFixed(2),
-        platformFee: platformFee.toFixed(2),
-        total: total.toFixed(2),
-        estimatedDistance: distance.toFixed(0),
-        estimatedTime: `${Math.ceil(distance / 60)} hours`
-      });
-      setStep(4);
+      setBookingMessage(error.message || 'Unable to calculate a quote. Please check the route details and try again.');
     } finally {
       setLoading(false);
     }
@@ -409,45 +510,54 @@ const NewBookingTab = ({ setActiveNav }) => {
 
   const submitBooking = async () => {
     setLoading(true);
+    setBookingMessage('');
     try {
+      const user = authAPI.getCurrentUser();
+      const amount = Number(quote?.totals?.total || quote?.total || 0);
       const bookingPayload = {
-        pickup: {
-          city: bookingData.pickupCity,
-          address: bookingData.pickupAddress,
-          contactPhone: bookingData.pickupPhone
-        },
-        delivery: {
-          city: bookingData.deliveryCity,
-          address: bookingData.deliveryAddress,
-          contactPhone: bookingData.deliveryPhone
-        },
-        cargo: {
-          type: bookingData.cargoType,
-          weight: parseFloat(bookingData.cargoWeight),
-          description: bookingData.cargoDescription
-        },
-        vehicleType: bookingData.vehicleType,
-        scheduledPickup: {
-          date: bookingData.pickupDate,
-          timeSlot: bookingData.pickupTime
-        },
+        pickupLocation: [bookingData.pickupAddress, bookingData.pickupCity].filter(Boolean).join(', '),
+        deliveryLocation: [bookingData.deliveryAddress, bookingData.deliveryCity].filter(Boolean).join(', '),
+        pickupDate: bookingData.pickupDate,
+        cargoType: bookingData.cargoType,
+        weight: parseFloat(bookingData.cargoWeight),
+        cargoValue: bookingData.insurance ? parseFloat(bookingData.insuranceValue || 0) : 0,
+        specialInstructions: bookingData.cargoDescription,
+        vehicleRecommendation: { vehicleType: bookingData.vehicleType },
         insurance: bookingData.insurance,
-        insuranceValue: bookingData.insurance ? parseFloat(bookingData.insuranceValue) : 0,
         paymentMethod: bookingData.paymentMethod,
-        pricing: quote
+        pricing: quote,
+        amount,
+        customer: {
+          email: user?.email || ''
+        }
       };
 
-      const response = await bookingsAPI.create(bookingPayload);
+      const response = await bookingsAPI.createWithPayment(bookingPayload);
 
-      if (response.success) {
-        setBookingRef(response.data.bookingId || response.data._id);
-        setStep(5);
-      } else {
+      if (!response.success) {
         throw new Error(response.message || 'Booking failed');
       }
+
+      const booking = response.data?.booking;
+      const payment = response.data?.payment;
+      setBookingRef(booking?.bookingReference || booking?._id || '');
+
+      if (!payment?.paymentReference) {
+        throw new Error('Booking was created but payment checkout could not be started');
+      }
+
+      const checkout = await paymentsAPI.startCheckout(payment.paymentReference, bookingPayload.customer);
+      const redirectUrl = checkout.data?.redirectUrl;
+      if (!redirectUrl) {
+        throw new Error('ClicknPay did not return a checkout URL');
+      }
+
+      sessionStorage.setItem('palmtrent_pending_payment_reference', payment.paymentReference);
+      sessionStorage.setItem('palmtrent_pending_booking_reference', booking?.bookingReference || '');
+      window.location.assign(redirectUrl);
     } catch (error) {
       console.error('Booking error:', error);
-      alert('Failed to create booking. Please try again.');
+      setBookingMessage(error.message || 'Failed to create booking. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -455,6 +565,7 @@ const NewBookingTab = ({ setActiveNav }) => {
 
   return (
     <div className="new-booking-container">
+      {bookingMessage && <div className="shipper-modal-error">{bookingMessage}</div>}
       {/* Progress Steps */}
       <div className="booking-progress">
         {['Locations', 'Cargo Details', 'Schedule', 'Review & Pay', 'Confirmation'].map((label, index) => (
@@ -688,28 +799,42 @@ const NewBookingTab = ({ setActiveNav }) => {
 const TrackShipmentsTab = () => {
   const [searchId, setSearchId] = useState('');
   const [selectedShipment, setSelectedShipment] = useState(null);
+  const [trackingDetail, setTrackingDetail] = useState(null);
+  const [trackingLoading, setTrackingLoading] = useState(false);
+  const [trackingError, setTrackingError] = useState('');
+  const [liveTracking, setLiveTracking] = useState({ connected: false, location: null, status: null, error: '' });
   const [loading, setLoading] = useState(true);
   const [shipments, setShipments] = useState([]);
+  const subscriptionRef = useRef(null);
+  const socketServiceRef = useRef(null);
+
+  useEffect(() => () => {
+    if (subscriptionRef.current && socketServiceRef.current) {
+      socketServiceRef.current.unsubscribeFromTracking(subscriptionRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     const fetchActiveShipments = async () => {
       try {
         setLoading(true);
-        const response = await bookingsAPI.getAll({ status: 'in_transit,picked_up,accepted,pending', limit: 20 });
+        const response = await shipperAPI.getActiveShipments();
         const data = response.data || [];
 
         setShipments(data.map(b => ({
-          id: b.bookingId || b._id,
-          route: `${b.pickup?.city || 'N/A'} → ${b.delivery?.city || 'N/A'}`,
+          id: b.bookingReference || b.shipmentId || b._id,
+          recordId: b._id,
+          subscriptionId: b.booking || b._id || b.bookingReference || b.shipmentId,
           status: b.status,
-          progress: b.status === 'delivered' ? 100 : b.status === 'in_transit' ? 65 : b.status === 'picked_up' ? 80 : b.status === 'accepted' ? 15 : 5,
+          progress: getProgress(b.status),
+          route: getRouteLabel(b),
           driver: b.transporter?.fullName || 'Pending Assignment',
           phone: b.transporter?.phone || 'N/A',
-          eta: b.estimatedDelivery ? new Date(b.estimatedDelivery).toLocaleTimeString() : 'TBD',
-          pickup: b.pickup?.address || b.pickup?.city || 'N/A',
-          delivery: b.delivery?.address || b.delivery?.city || 'N/A',
+          eta: b.schedule?.estimatedDelivery ? new Date(b.schedule.estimatedDelivery).toLocaleTimeString() : 'TBD',
+          pickup: b.route?.pickup?.address || b.origin || 'N/A',
+          delivery: b.route?.delivery?.address || b.destination || 'N/A',
           lastUpdate: b.updatedAt ? getTimeAgo(new Date(b.updatedAt)) : 'N/A',
-          location: b.currentLocation?.address || 'Location updating...'
+          location: b.currentLocation?.address || b.tracking?.[b.tracking.length - 1]?.note || 'Location updating...'
         })));
       } catch (error) {
         console.error('Error fetching shipments:', error);
@@ -734,6 +859,67 @@ const TrackShipmentsTab = () => {
     s.route.toLowerCase().includes(searchId.toLowerCase())
   );
 
+  const selectShipment = async (shipment) => {
+    if (subscriptionRef.current && subscriptionRef.current !== shipment.subscriptionId) {
+      socketServiceRef.current?.unsubscribeFromTracking(subscriptionRef.current);
+    }
+
+    setSelectedShipment(shipment);
+    setTrackingDetail(null);
+    setTrackingError('');
+    setLiveTracking({ connected: false, location: null, status: null, error: '' });
+    setTrackingLoading(true);
+
+    try {
+      const response = await trackingAPI.track(shipment.id || shipment.recordId);
+      setTrackingDetail(response.data || response);
+    } catch (error) {
+      console.error('Error fetching tracking detail:', error);
+      setTrackingError(error.message || 'Unable to load tracking detail.');
+    } finally {
+      setTrackingLoading(false);
+    }
+
+    const subscriptionId = shipment.subscriptionId || shipment.recordId || shipment.id;
+    subscriptionRef.current = subscriptionId;
+    try {
+      const socketService = socketServiceRef.current || await loadSocketService();
+      socketServiceRef.current = socketService;
+      socketService.subscribeToTracking(subscriptionId, {
+        onSubscribed: (data) => {
+          setLiveTracking(current => ({ ...current, connected: true, status: data.status || current.status, error: '' }));
+        },
+        onLocation: (data) => {
+          setLiveTracking(current => ({ ...current, connected: true, location: data, error: '' }));
+        },
+        onStatus: (data) => {
+          setLiveTracking(current => ({ ...current, connected: true, status: data.status || current.status, error: '' }));
+        },
+        onError: (error) => {
+          setLiveTracking(current => ({ ...current, connected: false, error: error?.message || 'Live updates are unavailable.' }));
+        }
+      });
+    } catch (error) {
+      setLiveTracking(current => ({ ...current, connected: false, error: error.message || 'Live updates are unavailable.' }));
+    }
+  };
+
+  const trackingEvents = trackingDetail?.tracking || trackingDetail?.events || [];
+  const lastEvent = trackingEvents[trackingEvents.length - 1];
+  const liveLatitude = Number(liveTracking.location?.latitude);
+  const liveLongitude = Number(liveTracking.location?.longitude);
+  const liveLocationLabel = Number.isFinite(liveLatitude) && Number.isFinite(liveLongitude)
+    ? `${liveLatitude.toFixed(5)}, ${liveLongitude.toFixed(5)}`
+    : '';
+  const currentLocation = liveLocationLabel ||
+    trackingDetail?.currentLocation?.address ||
+    lastEvent?.location?.address ||
+    lastEvent?.note ||
+    selectedShipment?.location ||
+    'Location updating...';
+  const lastUpdatedAt = liveTracking.location?.timestamp || lastEvent?.timestamp || lastEvent?.createdAt;
+  const lastUpdatedLabel = lastUpdatedAt ? getTimeAgo(new Date(lastUpdatedAt)) : selectedShipment?.lastUpdate;
+
   if (loading) {
     return (
       <div className="loading-container">
@@ -753,21 +939,28 @@ const TrackShipmentsTab = () => {
       <div className="track-grid">
         <div className="shipments-list-panel">
           <h3>Active Shipments ({filteredShipments.length})</h3>
-          {filteredShipments.map(shipment => (
-            <div key={shipment.id} className={`shipment-list-item ${selectedShipment?.id === shipment.id ? 'selected' : ''}`} onClick={() => setSelectedShipment(shipment)}>
-              <div className="shipment-list-header">
-                <span className="shipment-id">{shipment.id}</span>
-                <span className={`status-badge status-${shipment.status.replace('_', '-')}`}>
-                  {shipment.status.replace('_', ' ')}
-                </span>
+          {filteredShipments.length > 0 ? (
+            filteredShipments.map(shipment => (
+              <div key={shipment.id} className={`shipment-list-item ${selectedShipment?.id === shipment.id ? 'selected' : ''}`} onClick={() => selectShipment(shipment)}>
+                <div className="shipment-list-header">
+                  <span className="shipment-id">{shipment.id}</span>
+                  <span className={`status-badge status-${shipment.status.replace(/_/g, '-')}`}>
+                    {shipment.status.replace(/_/g, ' ')}
+                  </span>
+                </div>
+                <div className="shipment-list-route"><MapPin className="icon" /> {shipment.route}</div>
+                <div className="shipment-list-progress">
+                  <div className="progress-bar"><div className="progress-fill" style={{ width: `${shipment.progress}%` }} /></div>
+                  <span>{shipment.progress}%</span>
+                </div>
               </div>
-              <div className="shipment-list-route"><MapPin className="icon" /> {shipment.route}</div>
-              <div className="shipment-list-progress">
-                <div className="progress-bar"><div className="progress-fill" style={{ width: `${shipment.progress}%` }} /></div>
-                <span>{shipment.progress}%</span>
-              </div>
+            ))
+          ) : (
+            <div className="empty-panel-state">
+              <Package className="icon" />
+              <p>No active shipments match your search.</p>
             </div>
-          ))}
+          )}
         </div>
 
         <div className="shipment-detail-panel">
@@ -775,20 +968,75 @@ const TrackShipmentsTab = () => {
             <>
               <div className="detail-header">
                 <h3>{selectedShipment.id}</h3>
-                <span className={`status-badge status-${selectedShipment.status.replace('_', '-')}`}>
-                  {selectedShipment.status.replace('_', ' ')}
+                <span className={`status-badge status-${selectedShipment.status.replace(/_/g, '-')}`}>
+                  {selectedShipment.status.replace(/_/g, ' ')}
                 </span>
               </div>
 
-              <div className="detail-map-placeholder">
-                <Navigation className="icon" />
-                <p>Live Map View</p>
-                <small>Last updated: {selectedShipment.lastUpdate}</small>
+              <div className="detail-route-status">
+                <div className="route-status-header">
+                  <div>
+                    <span>{liveTracking.connected ? 'Live Route Status' : 'Route Status'}</span>
+                    <strong>{currentLocation}</strong>
+                  </div>
+                  {trackingLoading ? <Loader className="icon spinning" /> : <Navigation className="icon" />}
+                </div>
+                {liveTracking.connected && <span className="live-tracking-pill">Live updates connected</span>}
+                {liveTracking.error && (
+                  <div className="tracking-detail-error">
+                    <AlertCircle className="icon" />
+                    <span>{liveTracking.error}</span>
+                  </div>
+                )}
+                {trackingError && (
+                  <div className="tracking-detail-error">
+                    <AlertCircle className="icon" />
+                    <span>{trackingError}</span>
+                  </div>
+                )}
+                <div className="route-status-grid">
+                  <div>
+                    <span>Last updated</span>
+                    <strong>{lastUpdatedLabel || 'N/A'}</strong>
+                  </div>
+                  <div>
+                    <span>Progress</span>
+                    <strong>{selectedShipment.progress}%</strong>
+                  </div>
+                  <div>
+                    <span>ETA</span>
+                    <strong>{selectedShipment.eta}</strong>
+                  </div>
+                  <div>
+                    <span>Speed</span>
+                    <strong>{liveTracking.location?.speed ? `${Math.round(liveTracking.location.speed)} km/h` : 'N/A'}</strong>
+                  </div>
+                </div>
               </div>
 
               <div className="detail-info">
-                <div className="info-row"><span>Current Location:</span><strong>{selectedShipment.location}</strong></div>
+                <div className="info-row"><span>Current Location:</span><strong>{currentLocation}</strong></div>
                 <div className="info-row"><span>ETA:</span><strong>{selectedShipment.eta}</strong></div>
+              </div>
+
+              <div className="tracking-events-panel">
+                <h4>Tracking Events</h4>
+                {trackingLoading ? (
+                  <div className="tracking-event-state"><Loader className="icon spinning" /><span>Loading tracking events...</span></div>
+                ) : trackingEvents.length > 0 ? (
+                  trackingEvents.slice(-4).reverse().map((event, index) => (
+                    <div className="tracking-event-row" key={event._id || event.id || `${event.status}-${index}`}>
+                      <div className="tracking-event-dot" />
+                      <div>
+                        <strong>{event.status || event.title || 'Shipment update'}</strong>
+                        <span>{event.location?.address || event.note || event.description || event.notes || 'Tracking update recorded'}</span>
+                        {(event.timestamp || event.createdAt) && <small>{new Date(event.timestamp || event.createdAt).toLocaleString()}</small>}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="tracking-event-state"><Clock className="icon" /><span>No tracking events have been published yet.</span></div>
+                )}
               </div>
 
               <div className="route-timeline">
@@ -800,7 +1048,11 @@ const TrackShipmentsTab = () => {
               <div className="driver-card">
                 <div className="driver-avatar">{selectedShipment.driver.charAt(0)}</div>
                 <div className="driver-info"><strong>{selectedShipment.driver}</strong><span>Assigned Driver</span></div>
-                <a href={`tel:${selectedShipment.phone}`} className="call-btn"><Phone className="icon" /> Call</a>
+                {selectedShipment.phone && selectedShipment.phone !== 'N/A' ? (
+                  <a href={`tel:${selectedShipment.phone}`} className="call-btn"><Phone className="icon" /> Call</a>
+                ) : (
+                  <button className="call-btn" disabled><Phone className="icon" /> Pending</button>
+                )}
               </div>
             </>
           ) : (
@@ -819,6 +1071,10 @@ const BookingsTab = () => {
   const [loading, setLoading] = useState(true);
   const [bookings, setBookings] = useState([]);
   const [pagination, setPagination] = useState({ total: 0, pages: 1 });
+  const [selectedBooking, setSelectedBooking] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState('');
+  const [bookingsMessage, setBookingsMessage] = useState('');
 
   useEffect(() => {
     const fetchBookings = async () => {
@@ -831,11 +1087,13 @@ const BookingsTab = () => {
         const data = response.data || [];
 
         setBookings(data.map(b => ({
-          id: b.bookingId || b._id,
+          id: getBookingId(b),
+          recordId: b._id,
           date: b.createdAt,
-          route: `${b.pickup?.city || 'N/A'} → ${b.delivery?.city || 'N/A'}`,
           status: b.status,
-          amount: b.pricing?.total || 0,
+          amount: getBookingAmount(b),
+          route: getRouteLabel(b),
+          shipments: b.shipments || [],
           driver: b.transporter?.fullName || 'N/A'
         })));
 
@@ -854,17 +1112,82 @@ const BookingsTab = () => {
 
   const filteredBookings = bookings;
 
+  if (loading) {
+    return (
+      <div className="loading-container">
+        <Loader className="icon spinning" />
+        <p>Loading bookings...</p>
+      </div>
+    );
+  }
+
+  const exportBookings = () => {
+    const rows = filteredBookings.map(booking => ({
+      bookingId: booking.id,
+      date: booking.date,
+      route: booking.route,
+      driver: booking.driver,
+      status: booking.status,
+      amount: booking.amount
+    }));
+    const headers = Object.keys(rows[0] || { message: 'No bookings available' });
+    const csv = [
+      headers.join(','),
+      ...(rows.length ? rows : [{ message: 'No bookings available' }]).map(row => headers.map(header => `"${String(row[header] ?? '').replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'shipper-bookings.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const viewBooking = async (booking) => {
+    setDetailError('');
+    setDetailLoading(true);
+    setSelectedBooking({ ...booking, loading: true });
+    try {
+      const response = await bookingsAPI.getById(booking.recordId);
+      const data = response.data || booking;
+      setSelectedBooking({
+        ...data,
+        id: getBookingId(data),
+        recordId: data._id,
+        routeLabel: getRouteLabel(data),
+        amount: getBookingAmount(data)
+      });
+    } catch (error) {
+      setDetailError(error.message || 'Unable to load booking.');
+      setSelectedBooking(booking);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const downloadPODFromBookings = async (booking) => {
+    setBookingsMessage('');
+    try {
+      await downloadPODForBooking(booking);
+    } catch (error) {
+      setBookingsMessage(error.message || 'Unable to download proof of delivery.');
+    }
+  };
+
   return (
+    <>
     <div className="bookings-container">
+      {bookingsMessage && <div className="shipper-modal-error">{bookingsMessage}</div>}
       <div className="bookings-header">
         <div className="filter-tabs">
           {['all', 'in_transit', 'delivered', 'cancelled'].map(f => (
             <button key={f} className={`filter-tab ${filter === f ? 'active' : ''}`} onClick={() => setFilter(f)}>
-              {f === 'all' ? 'All' : f.replace('_', ' ')}
+              {f === 'all' ? 'All' : f.replace(/_/g, ' ')}
             </button>
           ))}
         </div>
-        <button className="btn-secondary"><Download className="icon" /> Export</button>
+        <button className="btn-secondary" onClick={exportBookings}><Download className="icon" /> Export</button>
       </div>
 
       <div className="bookings-table-container">
@@ -879,11 +1202,18 @@ const BookingsTab = () => {
                 <td>{new Date(booking.date).toLocaleDateString()}</td>
                 <td>{booking.route}</td>
                 <td>{booking.driver}</td>
-                <td><span className={`shipper-booking-status shipper-status-${booking.status.replace('_', '-')}`}>{booking.status.replace('_', ' ')}</span></td>
+                <td><span className={`shipper-booking-status shipper-status-${(booking.status || 'pending').replace(/_/g, '-')}`}>{(booking.status || 'pending').replace(/_/g, ' ')}</span></td>
                 <td className="amount">${booking.amount}</td>
                 <td>
-                  <button className="action-btn"><Eye className="icon" /></button>
-                  {booking.status === 'delivered' && <button className="action-btn"><FileText className="icon" /></button>}
+                  <button className="action-btn" onClick={() => viewBooking(booking)}><Eye className="icon" /></button>
+                  {['delivered', 'completed'].includes(booking.status) && (
+                    <button
+                      className="action-btn"
+                      onClick={() => downloadPODFromBookings(booking)}
+                    >
+                      <FileText className="icon" />
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -897,6 +1227,66 @@ const BookingsTab = () => {
         <button className="pagination-btn" disabled={currentPage >= pagination.pages} onClick={() => setCurrentPage(p => p + 1)}><ChevronRight className="icon" /></button>
       </div>
     </div>
+    {selectedBooking && (
+      <BookingDetailsModal
+        booking={selectedBooking}
+        loading={detailLoading}
+        error={detailError}
+        onPodError={setBookingsMessage}
+        onClose={() => {
+          setSelectedBooking(null);
+          setDetailError('');
+        }}
+      />
+    )}
+    </>
+  );
+};
+
+const BookingDetailsModal = ({ booking, loading, error, onClose, onPodError }) => {
+  const status = booking.status || 'pending';
+  const amount = booking.amount ?? getBookingAmount(booking);
+  const pickup = booking.route?.pickup?.address || booking.pickup?.address || 'N/A';
+  const delivery = booking.route?.delivery?.address || booking.delivery?.address || 'N/A';
+  const cargo = booking.cargoDetails?.description || booking.cargoDetails?.type || booking.cargoType || 'N/A';
+  const transporter = booking.transporter?.fullName || booking.driver || 'Pending Assignment';
+
+  return (
+    <div className="shipper-modal-backdrop" role="presentation" onClick={onClose}>
+      <div className="shipper-modal" role="dialog" aria-modal="true" aria-label="Booking details" onClick={(event) => event.stopPropagation()}>
+        <div className="shipper-modal-header">
+          <div>
+            <p className="shipper-modal-kicker">Booking</p>
+            <h3>{booking.id || getBookingId(booking)}</h3>
+          </div>
+          <button className="shipper-modal-close" onClick={onClose} aria-label="Close booking details"><X className="icon" /></button>
+        </div>
+
+        {loading ? (
+          <div className="shipper-modal-loading"><Loader className="icon spinning" /> Loading booking details...</div>
+        ) : (
+          <>
+            {error && <div className="shipper-modal-error">{error}</div>}
+            <div className="shipper-detail-grid">
+              <div><span>Status</span><strong>{status.replace(/_/g, ' ')}</strong></div>
+              <div><span>Transporter</span><strong>{transporter}</strong></div>
+              <div><span>Amount</span><strong>${Number(amount || 0).toLocaleString()}</strong></div>
+              <div><span>Cargo</span><strong>{cargo}</strong></div>
+              <div><span>Pickup</span><strong>{pickup}</strong></div>
+              <div><span>Delivery</span><strong>{delivery}</strong></div>
+            </div>
+            <div className="shipper-modal-actions">
+              {['delivered', 'completed'].includes(status) && (
+                <button className="btn-secondary" onClick={() => downloadPODForBooking(booking).catch(err => onPodError?.(err.message || 'Unable to download proof of delivery.'))}>
+                  <FileText className="icon" /> Download POD
+                </button>
+              )}
+              <button className="btn-primary" onClick={onClose}>Done</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 };
 
@@ -905,6 +1295,7 @@ const PaymentsTab = () => {
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState([]);
   const [totalSpent, setTotalSpent] = useState(0);
+  const [preferredMethod, setPreferredMethod] = useState('N/A');
 
   useEffect(() => {
     const fetchPayments = async () => {
@@ -918,12 +1309,19 @@ const PaymentsTab = () => {
           date: p.createdAt,
           booking: p.booking?.bookingId || p.bookingId || 'N/A',
           amount: p.amount || 0,
-          method: p.method || 'N/A',
+          method: p.method || p.paymentMethod || 'N/A',
           status: p.status || 'pending'
         })));
 
-        const completed = data.filter(p => p.status === 'completed');
+        const completed = data.filter(p => ['completed', 'confirmed'].includes(p.status));
         setTotalSpent(completed.reduce((sum, p) => sum + (p.amount || 0), 0));
+        const methodCounts = data.reduce((counts, payment) => {
+          const method = payment.method || payment.paymentMethod || 'N/A';
+          counts[method] = (counts[method] || 0) + 1;
+          return counts;
+        }, {});
+        const topMethod = Object.entries(methodCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
+        setPreferredMethod(topMethod || 'N/A');
       } catch (error) {
         console.error('Error fetching payments:', error);
       } finally {
@@ -948,7 +1346,7 @@ const PaymentsTab = () => {
       <div className="payments-stats">
         <div className="payment-stat-card"><DollarSign className="icon" /><div><span className="stat-value">${totalSpent}</span><span className="stat-label">Total Spent</span></div></div>
         <div className="payment-stat-card"><FileText className="icon" /><div><span className="stat-value">{payments.length}</span><span className="stat-label">Transactions</span></div></div>
-        <div className="payment-stat-card"><CreditCard className="icon" /><div><span className="stat-value">EcoCash</span><span className="stat-label">Preferred Method</span></div></div>
+        <div className="payment-stat-card"><CreditCard className="icon" /><div><span className="stat-value">{preferredMethod}</span><span className="stat-label">Preferred Method</span></div></div>
       </div>
 
       <div className="payments-table-container">
@@ -975,8 +1373,9 @@ const PaymentsTab = () => {
 };
 
 // ============ Favorites Tab ============
-const FavoritesTab = () => {
+const FavoritesTab = ({ setActiveNav }) => {
   const [favorites, setFavorites] = useState([]);
+  const [message, setMessage] = useState('');
 
   useEffect(() => {
     const loadFavorites = async () => {
@@ -991,20 +1390,32 @@ const FavoritesTab = () => {
     loadFavorites();
   }, []);
 
+  const removeFavorite = async (driver) => {
+    try {
+      const id = driver._id || driver.id;
+      await shipperAPI.removeFavorite(id);
+      setFavorites(items => items.filter(item => (item._id || item.id) !== id));
+      setMessage(`${driver.fullName || driver.name || 'Transporter'} removed from favorites.`);
+    } catch (error) {
+      setMessage(error.message || 'Unable to remove favorite.');
+    }
+  };
+
   return (
     <div className="favorites-container">
+      {message && <div className="shipper-modal-error">{message}</div>}
       <div className="favorites-grid">
         {favorites.map(driver => (
           <div key={driver._id || driver.id} className="favorite-card">
             <div className="favorite-header">
               <div className="favorite-avatar">{(driver.fullName || driver.name || 'T').charAt(0)}</div>
-              <button className="favorite-btn active"><Heart className="icon" /></button>
+              <button className="favorite-btn active" onClick={() => removeFavorite(driver)}><Heart className="icon" /></button>
             </div>
             <h3>{driver.fullName || driver.name || 'Transporter'}</h3>
             <div className="favorite-rating"><Star className="icon" /> {driver.rating?.average || 0} ({driver.rating?.count || 0} trips)</div>
             <p className="favorite-vehicle">{driver.vehicle || driver.verification?.status || ''}</p>
             <div className="favorite-actions">
-              <button className="btn-primary">Book Now</button>
+              <button className="btn-primary" onClick={() => setActiveNav('new-booking')}>Book Now</button>
               <a href={`tel:${driver.phone || ''}`} className="btn-secondary"><Phone className="icon" /></a>
             </div>
           </div>
@@ -1075,13 +1486,25 @@ const ShipperStatCard = ({ title, value, change, icon, color }) => (
   </div>
 );
 
-const ShipperShipmentCard = ({ shipment }) => {
+const ShipperShipmentCard = ({ shipment, onTrack }) => {
   const statusConfig = {
     in_transit: { class: 'shipper-status-in-transit', label: 'In Transit' },
+    pending_payment: { class: 'shipper-status-awaiting', label: 'Pending Payment' },
+    payment_confirmed: { class: 'shipper-status-awaiting', label: 'Payment Confirmed' },
+    finding_transporter: { class: 'shipper-status-awaiting', label: 'Finding Transporter' },
+    matched: { class: 'shipper-status-awaiting', label: 'Matched' },
+    transporter_assigned: { class: 'shipper-status-loading', label: 'Assigned' },
+    confirmed: { class: 'shipper-status-loading', label: 'Confirmed' },
+    en_route_pickup: { class: 'shipper-status-loading', label: 'En Route' },
+    picked_up: { class: 'shipper-status-loading', label: 'Picked Up' },
+    in_progress: { class: 'shipper-status-in-transit', label: 'In Progress' },
+    arrived_delivery: { class: 'shipper-status-in-transit', label: 'Arrived' },
+    delivered: { class: 'shipper-status-in-transit', label: 'Delivered' },
+    completed: { class: 'shipper-status-in-transit', label: 'Completed' },
     loading: { class: 'shipper-status-loading', label: 'Loading' },
     awaiting_pickup: { class: 'shipper-status-awaiting', label: 'Awaiting Pickup' }
   };
-  const status = statusConfig[shipment.status];
+  const status = statusConfig[shipment.status] || { class: 'shipper-status-awaiting', label: shipment.status?.replace(/_/g, ' ') || 'Pending' };
 
   return (
     <div className="shipper-shipment-card">
@@ -1096,8 +1519,12 @@ const ShipperShipmentCard = ({ shipment }) => {
         <div className="shipper-progress-text">{shipment.progress}% Complete</div>
       </div>
       <div className="shipper-shipment-actions">
-        <button className="shipper-btn-track">Track Live</button>
-        <button className="shipper-btn-contact">Contact</button>
+        <button className="shipper-btn-track" onClick={onTrack}>Track Live</button>
+        {shipment.phone ? (
+          <a className="shipper-btn-contact" href={`tel:${shipment.phone}`}>Contact</a>
+        ) : (
+          <button className="shipper-btn-contact" disabled>Contact</button>
+        )}
       </div>
     </div>
   );

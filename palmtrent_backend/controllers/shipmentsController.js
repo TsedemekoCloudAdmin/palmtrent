@@ -1,9 +1,38 @@
 const Shipment = require('../models/Shipment');
+const Booking = require('../models/Booking');
 const Rating = require('../models/Rating');
 const User = require('../models/User');
 const { validationResult } = require('express-validator');
 const { assertShipmentTransition } = require('../services/flowControlService');
 const { recordAudit } = require('../services/auditService');
+const { finalizeUploadedFiles } = require('../services/uploadFinalizationService');
+const podService = require('../services/podService');
+
+const canReadShipment = (shipment, user) => {
+  if (user.userType === 'admin') return true;
+  const userId = user._id?.toString() || user.id?.toString();
+  return [shipment.shipper, shipment.transporter]
+    .filter(Boolean)
+    .some(party => party.toString() === userId);
+};
+
+const getReadablePODShipment = async (shipmentId, user) => {
+  const shipment = await Shipment.findById(shipmentId).populate('booking');
+  if (!shipment) return { shipment: null, status: 404, message: 'Shipment not found' };
+  if (!canReadShipment(shipment, user)) {
+    return { shipment: null, status: 403, message: 'Not authorized to access this shipment' };
+  }
+  if (!shipment.booking && shipment.bookingReference) {
+    shipment.booking = await Booking.findOne({ bookingReference: shipment.bookingReference });
+  }
+  if (!shipment.booking) {
+    return { shipment: null, status: 409, message: 'Proof of delivery document requires a booking-backed shipment' };
+  }
+  if (!shipment.deliveryDetails?.signature && !shipment.proofOfDelivery?.signature) {
+    return { shipment: null, status: 409, message: 'Proof of delivery evidence has not been confirmed' };
+  }
+  return { shipment };
+};
 
 // Get all active shipments for user
 exports.getActiveShipments = async (req, res) => {
@@ -138,7 +167,7 @@ exports.trackShipment = async (req, res) => {
     const shipment = await Shipment.findById(req.params.id)
       .populate('transporter', 'fullName phone avatar')
       .populate('vehicle', 'type registrationNumber')
-      .select('status route currentLocation schedule pricing tracking');
+      .select('shipper status route currentLocation schedule pricing tracking');
 
     if (!shipment) {
       return res.status(404).json({
@@ -356,7 +385,8 @@ exports.uploadProofOfDelivery = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Not authorized to upload proof for this shipment' });
     }
 
-    const uploadedFiles = (req.files || []).map(file => `/uploads/pod/${file.filename}`);
+    const finalizedFiles = await finalizeUploadedFiles(req.files || [], 'pod');
+    const uploadedFiles = finalizedFiles.map(file => file.url);
     shipment.proofOfDelivery = {
       ...shipment.proofOfDelivery,
       photos: [...(shipment.proofOfDelivery?.photos || []), ...uploadedFiles],
@@ -370,18 +400,70 @@ exports.uploadProofOfDelivery = async (req, res) => {
 
     await recordAudit({
       actor: req.user,
-      action: 'shipment.status_updated',
+      action: 'shipment.pod_uploaded',
       entityType: 'Shipment',
       entityId: shipment._id,
       entityRef: shipment.bookingReference,
-      before: { status: oldStatus },
-      after: { status },
-      metadata: { notes },
+      after: {
+        photoCount: uploadedFiles.length,
+        hasSignature: Boolean(req.body.signature),
+        receivedBy: req.body.receivedBy || req.body.receiverName
+      },
+      metadata: { notes: req.body.notes },
       req
     });
     res.json({ success: true, message: 'Proof of delivery uploaded', data: shipment.proofOfDelivery });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to upload proof of delivery', error: error.message });
+  }
+};
+
+exports.getProofOfDeliveryDocument = async (req, res) => {
+  try {
+    const result = await getReadablePODShipment(req.params.id, req.user);
+    if (!result.shipment) {
+      return res.status(result.status).json({ success: false, message: result.message });
+    }
+
+    const pod = await podService.ensurePDFFromShipment(result.shipment, result.shipment.booking);
+    const download = await podService.getDownloadData(pod);
+
+    res.json({
+      success: true,
+      data: download
+    });
+  } catch (error) {
+    console.error('POD document error:', error);
+    res.status(500).json({ success: false, message: 'Failed to prepare proof of delivery document' });
+  }
+};
+
+exports.emailProofOfDeliveryDocument = async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ success: false, message: 'A valid recipient email is required' });
+    }
+
+    const result = await getReadablePODShipment(req.params.id, req.user);
+    if (!result.shipment) {
+      return res.status(result.status).json({ success: false, message: result.message });
+    }
+
+    const pod = await podService.ensurePDFFromShipment(result.shipment, result.shipment.booking);
+    const delivery = await podService.emailPOD(pod._id, email);
+
+    res.json({
+      success: true,
+      message: delivery.message,
+      data: {
+        podReference: pod.podReference,
+        email
+      }
+    });
+  } catch (error) {
+    console.error('POD email error:', error);
+    res.status(500).json({ success: false, message: 'Failed to email proof of delivery document' });
   }
 };
 
@@ -425,11 +507,14 @@ exports.rateShipment = async (req, res) => {
 
     await recordAudit({
       actor: req.user,
-      action: 'shipment.pod_uploaded',
+      action: 'shipment.rated',
       entityType: 'Shipment',
       entityId: shipment._id,
       entityRef: shipment.bookingReference,
-      after: { photoCount: uploadedFiles.length, receivedBy: shipment.proofOfDelivery?.receivedBy },
+      after: {
+        rating: Number(rating),
+        ratee: ratee.toString()
+      },
       req
     });
 

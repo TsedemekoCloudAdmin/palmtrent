@@ -3,6 +3,7 @@ const User = require('../models/User');
 const Booking = require('../models/Booking');
 const Shipment = require('../models/Shipment');
 const notificationService = require('../services/notificationService');
+const { sendSMS } = require('../utils/sendSMS');
 
 // Emergency contact numbers (configurable)
 const EMERGENCY_CONTACTS = {
@@ -84,14 +85,17 @@ exports.triggerSOS = async (req, res) => {
     if (user.emergencyContacts && user.emergencyContacts.length > 0) {
       for (const contact of user.emergencyContacts) {
         notificationPromises.push(
-          notifyEmergencyContact(emergency, contact)
+          notifyEmergencyContact(emergency, contact).then(sent => {
+            if (sent) {
+              emergency.emergencyContactsNotified.push({
+                name: contact.name,
+                phone: contact.phone,
+                relationship: contact.relationship,
+                notifiedAt: new Date()
+              });
+            }
+          })
         );
-        emergency.emergencyContactsNotified.push({
-          name: contact.name,
-          phone: contact.phone,
-          relationship: contact.relationship,
-          notifiedAt: new Date()
-        });
       }
     }
 
@@ -493,69 +497,150 @@ exports.resolveEmergency = async (req, res) => {
 
 async function notifySupport(emergency, user) {
   try {
-    // In production, integrate with actual notification service
-    console.log(`[EMERGENCY ALERT] ${emergency.emergencyType.toUpperCase()}`);
-    console.log(`User: ${user.fullName} (${user.phone})`);
-    console.log(`Location: ${emergency.location.address || emergency.location.coordinates}`);
-    console.log(`Description: ${emergency.description || 'No description'}`);
-
-    // Add notification record
-    emergency.notifications.push({
+    const location = formatEmergencyLocation(emergency);
+    const notificationResults = await notificationService.notifyRole(
+      'admin',
+      'emergency_alert',
+      `SOS: ${emergency.emergencyType}`,
+      `${user.fullName || 'A Palmtrent user'} triggered an SOS at ${location}.`,
+      getEmergencyNotificationData(emergency, user)
+    );
+    const adminNotificationSent = notificationResults.some(result => result.status === 'fulfilled');
+    recordEmergencyNotification(emergency, {
       recipientType: 'support_team',
       channel: 'push',
-      sentAt: new Date(),
-      status: 'sent'
+      status: adminNotificationSent ? 'sent' : 'failed'
     });
 
-    // TODO: Integrate with actual notification service
-    // await notificationService.sendEmergencyAlert({...});
+    if (process.env.SUPPORT_PHONE) {
+      const supportSmsSent = await sendSMS(
+        process.env.SUPPORT_PHONE,
+        `Palmtrent SOS: ${user.fullName || 'User'} reported ${emergency.emergencyType} at ${location}.`
+      );
+      recordEmergencyNotification(emergency, {
+        recipientType: 'support_team',
+        channel: 'sms',
+        status: supportSmsSent ? 'sent' : 'failed'
+      });
+    }
 
-    return true;
+    return adminNotificationSent;
   } catch (error) {
     console.error('Support notification error:', error);
+    recordEmergencyNotification(emergency, {
+      recipientType: 'support_team',
+      channel: 'push',
+      status: 'failed'
+    });
     return false;
   }
 }
 
 async function notifyEmergencyContact(emergency, contact) {
   try {
-    console.log(`[EMERGENCY SMS] To: ${contact.name} (${contact.phone})`);
-    console.log(`Message: Emergency alert for ${emergency.triggeredBy}. Location: ${emergency.location.address}`);
+    const sent = await sendSMS(
+      contact.phone,
+      `Palmtrent SOS: ${contact.name || 'Emergency contact'}, an emergency was triggered at ${formatEmergencyLocation(emergency)}.`
+    );
+    recordEmergencyNotification(emergency, {
+      recipientType: 'emergency_contact',
+      channel: 'sms',
+      status: sent ? 'sent' : 'failed'
+    });
 
-    // TODO: Integrate with SMS service
-    // await smsService.send(contact.phone, message);
-
-    return true;
+    return sent;
   } catch (error) {
     console.error('Emergency contact notification error:', error);
+    recordEmergencyNotification(emergency, {
+      recipientType: 'emergency_contact',
+      channel: 'sms',
+      status: 'failed'
+    });
     return false;
   }
 }
 
 async function notifyParty(emergency, party, partyType) {
   try {
-    console.log(`[NOTIFY ${partyType.toUpperCase()}] ${party.fullName}`);
-    console.log(`Your ${partyType === 'shipper' ? 'cargo' : 'transporter'} has triggered an emergency alert.`);
-
-    // TODO: Send push notification
+    await notificationService.notifyEmergency(party._id, {
+      emergencyId: emergency._id.toString(),
+      type: emergency.emergencyType,
+      location: emergency.location,
+      bookingId: emergency.booking?.toString()
+    });
+    recordEmergencyNotification(emergency, {
+      recipient: party._id,
+      recipientType: partyType,
+      channel: 'push',
+      status: 'sent'
+    });
     return true;
   } catch (error) {
     console.error('Party notification error:', error);
+    recordEmergencyNotification(emergency, {
+      recipient: party._id,
+      recipientType: partyType,
+      channel: 'push',
+      status: 'failed'
+    });
     return false;
   }
 }
 
 async function notifySupportOfCancellation(emergency) {
-  console.log(`[EMERGENCY CANCELLED] ID: ${emergency._id}`);
-  return true;
+  return notificationService.notifyRole(
+    'admin',
+    'emergency_alert',
+    'SOS Cancelled',
+    `Emergency ${emergency._id} was cancelled by the user.`,
+    { emergencyId: emergency._id.toString(), status: emergency.status }
+  );
 }
 
 async function notifyUserOfAcknowledgement(emergency) {
-  console.log(`[USER NOTIFICATION] Emergency acknowledged. Help is being coordinated.`);
-  return true;
+  return notificationService.notify(
+    emergency.triggeredBy,
+    'emergency_alert',
+    'SOS Acknowledged',
+    'Support has acknowledged your emergency. Help is being coordinated.',
+    { emergencyId: emergency._id.toString(), status: emergency.status }
+  );
 }
 
 async function notifyUserOfDispatch(emergency, responderType) {
-  console.log(`[USER NOTIFICATION] ${responderType} has been dispatched to your location.`);
-  return true;
+  return notificationService.notify(
+    emergency.triggeredBy,
+    'emergency_alert',
+    'Responder Dispatched',
+    `${responderType} has been dispatched to your location.`,
+    { emergencyId: emergency._id.toString(), status: emergency.status, responderType }
+  );
+}
+
+function formatEmergencyLocation(emergency) {
+  if (emergency.location?.address) return emergency.location.address;
+  if (Array.isArray(emergency.location?.coordinates)) {
+    return emergency.location.coordinates.join(', ');
+  }
+  return 'the last reported location';
+}
+
+function getEmergencyNotificationData(emergency, user) {
+  return {
+    emergencyId: emergency._id.toString(),
+    emergencyType: emergency.emergencyType,
+    severity: emergency.severity,
+    bookingId: emergency.booking?.toString(),
+    shipmentId: emergency.shipment?.toString(),
+    triggeredBy: user._id?.toString() || user.id?.toString(),
+    contactPhone: emergency.contactPhone,
+    location: emergency.location
+  };
+}
+
+function recordEmergencyNotification(emergency, notification) {
+  emergency.notifications.push({
+    ...notification,
+    sentAt: new Date()
+  });
 }

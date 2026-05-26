@@ -14,6 +14,7 @@ import {
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import PricingBreakdown from '../screens/components/PricingBreakdown';
 import apiService from '../services/apiService';
+import useAuth from '../hook/useAuth';
 
 const paymentMethods = [
   {
@@ -54,6 +55,7 @@ const paymentMethods = [
 ];
 
 const BookingReviewScreen = ({ onNavigate, bookingData = {}, updateBookingData }) => {
+  const { user } = useAuth();
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState(bookingData.paymentMethod || null);
   const [insuranceEnabled, setInsuranceEnabled] = useState(bookingData.insurance || false);
   const [pricing, setPricing] = useState(bookingData.pricing || null);
@@ -150,7 +152,8 @@ const handleConfirmBooking = async () => {
       ...completeBookingData,
       amount: pricing?.totals?.total || 0,
       customer: {
-        email: 'user@example.com' // Get from user context
+        email: user?.email,
+        phone: user?.phone
       }
     });
     
@@ -162,7 +165,7 @@ const handleConfirmBooking = async () => {
     console.log("Booking and payment created:", { booking, payment });
 
     // Update booking data
-    updateBookingData({
+    const nextBookingData = {
       ...bookingData,
       paymentMethod: selectedPaymentMethod,
       insurance: insuranceEnabled,
@@ -170,22 +173,23 @@ const handleConfirmBooking = async () => {
       bookingReference: booking.bookingReference,
       bookingId: booking._id,
       paymentReference: payment?.paymentReference,
+      agentPayment: payment?.agentPayment || null,
       amount: pricing?.totals?.total || 0
-    });
+    };
+
+    updateBookingData(nextBookingData);
 
     // Determine next steps based on payment method
-    const selectedMethod = paymentMethods.find(method => method.id === selectedPaymentMethod);
-    
-    if (selectedMethod.requiresGateway) {
-      // For gateway payments, navigate to payment screen
-      onNavigate('card-payment', {
-        paymentReference: payment.paymentReference,
-        amount: pricing?.totals?.total || 0,
-        paymentMethod: selectedPaymentMethod
-      });
+    if (selectedPaymentMethod === 'cash_agent') {
+      onNavigate('agent-payment', nextBookingData);
+    } else if (selectedPaymentMethod === 'ecocash' || selectedPaymentMethod === 'onemoney') {
+      onNavigate('mobile-money-payment', nextBookingData);
+    } else if (selectedPaymentMethod === 'bank_transfer') {
+      onNavigate('card-payment', nextBookingData);
     } else {
       // For cash methods, payment is already pending - go to confirmation
       onNavigate('booking-confirmation', {
+        ...nextBookingData,
         bookingId: booking._id,
         paymentReference: payment.paymentReference,
         paymentMethod: selectedPaymentMethod
@@ -380,12 +384,7 @@ const handleConfirmBooking = async () => {
                   <Text style={styles.loadingText}>Calculating final price...</Text>
                 </View>
               ) : pricing ? (
-                <PricingBreakdown 
-                  pricing={pricing}
-                  onToggleDetails={(expanded) => {
-                    console.log('Pricing details', expanded ? 'expanded' : 'collapsed');
-                  }}
-                />
+                <PricingBreakdown pricing={pricing} />
               ) : null}
             </View>
           )}

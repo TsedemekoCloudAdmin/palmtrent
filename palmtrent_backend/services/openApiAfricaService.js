@@ -8,11 +8,14 @@ const DEFAULT_BASE_URL = 'https://backendservices.clicknpay.africa:2081';
 class OpenApiAfricaService {
   async getConfig() {
     const config = await getIntegrationConfig('openapiAfrica');
+    const defaultReturnUrl = process.env.FRONTEND_URL
+      ? `${process.env.FRONTEND_URL.replace(/\/$/, '')}/payment/return`
+      : 'http://localhost:3000/payment/return';
     return {
       baseUrl: config.baseUrl || DEFAULT_BASE_URL,
       publicUniqueId: config.publicUniqueId,
       currency: config.currency || 'USD',
-      returnUrl: config.returnUrl || process.env.FRONTEND_URL || 'http://localhost:3000/payment/return',
+      returnUrl: config.returnUrl || defaultReturnUrl,
       customerCharged: config.customerCharged !== false,
       multiplePayments: config.multiplePayments === true
     };

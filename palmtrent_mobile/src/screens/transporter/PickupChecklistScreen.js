@@ -9,9 +9,12 @@ import {
   StatusBar,
   Alert,
   Dimensions,
-  ActivityIndicator
+  ActivityIndicator,
+  Image,
+  Platform
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import * as ImagePicker from 'expo-image-picker';
 import apiService from '../../services/apiService';
 
 const PickupChecklistScreen = ({ navigation, route }) => {
@@ -20,9 +23,10 @@ const PickupChecklistScreen = ({ navigation, route }) => {
     arrived: false,
     inspected: false,
     photos: [],
-    signature: false
+    signature: null
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploadingEvidence, setIsUploadingEvidence] = useState(false);
 
   const jobData = job || {};
   const cargoDetails = jobData.cargoDetails || {};
@@ -51,9 +55,9 @@ const PickupChecklistScreen = ({ navigation, route }) => {
     try {
       // Call the confirm-pickup API endpoint
       const response = await apiService.post(`/transporter/shipments/${currentShipmentId}/confirm-pickup`, {
-        photos: checklist.photos,
+        photos: checklist.photos.map(photo => photo.path),
         notes: `Goods inspected and match description. ${checklist.photos.length} photos taken.`,
-        signature: checklist.signature
+        signature: checklist.signature.path
       });
 
       if (response.success) {
@@ -82,12 +86,76 @@ const PickupChecklistScreen = ({ navigation, route }) => {
     }
   };
 
-  const takePhoto = () => {
-    if (checklist.photos.length < 4) {
-      setChecklist({
-        ...checklist,
-        photos: [...checklist.photos, `photo${checklist.photos.length + 1}`]
-      });
+  const requestCameraPermission = async () => {
+    if (Platform.OS === 'web') return true;
+
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission required', 'Camera access is required to capture shipment evidence.');
+      return false;
+    }
+    return true;
+  };
+
+  const captureImage = async ({ aspect = [4, 3] } = {}) => {
+    const hasPermission = await requestCameraPermission();
+    if (!hasPermission) return null;
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect,
+      quality: 0.8
+    });
+
+    return result.canceled ? null : result.assets?.[0]?.uri;
+  };
+
+  const takePhoto = async () => {
+    if (!checklist.inspected || checklist.photos.length >= 4 || isUploadingEvidence) return;
+
+    setIsUploadingEvidence(true);
+    try {
+      const uri = await captureImage();
+      if (!uri) return;
+
+      const response = await apiService.uploadPODPhoto(uri, shipmentId || jobData.shipmentId || jobData._id);
+      const path = response.data?.path || response.data?.url;
+      if (!path) throw new Error('Photo upload did not return a file path');
+
+      setChecklist(current => ({
+        ...current,
+        photos: [...current.photos, { uri, path }]
+      }));
+    } catch (error) {
+      console.error('Pickup photo upload error:', error);
+      Alert.alert('Upload failed', error.message || 'Failed to upload pickup photo.');
+    } finally {
+      setIsUploadingEvidence(false);
+    }
+  };
+
+  const captureSignature = async () => {
+    if (checklist.photos.length < 3 || checklist.signature || isUploadingEvidence) return;
+
+    setIsUploadingEvidence(true);
+    try {
+      const uri = await captureImage({ aspect: [16, 9] });
+      if (!uri) return;
+
+      const response = await apiService.uploadSignature(uri, shipmentId || jobData.shipmentId || jobData._id);
+      const path = response.data?.path || response.data?.url;
+      if (!path) throw new Error('Signature upload did not return a file path');
+
+      setChecklist(current => ({
+        ...current,
+        signature: { uri, path }
+      }));
+    } catch (error) {
+      console.error('Pickup signature upload error:', error);
+      Alert.alert('Upload failed', error.message || 'Failed to upload signature image.');
+    } finally {
+      setIsUploadingEvidence(false);
     }
   };
 
@@ -165,12 +233,14 @@ const PickupChecklistScreen = ({ navigation, route }) => {
                   key={n}
                   style={[styles.photoButton, checklist.photos[n-1] && styles.photoButtonCompleted]}
                   onPress={takePhoto}
-                  disabled={!checklist.inspected || checklist.photos[n-1]}
+                  disabled={!checklist.inspected || checklist.photos[n-1] || isUploadingEvidence}
                 >
                   {checklist.photos[n-1] ? (
                     <>
-                      <MaterialIcons name="check-circle" size={24} color="#16a34a" />
-                      <Text style={styles.photoButtonTextCompleted}>Photo {n}</Text>
+                      <Image source={{ uri: checklist.photos[n-1].uri }} style={styles.photoPreview} />
+                      <View style={styles.photoBadge}>
+                        <MaterialIcons name="check-circle" size={16} color="#16a34a" />
+                      </View>
                     </>
                   ) : (
                     <>
@@ -194,8 +264,8 @@ const PickupChecklistScreen = ({ navigation, route }) => {
           >
             <TouchableOpacity
               style={[styles.actionButton, styles.signatureButton, checklist.signature && styles.actionButtonCompleted, checklist.photos.length < 3 && styles.actionButtonDisabled]}
-              onPress={() => setChecklist({...checklist, signature: true})}
-              disabled={checklist.photos.length < 3 || checklist.signature}
+              onPress={captureSignature}
+              disabled={checklist.photos.length < 3 || checklist.signature || isUploadingEvidence}
             >
               <MaterialIcons name="edit" size={20} color="white" />
               <Text style={styles.actionButtonText}>Get Shipper Signature</Text>
@@ -203,7 +273,7 @@ const PickupChecklistScreen = ({ navigation, route }) => {
             {checklist.signature && (
               <View style={styles.completedStatus}>
                 <MaterialIcons name="check-circle" size={16} color="#16a34a" />
-                <Text style={styles.completedText}>Signature captured</Text>
+                <Text style={styles.completedText}>Signature image captured</Text>
               </View>
             )}
           </ChecklistCard>
@@ -418,6 +488,19 @@ const styles = StyleSheet.create({
     borderColor: '#16a34a',
     borderStyle: 'solid',
     backgroundColor: '#f0fdf4',
+  },
+  photoPreview: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 6,
+  },
+  photoBadge: {
+    position: 'absolute',
+    right: 4,
+    bottom: 4,
+    borderRadius: 12,
+    backgroundColor: 'white',
+    padding: 2,
   },
   photoButtonText: {
     fontSize: 12,

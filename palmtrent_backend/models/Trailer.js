@@ -160,6 +160,21 @@ const trailerSchema = new mongoose.Schema({
     ref: 'Rental'
   },
 
+  currentLocation: {
+    latitude: Number,
+    longitude: Number,
+    address: String,
+    speed: Number,
+    heading: Number,
+    batteryLevel: Number,
+    source: {
+      type: String,
+      enum: ['gps', 'driver_app', 'pickup', 'return', 'manual'],
+      default: 'manual'
+    },
+    updatedAt: Date
+  },
+
   // Owner Information
   owner: {
     type: mongoose.Schema.Types.ObjectId,

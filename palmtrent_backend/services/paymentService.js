@@ -15,6 +15,22 @@ class PaymentService {
         throw new Error('Booking not found');
       }
 
+      const requestedAmount = Number(amount);
+      const bookingAmount = Number(
+        booking.totalAmount ||
+        booking.pricing?.totals?.total ||
+        booking.pricing?.total ||
+        0
+      );
+
+      if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
+        throw new Error('Payment amount must be a positive number');
+      }
+
+      if (bookingAmount > 0 && Math.abs(requestedAmount - bookingAmount) > 0.01) {
+        throw new Error('Payment amount does not match the booking total');
+      }
+
       // Determine gateway based on payment method
       const gateway = this.getGatewayForMethod(paymentMethod);
       
@@ -32,7 +48,7 @@ class PaymentService {
 
       const paymentData = {
         booking: bookingId,
-        amount,
+        amount: bookingAmount > 0 ? bookingAmount : requestedAmount,
         currency: 'USD',
         paymentMethod,
         gateway,
@@ -60,8 +76,8 @@ class PaymentService {
    */
   getGatewayForMethod(paymentMethod) {
     const gatewayMap = {
-      'ecocash': 'paynow',
-      'onemoney': 'paynow',
+      'ecocash': 'openapi_africa',
+      'onemoney': 'openapi_africa',
       'digital': 'openapi_africa',
       'card': 'openapi_africa',
       'bank_transfer': 'openapi_africa',
@@ -85,38 +101,24 @@ class PaymentService {
         throw new Error('Payment not found');
       }
 
+      if (payment.status === 'refunded') {
+        throw new Error('Refunded payments cannot be confirmed again');
+      }
+
+      const confirmedAt = payment.confirmedAt || new Date();
       payment.status = 'confirmed';
-      payment.confirmedAt = new Date();
+      payment.confirmedAt = confirmedAt;
       
       if (gatewayData.gatewayReference) {
         payment.gatewayReference = gatewayData.gatewayReference;
       }
       if (gatewayData.metadata) {
-        payment.metadata = gatewayData.metadata;
+        payment.metadata = { ...(payment.metadata || {}), ...gatewayData.metadata };
       }
 
       await payment.save();
 
-      // Update booking status
-      await Booking.findByIdAndUpdate(payment.booking, {
-        'payment.status': 'confirmed',
-        'payment.paidAt': new Date(),
-        paymentStatus: 'confirmed',
-        paymentConfirmedAt: new Date(),
-        status: 'finding_transporter'
-      });
-
-      // Create escrow to hold funds
-      try {
-        const escrow = await escrowService.createEscrow(payment._id, payment.booking);
-        console.log('Escrow created:', escrow.escrowReference);
-      } catch (escrowError) {
-        console.error('Error creating escrow:', escrowError);
-        // Don't fail the payment confirmation if escrow creation fails
-      }
-
-      // Create shipment
-      await this.createShipmentFromBooking(payment.booking);
+      await this.finalizeConfirmedBookingPayment(payment);
 
       return payment;
     } catch (error) {
@@ -135,6 +137,23 @@ class PaymentService {
         throw new Error('Payment not found');
       }
 
+      if (status === 'confirmed') {
+        return this.confirmPayment(paymentReference, { metadata });
+      }
+
+      if (payment.status === 'confirmed') {
+        payment.metadata = {
+          ...(payment.metadata || {}),
+          ignoredStatusUpdate: {
+            status,
+            metadata,
+            ignoredAt: new Date()
+          }
+        };
+        await payment.save();
+        return payment;
+      }
+
       payment.status = status;
       
       if (status === 'confirmed') {
@@ -149,32 +168,43 @@ class PaymentService {
 
       await payment.save();
 
-      // Update booking if payment is confirmed
-      if (status === 'confirmed') {
-        await Booking.findByIdAndUpdate(payment.booking, {
-          'payment.status': 'confirmed',
-          'payment.paidAt': new Date(),
-          paymentStatus: 'confirmed',
-          paymentConfirmedAt: new Date(),
-          status: 'finding_transporter'
-        });
-
-        // Create escrow to hold funds
-        try {
-          const escrow = await escrowService.createEscrow(payment._id, payment.booking);
-          console.log('Escrow created:', escrow.escrowReference);
-        } catch (escrowError) {
-          console.error('Error creating escrow:', escrowError);
-        }
-
-        await this.createShipmentFromBooking(payment.booking);
-      }
-
       return payment;
     } catch (error) {
       console.error('Error updating payment status:', error);
       throw error;
     }
+  }
+
+  async finalizeConfirmedBookingPayment(payment) {
+    const booking = await Booking.findById(payment.booking);
+    if (!booking) {
+      throw new Error('Booking not found for confirmed payment');
+    }
+
+    booking.payment = {
+      ...(booking.payment || {}),
+      status: 'confirmed',
+      paidAt: booking.payment?.paidAt || payment.confirmedAt || new Date()
+    };
+    booking.paymentStatus = ['escrowed', 'released'].includes(booking.paymentStatus)
+      ? booking.paymentStatus
+      : 'confirmed';
+    booking.paymentConfirmedAt = booking.paymentConfirmedAt || payment.confirmedAt || new Date();
+
+    if (['draft', 'pending_payment', 'pending', 'payment_confirmed'].includes(booking.status)) {
+      booking.status = 'finding_transporter';
+    }
+
+    await booking.save();
+
+    try {
+      const escrow = await escrowService.createEscrow(payment._id, booking._id);
+      console.log('Escrow created:', escrow.escrowReference);
+    } catch (escrowError) {
+      console.error('Error creating escrow:', escrowError);
+    }
+
+    await this.createShipmentFromBooking(booking._id);
   }
 
   /**
@@ -191,7 +221,22 @@ class PaymentService {
     }
 
     try {
+      const existingShipment = await Shipment.findOne({ bookingReference: booking.bookingReference });
+      if (existingShipment) {
+        if (!existingShipment.booking) {
+          existingShipment.booking = booking._id;
+          await existingShipment.save();
+        }
+        booking.shipments = booking.shipments || [];
+        if (!booking.shipments.some(shipmentId => shipmentId.toString() === existingShipment._id.toString())) {
+          booking.shipments.push(existingShipment._id);
+          await booking.save();
+        }
+        return existingShipment;
+      }
+
       const shipmentData = {
+        booking: booking._id,
         bookingReference: booking.bookingReference,
         shipper: booking.user._id,
         status: 'payment_confirmed',

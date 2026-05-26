@@ -1,4 +1,5 @@
 const pricingService = require('../services/pricingService');
+const distanceService = require('../services/distanceService');
 const PricingConfig = require('../models/PricingConfig');
 const Booking = require('../models/Booking');
 const Shipment = require('../models/Shipment');
@@ -241,9 +242,9 @@ function transformFrontendToBackend(frontendData, user) {
           total: 0
         },
         platformFee: 0,
-        platformFeeRate: 0.12,
+        platformFeeRate: 0,
         transporterCommission: 0,
-        transporterCommissionRate: 0.15,
+        transporterCommissionRate: 0,
         transporterEarnings: 0,
         transporterGrossEarnings: 0,
         insurance: 0,
@@ -321,7 +322,7 @@ exports.updateBooking = async (req, res) => {
 
     // Recalculate pricing if relevant fields changed
     if (shouldRecalculatePricing(req.body)) {
-      req.body.pricing = calculatePricing({
+      req.body.pricing = await pricingService.calculatePricing({
         ...booking.toObject(),
         ...req.body
       });
@@ -518,6 +519,16 @@ exports.createBookingWithPayment = async (req, res) => {
         req.body.paymentMethod,
         req.body.customer || {}
       );
+
+      if (req.body.paymentMethod === 'cash_agent') {
+        const agentCode = generateAgentCode();
+        payment.metadata = {
+          ...(payment.metadata || {}),
+          agentCode,
+          agentCodeGeneratedAt: new Date()
+        };
+        await payment.save();
+      }
     }
 
     const response = {
@@ -528,7 +539,13 @@ exports.createBookingWithPayment = async (req, res) => {
         payment: payment ? {
           paymentId: payment._id,
           paymentReference: payment.paymentReference,
-          status: payment.status
+          status: payment.status,
+          amount: payment.amount,
+          currency: payment.currency,
+          expiresAt: payment.expiresAt,
+          agentPayment: payment.paymentMethod === 'cash_agent'
+            ? buildAgentPaymentDetails(payment)
+            : null
         } : null
       }
     };
@@ -554,6 +571,39 @@ exports.createBookingWithPayment = async (req, res) => {
     });
   }
 };
+
+function generateAgentCode() {
+  const numbers = Math.floor(100000 + Math.random() * 900000);
+  return `PT${numbers}`;
+}
+
+function buildAgentPaymentDetails(payment) {
+  const agentCode = payment.metadata?.agentCode;
+  const expiresAt = payment.expiresAt || new Date(Date.now() + 2 * 60 * 60 * 1000);
+
+  return {
+    paymentId: payment._id,
+    paymentReference: payment.paymentReference,
+    agentCode,
+    amount: payment.amount,
+    currency: payment.currency || 'USD',
+    expiresAt,
+    instructions: {
+      title: 'Pay at EcoCash Agent',
+      steps: [
+        'Visit any EcoCash Agent near you',
+        `Quote reference: ${agentCode}`,
+        `Pay USD $${Number(payment.amount || 0).toFixed(2)}`,
+        'Keep your receipt',
+        'Payment will be confirmed automatically'
+      ],
+      merchantCode: process.env.ECOCASH_MERCHANT_CODE || 'PALMTRENT',
+      supportPhone: process.env.SUPPORT_PHONE || '+263 77 123 4567',
+      validUntil: expiresAt.toISOString ? expiresAt.toISOString() : expiresAt,
+      note: 'Please ensure you quote the exact reference number to the agent'
+    }
+  };
+}
 // Cancel booking - From your code
 exports.cancelBooking = async (req, res) => {
   try {
@@ -691,21 +741,29 @@ exports.confirmBooking = async (req, res) => {
 // Helper functions
 exports.calculatePricing = async (req, res) => {
   try {
-    const bookingData = req.body;
-    
-    // Validate required fields
+    const bookingData = await normalizePricingRequest(req.body);
+
     if (!bookingData.route?.distance) {
       return res.status(400).json({
         success: false,
-        message: 'Distance is required for pricing calculation'
+        message: 'Pickup and delivery locations are required for pricing calculation'
       });
     }
+
     // Calculate pricing using the service
     const pricing = await pricingService.calculatePricing(bookingData);
     
     res.status(200).json({
       success: true,
-      data: pricing
+      data: {
+        ...pricing,
+        route: {
+          distance: bookingData.route.distance,
+          estimatedDuration: bookingData.route.estimatedDuration,
+          source: bookingData.route.source,
+          distanceText: bookingData.route.distanceText
+        }
+      }
     });
     
   } catch (error) {
@@ -792,6 +850,72 @@ exports.getPricingConfig = async (req, res) => {
     });
   }
 };
+
+async function normalizePricingRequest(payload) {
+  if (payload.route?.distance) {
+    return payload;
+  }
+
+  const pickupAddress = payload.pickup?.address ||
+    [payload.pickup?.city, payload.pickupAddress, payload.pickupCity].filter(Boolean).join(', ') ||
+    payload.pickupLocation;
+  const deliveryAddress = payload.delivery?.address ||
+    [payload.delivery?.city, payload.deliveryAddress, payload.deliveryCity].filter(Boolean).join(', ') ||
+    payload.deliveryLocation;
+
+  if (!pickupAddress || !deliveryAddress) {
+    return payload;
+  }
+
+  const distance = await distanceService.calculateDistance(
+    {
+      address: pickupAddress,
+      lat: payload.pickup?.lat || payload.pickup?.latitude,
+      lng: payload.pickup?.lng || payload.pickup?.longitude
+    },
+    {
+      address: deliveryAddress,
+      lat: payload.delivery?.lat || payload.delivery?.latitude,
+      lng: payload.delivery?.lng || payload.delivery?.longitude
+    }
+  );
+
+  return {
+    ...payload,
+    route: {
+      ...(payload.route || {}),
+      pickup: {
+        ...(payload.route?.pickup || {}),
+        address: pickupAddress
+      },
+      delivery: {
+        ...(payload.route?.delivery || {}),
+        address: deliveryAddress
+      },
+      distance: distance.distance,
+      estimatedDuration: distance.duration,
+      source: distance.source,
+      distanceText: distance.distanceText
+    },
+    cargoDetails: {
+      ...(payload.cargoDetails || {}),
+      type: payload.cargoDetails?.type || payload.cargo?.type || payload.cargoType || '',
+      weight: Number(payload.cargoDetails?.weight || payload.cargo?.weight || payload.weight || 0),
+      value: Number(payload.cargoDetails?.value || payload.cargoValue || payload.insuranceValue || 0),
+      specialInstructions: payload.cargoDetails?.specialInstructions || payload.cargoDescription || ''
+    },
+    vehicles: payload.vehicles?.length
+      ? payload.vehicles
+      : [{
+          vehicleType: payload.vehicleType || payload.vehicleRecommendation?.vehicleType || '',
+          weight: Number(payload.cargo?.weight || payload.weight || 0)
+        }],
+    insurance: typeof payload.insurance === 'boolean'
+      ? { required: payload.insurance, coverage: Number(payload.insuranceValue || 0) }
+      : payload.insurance,
+    paymentMethod: payload.paymentMethod || 'digital'
+  };
+}
 
 exports.getBookingStats = async (req, res) => {
   try {
