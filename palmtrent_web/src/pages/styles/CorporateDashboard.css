@@ -3,6 +3,7 @@
   display: flex;
   min-height: 100vh;
   background-color: var(--background);
+  min-width: 0;
 }
 
 /* ============ Sidebar ============ */
@@ -166,6 +167,7 @@
   flex: 1;
   overflow: auto;
   background-color: var(--background);
+  min-width: 0;
 }
 
 .corp-topbar {
@@ -417,12 +419,13 @@
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  min-width: 0;
 }
 
 /* ============ Stats Grid ============ */
 .corp-stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
   gap: 1.5rem;
 }
 
@@ -432,6 +435,24 @@
   padding: 1.5rem;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   border: 1px solid #e5e7eb;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.corp-stat-card:nth-child(4n + 1) {
+  background: var(--platform-card-primary);
+}
+
+.corp-stat-card:nth-child(4n + 2) {
+  background: var(--platform-card-secondary);
+}
+
+.corp-stat-card:nth-child(4n + 3) {
+  background: var(--platform-card-accent);
+}
+
+.corp-stat-card:nth-child(4n + 4) {
+  background: var(--platform-card-clean);
 }
 
 .corp-stat-header {
@@ -506,8 +527,8 @@
 }
 
 .corp-stat-card-success .corp-stat-icon-wrapper {
-  background: rgba(16, 185, 129, 0.1);
-  color: #10b981;
+  background: rgba(26, 74, 110, 0.1);
+  color: var(--secondary);
 }
 
 /* ============ Quick Actions ============ */
@@ -555,7 +576,7 @@
 /* ============ Content Grid ============ */
 .corp-content-grid {
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
   gap: 1.5rem;
 }
 
@@ -698,6 +719,7 @@
 
 .corp-table {
   width: 100%;
+  min-width: 720px;
   border-collapse: collapse;
 }
 
@@ -1323,7 +1345,7 @@
 
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
   gap: 1.5rem;
 }
 
@@ -1371,7 +1393,7 @@
 
 .charts-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: 1.5rem;
 }
 
@@ -1398,7 +1420,7 @@
 
 .billing-summary {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
   gap: 1.5rem;
 }
 
@@ -1499,7 +1521,7 @@
 
 .reports-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
   gap: 1.5rem;
 }
 

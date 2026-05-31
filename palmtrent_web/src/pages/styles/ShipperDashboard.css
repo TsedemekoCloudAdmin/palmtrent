@@ -3,6 +3,7 @@
   display: flex;
   min-height: 100vh;
   background-color: var(--background);
+  min-width: 0;
 }
 
 /* Sidebar Styles - Non-scrollable */
@@ -157,6 +158,7 @@
   margin-left: 280px;
   transition: margin-left 0.3s ease;
   height: 100vh;
+  min-width: 0;
 }
 
 .shipper-sidebar-closed + .shipper-main-content {
@@ -479,11 +481,12 @@
   flex-direction: column;
   gap: 1.5rem;
   min-height: calc(100vh - 80px); /* Adjust based on topbar height */
+  min-width: 0;
 }
 
 .shipper-account-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
   gap: 1.5rem;
 }
 
@@ -564,7 +567,7 @@
 /* Rest of your existing styles for stats, cards, etc. remain the same */
 .shipper-stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
   gap: 1.5rem;
 }
 
@@ -577,6 +580,23 @@
   transition: all 0.3s ease;
   position: relative;
   overflow: hidden;
+  min-width: 0;
+}
+
+.shipper-stat-card:nth-child(4n + 1) {
+  background: var(--platform-card-primary);
+}
+
+.shipper-stat-card:nth-child(4n + 2) {
+  background: var(--platform-card-secondary);
+}
+
+.shipper-stat-card:nth-child(4n + 3) {
+  background: var(--platform-card-accent);
+}
+
+.shipper-stat-card:nth-child(4n + 4) {
+  background: var(--platform-card-clean);
 }
 
 .shipper-stat-card::before {
@@ -675,8 +695,8 @@
 }
 
 .shipper-stat-card-success .shipper-stat-icon-wrapper {
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.2) 100%);
-  color: #10b981;
+  background: linear-gradient(135deg, rgba(26, 74, 110, 0.1) 0%, rgba(26, 74, 110, 0.2) 100%);
+  color: var(--secondary);
 }
 
 /* Quick Actions Banner */
@@ -740,7 +760,7 @@
 /* Content Grid */
 .shipper-content-grid {
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
   gap: 2rem;
 }
 
@@ -1116,7 +1136,7 @@
 
 .track-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.4fr);
+  grid-template-columns: minmax(min(280px, 100%), 0.9fr) minmax(0, 1.4fr);
   gap: 1.25rem;
   align-items: start;
 }
@@ -1639,10 +1659,13 @@
   padding: 2rem;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
   border: 1px solid #f0f0f0;
+  min-width: 0;
+  overflow-x: auto;
 }
 
 .shipper-bookings-table {
   width: 100%;
+  min-width: 720px;
   border-collapse: collapse;
 }
 
@@ -1717,7 +1740,7 @@
   }
   
   .shipper-stats-grid {
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr));
   }
   
   .shipper-topbar {
@@ -1737,7 +1760,7 @@
   }
   
   .shipper-search-input {
-    width: 200px;
+    width: min(200px, 100%);
   }
   
   .shipper-user-trigger {

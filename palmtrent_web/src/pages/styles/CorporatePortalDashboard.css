@@ -3,6 +3,7 @@
   display: flex;
   min-height: 100vh;
   background-color: var(--background);
+  min-width: 0;
 }
 
 /* Sidebar Styles - Non-scrollable */
@@ -157,6 +158,7 @@
   margin-left: 280px;
   transition: margin-left 0.3s ease;
   height: 100vh;
+  min-width: 0;
 }
 
 .corporate-sidebar-closed + .corporate-main-content {
@@ -500,12 +502,13 @@
   flex-direction: column;
   gap: 1.5rem;
   min-height: calc(100vh - 80px);
+  min-width: 0;
 }
 
 /* Stats Grid */
 .corporate-stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
   gap: 1.5rem;
 }
 
@@ -518,6 +521,23 @@
   transition: all 0.3s ease;
   position: relative;
   overflow: hidden;
+  min-width: 0;
+}
+
+.corporate-stat-card:nth-child(4n + 1) {
+  background: var(--platform-card-primary);
+}
+
+.corporate-stat-card:nth-child(4n + 2) {
+  background: var(--platform-card-secondary);
+}
+
+.corporate-stat-card:nth-child(4n + 3) {
+  background: var(--platform-card-accent);
+}
+
+.corporate-stat-card:nth-child(4n + 4) {
+  background: var(--platform-card-clean);
 }
 
 .corporate-stat-card::before {
@@ -612,14 +632,14 @@
 }
 
 .corporate-stat-card-success .corporate-stat-icon-wrapper {
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.2) 100%);
-  color: #10b981;
+  background: linear-gradient(135deg, rgba(26, 74, 110, 0.1) 0%, rgba(26, 74, 110, 0.2) 100%);
+  color: var(--secondary);
 }
 
 /* Quick Actions Grid */
 .corporate-quick-actions-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
   gap: 1.5rem;
 }
 
@@ -677,6 +697,8 @@
   padding: 2rem;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
   border: 1px solid #f0f0f0;
+  min-width: 0;
+  overflow-x: auto;
 }
 
 .corporate-section-header {
@@ -725,6 +747,7 @@
   border: 2px solid #f1f5f9;
   border-radius: 12px;
   transition: all 0.3s ease;
+  min-width: 0;
 }
 
 .corporate-shipment-row:hover {
@@ -738,6 +761,7 @@
   display: flex;
   align-items: center;
   gap: 1rem;
+  min-width: 0;
 }
 
 .corporate-shipment-id {
@@ -774,6 +798,7 @@
 
 .corporate-shipment-details {
   flex: 2;
+  min-width: 0;
 }
 
 .corporate-shipment-route {
@@ -836,6 +861,7 @@
 /* Table Styles */
 .corporate-table {
   width: 100%;
+  min-width: 720px;
   border-collapse: collapse;
 }
 
@@ -913,7 +939,7 @@
 /* API Integration Styles */
 .corporate-api-keys-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: 1.5rem;
 }
 
@@ -1551,7 +1577,7 @@
   }
   
   .corporate-stats-grid {
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr));
   }
   
   .corporate-topbar {
@@ -1571,7 +1597,7 @@
   }
   
   .corporate-search-input {
-    width: 200px;
+    width: min(200px, 100%);
   }
   
   .corporate-user-trigger {

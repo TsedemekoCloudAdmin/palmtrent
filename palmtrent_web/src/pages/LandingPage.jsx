@@ -357,6 +357,11 @@ const LandingPage = () => {
     setShowRegisterModal(true);
   };
 
+  const handleHeroUserTypeChange = (type) => {
+    setUserType(type);
+    setRegisterForm(prev => ({ ...prev, userType: type }));
+  };
+
   const switchToRegister = () => {
     setShowLoginModal(false);
     setAuthError('');
@@ -366,6 +371,7 @@ const LandingPage = () => {
     setVerificationSent(false);
     setVerificationVerified(false);
     setVerificationCode('');
+    setRegisterForm(prev => ({ ...prev, userType }));
     setShowRegisterModal(true);
   };
 
@@ -451,7 +457,7 @@ const LandingPage = () => {
             </button>
             <button
               className="nav-button primary"
-              onClick={() => setShowRegisterModal(true)}
+              onClick={() => openRegisterWithType(userType)}
             >
               Get Started
             </button>
@@ -488,7 +494,7 @@ const LandingPage = () => {
               </button>
               <button
                 className="mobile-nav-button primary"
-                onClick={() => { setShowRegisterModal(true); setMenuOpen(false); }}
+                onClick={() => { openRegisterWithType(userType); setMenuOpen(false); }}
               >
                 Get Started
               </button>
@@ -526,22 +532,30 @@ const LandingPage = () => {
               </form>
             </div>
 
-            {/* User Type Toggle */}
-            <div className="user-toggle">
-              <button
-                onClick={() => setUserType('shipper')}
-                className={`toggle-btn ${userType === 'shipper' ? 'active' : ''}`}
-              >
+            {/* User Type Selection */}
+            <div className="user-toggle" role="radiogroup" aria-label="Choose account type">
+              <label className={`toggle-option ${userType === 'shipper' ? 'active' : ''}`}>
+                <input
+                  type="radio"
+                  name="heroUserType"
+                  value="shipper"
+                  checked={userType === 'shipper'}
+                  onChange={() => handleHeroUserTypeChange('shipper')}
+                />
                 <Package className="icon" />
-                I Need Transport
-              </button>
-              <button
-                onClick={() => setUserType('transporter')}
-                className={`toggle-btn ${userType === 'transporter' ? 'active' : ''}`}
-              >
+                <span>I Need Transport</span>
+              </label>
+              <label className={`toggle-option ${userType === 'transporter' ? 'active' : ''}`}>
+                <input
+                  type="radio"
+                  name="heroUserType"
+                  value="transporter"
+                  checked={userType === 'transporter'}
+                  onChange={() => handleHeroUserTypeChange('transporter')}
+                />
                 <Truck className="icon" />
-                I Own a Truck
-              </button>
+                <span>I Own a Truck</span>
+              </label>
             </div>
 
             {/* Trust Indicators */}
@@ -698,7 +712,7 @@ const LandingPage = () => {
                 price={formatPlanPrice(plan)}
                 period={formatPlanPeriod(plan)}
                 features={plan.features?.length ? plan.features : ['Subscription benefits configured by admin']}
-                buttonText={Number(plan.price || 0) > 0 ? 'Select Subscription' : 'Contact Sales'}
+                buttonText="Select Subscription"
                 featured={index === 1 || plan.limits?.priorityMatching}
                 onButtonClick={() => handlePlanSignup(plan)}
               />

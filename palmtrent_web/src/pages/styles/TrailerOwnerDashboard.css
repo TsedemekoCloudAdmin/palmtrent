@@ -4,12 +4,14 @@
   grid-template-columns: 250px 1fr;
   background: #f6f7f9;
   color: #172033;
+  min-width: 0;
 }
 
 .fleet-sidebar {
-  background: #172033;
+  background: var(--primary);
   color: #fff;
   padding: 1.25rem;
+  min-width: 0;
 }
 
 .fleet-brand {
@@ -42,6 +44,7 @@
 
 .fleet-main {
   padding: 1.5rem;
+  min-width: 0;
 }
 
 .fleet-header {
@@ -89,7 +92,7 @@
 }
 
 .fleet-primary {
-  background: #2563eb;
+  background: var(--accent);
   color: #fff;
 }
 
@@ -126,7 +129,7 @@
 
 .fleet-stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
   gap: 1rem;
   margin-bottom: 1rem;
 }
@@ -142,10 +145,28 @@
 
 .fleet-stat {
   padding: 1rem;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.fleet-stat:nth-child(4n + 1) {
+  background: var(--platform-card-primary);
+}
+
+.fleet-stat:nth-child(4n + 2) {
+  background: var(--platform-card-secondary);
+}
+
+.fleet-stat:nth-child(4n + 3) {
+  background: var(--platform-card-accent);
+}
+
+.fleet-stat:nth-child(4n + 4) {
+  background: var(--platform-card-clean);
 }
 
 .stat-icon {
-  color: #2563eb;
+  color: var(--primary);
   margin-bottom: 0.5rem;
 }
 
@@ -163,12 +184,13 @@
 
 .fleet-grid-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) 1fr;
+  grid-template-columns: minmax(min(280px, 100%), 360px) minmax(0, 1fr);
   gap: 1rem;
 }
 
 .fleet-panel {
   padding: 1rem;
+  min-width: 0;
 }
 
 .panel-title {
@@ -204,6 +226,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
+  min-width: 0;
 }
 
 .fleet-form label,
@@ -248,9 +271,10 @@
 .rental-row {
   padding: 1rem;
   display: grid;
-  grid-template-columns: 1.4fr 1fr auto auto;
+  grid-template-columns: minmax(0, 1.4fr) minmax(120px, 1fr) auto auto;
   align-items: center;
   gap: 1rem;
+  min-width: 0;
 }
 
 .asset-card h3,
@@ -265,6 +289,7 @@
   margin: 0;
   color: #64748b;
   font-size: 0.85rem;
+  overflow-wrap: anywhere;
 }
 
 .asset-meta,
@@ -383,7 +408,7 @@
 
 .fleet-account-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
   gap: 1rem;
 }
 
@@ -427,7 +452,7 @@
 }
 
 .driver-card {
-  grid-template-columns: 1.3fr 1fr auto;
+  grid-template-columns: minmax(0, 1.3fr) minmax(120px, 1fr) auto;
 }
 
 @media (max-width: 900px) {

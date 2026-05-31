@@ -6,6 +6,34 @@
   --text-dark: #0C2D48;
   --text-light: #666666;
   --white: #ffffff;
+  --primary-soft: rgba(12, 45, 72, 0.1);
+  --secondary-soft: rgba(26, 74, 110, 0.12);
+  --accent-soft: rgba(243, 112, 33, 0.14);
+  --platform-card-primary: linear-gradient(135deg, rgba(12, 45, 72, 0.12) 0%, #ffffff 72%);
+  --platform-card-secondary: linear-gradient(135deg, rgba(26, 74, 110, 0.13) 0%, #ffffff 72%);
+  --platform-card-accent: linear-gradient(135deg, rgba(243, 112, 33, 0.16) 0%, #ffffff 72%);
+  --platform-card-clean: linear-gradient(135deg, rgba(12, 45, 72, 0.05) 0%, #ffffff 72%);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+img,
+video,
+canvas,
+svg {
+  max-width: 100%;
 }
 
 /* Ensure these are available globally */
@@ -137,6 +165,8 @@ body {
   border-radius: 8px;
   background: var(--white);
   box-shadow: 0 18px 48px rgba(12, 45, 72, 0.12);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .public-tracking-back {
@@ -200,7 +230,7 @@ body {
 
 .public-tracking-route {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 14px;
   margin-bottom: 28px;
 }
@@ -212,6 +242,7 @@ body {
   border: 1px solid #dbe4ea;
   border-radius: 8px;
   background: #f8fafc;
+  min-width: 0;
 }
 
 .route-summary-card span {
