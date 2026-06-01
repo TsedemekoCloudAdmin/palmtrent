@@ -222,6 +222,13 @@ exports.updatePayout = async (req, res) => {
           message: `Cannot change payout status from ${payoutToUpdate.status} to ${updates.status}`
         });
       }
+
+      if (['failed', 'cancelled'].includes(updates.status) && !updates.failureReason) {
+        return res.status(400).json({
+          success: false,
+          message: `A reason is required when marking a payout as ${updates.status}`
+        });
+      }
     }
 
     if (updates.status === 'approved') {
@@ -230,6 +237,27 @@ exports.updatePayout = async (req, res) => {
     }
     if (updates.status === 'paid') updates.paidAt = new Date();
     const payout = await Payout.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
+    if (updates.status === 'paid') {
+      await monetizationService.recordLedgerEntryOnce(
+        { sourceType: 'payout', sourceId: payout._id, category: 'payout', status: 'posted' },
+        {
+          sourceType: 'payout',
+          sourceId: payout._id,
+          user: payout.recipient,
+          direction: 'debit',
+          category: 'payout',
+          amount: payout.amount,
+          currency: payout.currency || 'USD',
+          status: 'posted',
+          postedAt: payout.paidAt || new Date(),
+          metadata: {
+            payoutReference: payout.payoutReference,
+            method: payout.method,
+            gatewayReference: payout.gatewayReference
+          }
+        }
+      );
+    }
     await recordAudit({ actor: req.user, action: 'monetization.payout_updated', entityType: 'Payout', entityId: payout._id, req });
     res.json({ success: true, data: payout, message: 'Payout updated' });
   } catch (error) {

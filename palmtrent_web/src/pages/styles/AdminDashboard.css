@@ -1785,7 +1785,8 @@
 }
 
 .builder-form-grid input,
-.builder-form-grid select {
+.builder-form-grid select,
+.builder-form-grid textarea {
   width: 100%;
   min-width: 0;
   padding: 0.78rem 0.85rem;
@@ -1794,13 +1795,57 @@
   background: #fff;
   color: var(--text-dark);
   font: inherit;
+  resize: vertical;
 }
 
 .builder-form-grid input:focus,
-.builder-form-grid select:focus {
+.builder-form-grid select:focus,
+.builder-form-grid textarea:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(243, 112, 33, 0.12);
+}
+
+.builder-field-wide {
+  grid-column: 1 / -1;
+}
+
+.table-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.payout-summary-card {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  border: 1px solid rgba(12, 45, 72, 0.1);
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+}
+
+.payout-summary-card div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.payout-summary-card span {
+  color: var(--text-light);
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.payout-summary-card strong {
+  color: var(--text-dark);
+  overflow-wrap: anywhere;
 }
 
 .builder-checkbox {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -20,7 +20,9 @@ const CorporateAccountSetupScreen = ({ navigation }) => {
   const { updateUser } = useAuth();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState('standard');
+  const [plansLoading, setPlansLoading] = useState(false);
+  const [plans, setPlans] = useState([]);
+  const [selectedPlan, setSelectedPlan] = useState('');
   const [formData, setFormData] = useState({
     companyName: '',
     registrationNumber: '',
@@ -59,6 +61,26 @@ const CorporateAccountSetupScreen = ({ navigation }) => {
     }
   };
 
+  useEffect(() => {
+    const loadPlans = async () => {
+      setPlansLoading(true);
+      try {
+        const response = await apiService.getPublicPlans('corporate');
+        const activePlans = response.data || [];
+        setPlans(activePlans);
+        if (!selectedPlan && activePlans.length > 0) {
+          setSelectedPlan(activePlans[0].code);
+        }
+      } catch (error) {
+        Alert.alert('Plans Unavailable', error.message || 'Unable to load corporate plans.');
+      } finally {
+        setPlansLoading(false);
+      }
+    };
+
+    loadPlans();
+  }, []);
+
   const updateField = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
@@ -92,18 +114,16 @@ const CorporateAccountSetupScreen = ({ navigation }) => {
 
   // Get payment terms based on selected plan
   const getPaymentTerms = (plan) => {
-    const termsMap = {
-      'standard': 'net_30',
-      'premium': 'net_30',
-      'enterprise': 'net_30'
-    };
-    return termsMap[plan] || 'prepaid';
+    const selected = plans.find(item => item.code === plan);
+    if (!selected) return 'net_30';
+    return selected.billingCycle === 'annual' ? 'net_60' : 'net_30';
   };
 
   // Submit corporate account application
   const handleSubmit = async () => {
     setLoading(true);
     try {
+      const selectedPlanData = plans.find(item => item.code === selectedPlan);
       const payload = {
         companyName: formData.companyName,
         registrationNumber: formData.registrationNumber,
@@ -124,6 +144,15 @@ const CorporateAccountSetupScreen = ({ navigation }) => {
       const response = await apiService.registerCorporateAccount(payload);
 
       if (response.success) {
+        let subscriptionWarning = '';
+        if (selectedPlanData) {
+          try {
+            await apiService.createMySubscription(selectedPlanData);
+          } catch (subscriptionError) {
+            subscriptionWarning = `\n\nSubscription could not be selected automatically: ${subscriptionError.message}`;
+          }
+        }
+
         // Update local user data if updateUser is available
         if (updateUser) {
           updateUser({
@@ -136,7 +165,7 @@ const CorporateAccountSetupScreen = ({ navigation }) => {
 
         Alert.alert(
           'Application Submitted',
-          'Your corporate account application has been submitted for review. You will be notified once approved.',
+          `Your corporate account application has been submitted for review. You will be notified once approved.${subscriptionWarning}`,
           [
             {
               text: 'OK',
@@ -319,62 +348,38 @@ const CorporateAccountSetupScreen = ({ navigation }) => {
             <>
               <Text style={styles.stepTitle}>Choose Your Plan</Text>
 
-              <CorporatePlanCard
-                title="Standard"
-                planKey="standard"
-                volume="50-100 shipments/month"
-                price="10%"
-                features={[
-                  'Net 30 payment terms',
-                  'Volume discount',
-                  'Multi-user access',
-                  'Monthly reporting',
-                  'Email support'
-                ]}
-                selected={selectedPlan === 'standard'}
-                onSelect={() => setSelectedPlan('standard')}
-              />
+              {plansLoading ? (
+                <View style={styles.plansLoading}>
+                  <ActivityIndicator color="#0C2D48" />
+                  <Text style={styles.plansLoadingText}>Loading corporate plans...</Text>
+                </View>
+              ) : plans.length > 0 ? (
+                plans.map((plan, index) => (
+                  <CorporatePlanCard
+                    key={plan.id || plan._id || plan.code}
+                    title={plan.name}
+                    volume={`${plan.limits?.monthlyBookings || 0} bookings / ${plan.limits?.corporateSeats || 1} seats`}
+                    price={Number(plan.price || 0) > 0 ? `${plan.currency || 'USD'} ${Number(plan.price).toLocaleString()}` : 'Included'}
+                    billingCycle={plan.billingCycle}
+                    features={plan.features || []}
+                    recommended={index === 1 || Boolean(plan.limits?.apiAccess)}
+                    selected={selectedPlan === plan.code}
+                    onSelect={() => setSelectedPlan(plan.code)}
+                  />
+                ))
+              ) : (
+                <View style={styles.planInfo}>
+                  <Text style={styles.planInfoText}>
+                    No active corporate plans are available. Please contact support before submitting.
+                  </Text>
+                </View>
+              )}
 
-              <CorporatePlanCard
-                title="Premium"
-                planKey="premium"
-                volume="100-200 shipments/month"
-                price="8%"
-                features={[
-                  'Net 60 payment terms',
-                  'Enhanced volume discount',
-                  'Multi-user access',
-                  'Advanced analytics',
-                  'Dedicated account manager',
-                  'Priority support',
-                  'API access'
-                ]}
-                recommended
-                selected={selectedPlan === 'premium'}
-                onSelect={() => setSelectedPlan('premium')}
-              />
 
-              <CorporatePlanCard
-                title="Enterprise"
-                planKey="enterprise"
-                volume="200+ shipments/month"
-                price="Custom"
-                features={[
-                  'Net 90 payment terms',
-                  'Maximum volume discount',
-                  'Unlimited users',
-                  'Full API integration',
-                  'Custom SLAs',
-                  '24/7 support',
-                  'Quarterly business reviews'
-                ]}
-                selected={selectedPlan === 'enterprise'}
-                onSelect={() => setSelectedPlan('enterprise')}
-              />
 
               <View style={styles.planInfo}>
                 <Text style={styles.planInfoText}>
-                  💡 Commission rates are based on shipment value. Contact us for enterprise custom pricing.
+                  Your selected plan comes from the live Palmtrent admin subscription setup.
                 </Text>
               </View>
             </>
@@ -400,6 +405,7 @@ const CorporateAccountSetupScreen = ({ navigation }) => {
               styles.continueButton,
               ((step === 1 && !isStep1Valid()) ||
               (step === 2 && !isStep2Valid()) ||
+              (step === 3 && (!selectedPlan || plansLoading)) ||
               loading)
                 ? styles.continueButtonDisabled : null
             ]}
@@ -413,6 +419,7 @@ const CorporateAccountSetupScreen = ({ navigation }) => {
             disabled={
               (step === 1 && !isStep1Valid()) ||
               (step === 2 && !isStep2Valid()) ||
+              (step === 3 && (!selectedPlan || plansLoading)) ||
               loading
             }
           >
@@ -439,7 +446,7 @@ const DocumentItem = ({ text }) => (
 );
 
 // Corporate Plan Card Component
-const CorporatePlanCard = ({ title, volume, price, features, recommended, selected, onSelect }) => (
+const CorporatePlanCard = ({ title, volume, price, billingCycle, features, recommended, selected, onSelect }) => (
   <TouchableOpacity
     style={[
       styles.planCard,
@@ -469,7 +476,7 @@ const CorporatePlanCard = ({ title, volume, price, features, recommended, select
 
     <View style={styles.planPrice}>
       <Text style={styles.priceText}>{price}</Text>
-      {price !== 'Custom' && <Text style={styles.priceUnit}>commission</Text>}
+      {billingCycle && <Text style={styles.priceUnit}>/{billingCycle}</Text>}
     </View>
 
     <View style={styles.featuresList}>
@@ -711,6 +718,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#92400e',
     textAlign: 'center',
+  },
+  plansLoading: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 28,
+    backgroundColor: 'white',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    marginBottom: 16,
+  },
+  plansLoadingText: {
+    marginTop: 10,
+    color: '#6b7280',
+    fontSize: 14,
   },
   bottomPadding: {
     height: 100,

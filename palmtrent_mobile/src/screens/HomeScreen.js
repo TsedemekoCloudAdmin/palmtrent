@@ -20,6 +20,7 @@ import {
   useTransporterAvailableJobs,
   useShipperDashboardStats,
   useShipperRecentActivity,
+  useCorporateDashboardStats,
   useTrailerOwnerDashboardStats,
   useTrailerOwnerRecentActivity
 } from '../hook/useApi';
@@ -82,7 +83,7 @@ const HomeScreen = ({ navigation }) => {
     data: corporateStats,
     loading: corporateStatsLoading,
     refresh: refreshCorporateStats 
-  } = useShipperDashboardStats(isCorporate);
+  } = useCorporateDashboardStats(isCorporate);
 
   const { 
     data: corporateActivity,
@@ -177,11 +178,13 @@ const HomeScreen = ({ navigation }) => {
         rating: 0
       };
     } else if (isCorporate) {
-      return corporateStats || {
-        activeJobs: 0,
-        pendingPayment: 0,
-        spending: 0,
-        totalShipments: 0
+      const source = corporateStats || {};
+      return {
+        ...source,
+        activeJobs: source.activeBookings || 0,
+        pendingPayment: source.pendingPayment || 0,
+        spending: source.totalSpend || source.spending || 0,
+        totalShipments: source.completedBookings || 0
       };
     } else if (isShipper) {
       return shipperStats || {

@@ -1584,7 +1584,11 @@ const MonetizationView = () => {
   const [showPlanBuilder, setShowPlanBuilder] = useState(false);
   const [showRuleBuilder, setShowRuleBuilder] = useState(false);
   const [showSubscriptionManager, setShowSubscriptionManager] = useState(false);
+  const [showPayoutManager, setShowPayoutManager] = useState(false);
+  const [editingPlan, setEditingPlan] = useState(null);
+  const [editingRule, setEditingRule] = useState(null);
   const [editingSubscription, setEditingSubscription] = useState(null);
+  const [editingPayout, setEditingPayout] = useState(null);
   const [subscriptionUsers, setSubscriptionUsers] = useState([]);
   const [subscriptionForm, setSubscriptionForm] = useState({
     user: '',
@@ -1604,9 +1608,22 @@ const MonetizationView = () => {
     code: 'transporter_custom',
     name: 'Transporter Custom',
     audience: 'transporter',
+    description: '',
     price: 25,
+    currency: 'USD',
     billingCycle: 'monthly',
     trialDays: 0,
+    vehicles: 1,
+    drivers: 1,
+    fleetAssets: 1,
+    corporateSeats: 1,
+    monthlyBookings: 25,
+    apiAccess: false,
+    priorityMatching: false,
+    shipmentCommissionDiscount: 0,
+    rentalCommissionDiscount: 0,
+    features: '',
+    sortOrder: 100,
     active: true
   });
   const [ruleForm, setRuleForm] = useState({
@@ -1615,12 +1632,27 @@ const MonetizationView = () => {
     target: 'shipment',
     audience: 'all',
     paymentMethod: 'all',
+    accountTier: 'all',
     platformFeeRate: 0.12,
     transporterCommissionRate: 0.15,
     rentalCommissionRate: 0.10,
     minimumFee: 5,
+    maximumFee: '',
     priority: 50,
+    effectiveFrom: '',
+    effectiveTo: '',
+    notes: '',
     enabled: true
+  });
+  const [payoutForm, setPayoutForm] = useState({
+    status: 'pending',
+    method: 'bank_transfer',
+    gatewayReference: '',
+    failureReason: '',
+    accountName: '',
+    accountNumber: '',
+    bankName: '',
+    phone: ''
   });
 
   const loadMonetization = async () => {
@@ -1652,6 +1684,131 @@ const MonetizationView = () => {
 
   const getPlanId = (plan) => plan?._id || plan?.id || '';
   const getUserId = (user) => user?._id || user?.id || '';
+
+  const resetPlanForm = () => {
+    setEditingPlan(null);
+    setPlanForm({
+      code: 'transporter_custom',
+      name: 'Transporter Custom',
+      audience: 'transporter',
+      description: '',
+      price: 25,
+      currency: 'USD',
+      billingCycle: 'monthly',
+      trialDays: 0,
+      vehicles: 1,
+      drivers: 1,
+      fleetAssets: 1,
+      corporateSeats: 1,
+      monthlyBookings: 25,
+      apiAccess: false,
+      priorityMatching: false,
+      shipmentCommissionDiscount: 0,
+      rentalCommissionDiscount: 0,
+      features: '',
+      sortOrder: 100,
+      active: true
+    });
+  };
+
+  const openPlanBuilder = (plan = null) => {
+    if (!plan) {
+      resetPlanForm();
+      setShowPlanBuilder(true);
+      return;
+    }
+
+    setEditingPlan(plan);
+    setPlanForm({
+      code: plan.code || '',
+      name: plan.name || '',
+      audience: plan.audience || 'transporter',
+      description: plan.description || '',
+      price: plan.price ?? 0,
+      currency: plan.currency || 'USD',
+      billingCycle: plan.billingCycle || 'monthly',
+      trialDays: plan.trialDays ?? 0,
+      vehicles: plan.limits?.vehicles ?? 1,
+      drivers: plan.limits?.drivers ?? 1,
+      fleetAssets: plan.limits?.fleetAssets ?? 1,
+      corporateSeats: plan.limits?.corporateSeats ?? 1,
+      monthlyBookings: plan.limits?.monthlyBookings ?? 25,
+      apiAccess: Boolean(plan.limits?.apiAccess),
+      priorityMatching: Boolean(plan.limits?.priorityMatching),
+      shipmentCommissionDiscount: plan.commissionAdjustments?.shipmentCommissionDiscount ?? 0,
+      rentalCommissionDiscount: plan.commissionAdjustments?.rentalCommissionDiscount ?? 0,
+      features: Array.isArray(plan.features) ? plan.features.join('\n') : '',
+      sortOrder: plan.sortOrder ?? 100,
+      active: Boolean(plan.active)
+    });
+    setShowPlanBuilder(true);
+  };
+
+  const resetRuleForm = () => {
+    setEditingRule(null);
+    setRuleForm({
+      code: 'shipment_custom',
+      name: 'Shipment Custom Rule',
+      target: 'shipment',
+      audience: 'all',
+      paymentMethod: 'all',
+      accountTier: 'all',
+      platformFeeRate: 0.12,
+      transporterCommissionRate: 0.15,
+      rentalCommissionRate: 0.10,
+      minimumFee: 5,
+      maximumFee: '',
+      priority: 50,
+      effectiveFrom: '',
+      effectiveTo: '',
+      notes: '',
+      enabled: true
+    });
+  };
+
+  const openRuleBuilder = (rule = null) => {
+    if (!rule) {
+      resetRuleForm();
+      setShowRuleBuilder(true);
+      return;
+    }
+
+    setEditingRule(rule);
+    setRuleForm({
+      code: rule.code || '',
+      name: rule.name || '',
+      target: rule.target || 'shipment',
+      audience: rule.audience || 'all',
+      paymentMethod: rule.paymentMethod || 'all',
+      accountTier: rule.accountTier || 'all',
+      platformFeeRate: rule.platformFeeRate ?? 0,
+      transporterCommissionRate: rule.transporterCommissionRate ?? 0,
+      rentalCommissionRate: rule.rentalCommissionRate ?? 0,
+      minimumFee: rule.minimumFee ?? 0,
+      maximumFee: rule.maximumFee ?? '',
+      priority: rule.priority ?? 100,
+      effectiveFrom: formatDateInput(rule.effectiveFrom),
+      effectiveTo: formatDateInput(rule.effectiveTo),
+      notes: rule.notes || '',
+      enabled: Boolean(rule.enabled)
+    });
+    setShowRuleBuilder(true);
+  };
+
+  const openPayoutManager = (payout, nextStatus = '') => {
+    setEditingPayout(payout);
+    setPayoutForm({
+      status: nextStatus || payout.status || 'pending',
+      method: payout.method || 'bank_transfer',
+      gatewayReference: payout.gatewayReference || '',
+      failureReason: payout.failureReason || '',
+      accountName: payout.destination?.accountName || '',
+      accountNumber: payout.destination?.accountNumber || '',
+      bankName: payout.destination?.bankName || '',
+      phone: payout.destination?.phone || ''
+    });
+    setShowPayoutManager(true);
+  };
 
   const loadSubscriptionUsers = async () => {
     try {
@@ -1702,10 +1859,16 @@ const MonetizationView = () => {
 
   const savePlan = async () => {
     try {
-      await adminAPI.savePlan({
+      const payload = {
         ...planForm,
         price: Number(planForm.price),
         trialDays: Number(planForm.trialDays),
+        sortOrder: Number(planForm.sortOrder || 100),
+        currency: String(planForm.currency || 'USD').toUpperCase(),
+        features: String(planForm.features || '')
+          .split('\n')
+          .map(feature => feature.trim())
+          .filter(Boolean),
         limits: {
           vehicles: Number(planForm.vehicles || 1),
           drivers: Number(planForm.drivers || 1),
@@ -1714,11 +1877,18 @@ const MonetizationView = () => {
           monthlyBookings: Number(planForm.monthlyBookings || 25),
           apiAccess: Boolean(planForm.apiAccess),
           priorityMatching: Boolean(planForm.priorityMatching)
+        },
+        commissionAdjustments: {
+          shipmentCommissionDiscount: Number(planForm.shipmentCommissionDiscount || 0),
+          rentalCommissionDiscount: Number(planForm.rentalCommissionDiscount || 0)
         }
-      });
+      };
+      if (editingPlan) await adminAPI.updatePlan(editingPlan._id, payload);
+      else await adminAPI.savePlan(payload);
       await loadMonetization();
-      setMonetizationMessage('Plan saved.');
+      setMonetizationMessage(editingPlan ? 'Plan updated.' : 'Plan saved.');
       setShowPlanBuilder(false);
+      setEditingPlan(null);
     } catch (error) {
       setMonetizationMessage(error.message || 'Unable to save plan.');
     }
@@ -1726,17 +1896,23 @@ const MonetizationView = () => {
 
   const saveCommissionRule = async () => {
     try {
-      await adminAPI.saveCommissionRule({
+      const payload = {
         ...ruleForm,
         platformFeeRate: Number(ruleForm.platformFeeRate),
         transporterCommissionRate: Number(ruleForm.transporterCommissionRate),
         rentalCommissionRate: Number(ruleForm.rentalCommissionRate),
         minimumFee: Number(ruleForm.minimumFee),
-        priority: Number(ruleForm.priority)
-      });
+        maximumFee: ruleForm.maximumFee === '' ? null : Number(ruleForm.maximumFee),
+        priority: Number(ruleForm.priority),
+        effectiveFrom: ruleForm.effectiveFrom || null,
+        effectiveTo: ruleForm.effectiveTo || null
+      };
+      if (editingRule) await adminAPI.updateCommissionRule(editingRule._id, payload);
+      else await adminAPI.saveCommissionRule(payload);
       await loadMonetization();
-      setMonetizationMessage('Commission rule saved.');
+      setMonetizationMessage(editingRule ? 'Commission rule updated.' : 'Commission rule saved.');
       setShowRuleBuilder(false);
+      setEditingRule(null);
     } catch (error) {
       setMonetizationMessage(error.message || 'Unable to save commission rule.');
     }
@@ -1814,9 +1990,35 @@ const MonetizationView = () => {
     }
   };
 
-  const updatePayoutStatus = async (payout, status) => {
-    await adminAPI.updatePayout(payout._id, { status });
-    await loadMonetization();
+  const saveManagedPayout = async () => {
+    if (!editingPayout) return;
+    if (['failed', 'cancelled'].includes(payoutForm.status) && !payoutForm.failureReason.trim()) {
+      setMonetizationMessage(`Add a reason before marking payout ${payoutForm.status}.`);
+      return;
+    }
+
+    const payload = {
+      status: payoutForm.status,
+      method: payoutForm.method,
+      gatewayReference: payoutForm.gatewayReference || undefined,
+      failureReason: payoutForm.failureReason || undefined,
+      destination: {
+        accountName: payoutForm.accountName || undefined,
+        accountNumber: payoutForm.accountNumber || undefined,
+        bankName: payoutForm.bankName || undefined,
+        phone: payoutForm.phone || undefined
+      }
+    };
+
+    try {
+      await adminAPI.updatePayout(editingPayout._id, payload);
+      setMonetizationMessage(`Payout ${editingPayout.payoutReference} updated.`);
+      setShowPayoutManager(false);
+      setEditingPayout(null);
+      await loadMonetization();
+    } catch (error) {
+      setMonetizationMessage(error.message || 'Unable to update payout.');
+    }
   };
 
   const ledgerTotals = (data.ledgerSummary || []).reduce((acc, item) => {
@@ -1870,7 +2072,7 @@ const MonetizationView = () => {
               <h3>Plan Builder</h3>
               <p>Create subscription plans, limits, billing cycle, and availability for each account type.</p>
             </div>
-            <button className="btn-primary" onClick={() => setShowPlanBuilder(true)}>Open Plan Builder</button>
+            <button className="btn-primary" onClick={() => openPlanBuilder()}>Open Plan Builder</button>
           </div>
 
           <div className="builder-action-card">
@@ -1881,7 +2083,7 @@ const MonetizationView = () => {
               <h3>Commission Rule Builder</h3>
               <p>Configure platform fees, transporter commissions, rental rates, payment methods, and priority.</p>
             </div>
-            <button className="btn-primary" onClick={() => setShowRuleBuilder(true)}>Open Rule Builder</button>
+            <button className="btn-primary" onClick={() => openRuleBuilder()}>Open Rule Builder</button>
           </div>
 
           <div className="builder-action-card">
@@ -1909,7 +2111,12 @@ const MonetizationView = () => {
                   <td>{plan.billingCycle}</td>
                   <td>{plan.limits?.vehicles || 0} vehicles / {plan.limits?.fleetAssets || 0} assets / {plan.limits?.corporateSeats || 0} seats</td>
                   <td>{plan.active ? 'Active' : 'Inactive'}</td>
-                  <td><button className="btn-secondary" onClick={() => togglePlan(plan)}>{plan.active ? 'Disable' : 'Enable'}</button></td>
+                  <td>
+                    <div className="table-actions">
+                      <button className="btn-secondary" onClick={() => openPlanBuilder(plan)}>Edit</button>
+                      <button className="btn-secondary" onClick={() => togglePlan(plan)}>{plan.active ? 'Disable' : 'Enable'}</button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1931,7 +2138,12 @@ const MonetizationView = () => {
                   <td>{Number(rule.transporterCommissionRate * 100).toFixed(1)}%</td>
                   <td>{Number(rule.rentalCommissionRate * 100).toFixed(1)}%</td>
                   <td>{rule.enabled ? 'Enabled' : 'Disabled'}</td>
-                  <td><button className="btn-secondary" onClick={() => toggleRule(rule)}>{rule.enabled ? 'Disable' : 'Enable'}</button></td>
+                  <td>
+                    <div className="table-actions">
+                      <button className="btn-secondary" onClick={() => openRuleBuilder(rule)}>Edit</button>
+                      <button className="btn-secondary" onClick={() => toggleRule(rule)}>{rule.enabled ? 'Disable' : 'Enable'}</button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1982,12 +2194,15 @@ const MonetizationView = () => {
                   <td>${payout.amount}</td>
                   <td>{payout.status}</td>
                   <td>
-                    {payout.status === 'pending' && (
-                      <button className="btn-secondary" onClick={() => updatePayoutStatus(payout, 'approved')}>Approve</button>
-                    )}
-                    {['approved', 'processing'].includes(payout.status) && (
-                      <button className="btn-success" onClick={() => updatePayoutStatus(payout, 'paid')}>Mark Paid</button>
-                    )}
+                    <div className="table-actions">
+                      <button className="btn-secondary" onClick={() => openPayoutManager(payout)}>Manage</button>
+                      {payout.status === 'pending' && (
+                        <button className="btn-secondary" onClick={() => openPayoutManager(payout, 'approved')}>Approve</button>
+                      )}
+                      {['approved', 'processing'].includes(payout.status) && (
+                        <button className="btn-success" onClick={() => openPayoutManager(payout, 'paid')}>Mark Paid</button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -1997,15 +2212,102 @@ const MonetizationView = () => {
         </div>
       </div>
 
+      {showPayoutManager && editingPayout && (
+        <div className="modal-overlay" onClick={() => { setShowPayoutManager(false); setEditingPayout(null); }}>
+          <div className="modal-content builder-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header builder-modal-header">
+              <div>
+                <p className="modal-kicker">Payouts</p>
+                <h2>Manage Payout</h2>
+              </div>
+              <button className="modal-close" onClick={() => { setShowPayoutManager(false); setEditingPayout(null); }}>
+                <XCircle className="icon" />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="payout-summary-card">
+                <div>
+                  <span>Reference</span>
+                  <strong>{editingPayout.payoutReference}</strong>
+                </div>
+                <div>
+                  <span>Recipient</span>
+                  <strong>{editingPayout.recipient?.fullName || editingPayout.recipient?.email || 'N/A'}</strong>
+                </div>
+                <div>
+                  <span>Amount</span>
+                  <strong>{editingPayout.currency || 'USD'} {Number(editingPayout.amount || 0).toLocaleString()}</strong>
+                </div>
+                <div>
+                  <span>Current Status</span>
+                  <strong>{editingPayout.status}</strong>
+                </div>
+              </div>
+              <div className="builder-form-grid">
+                <label>
+                  Payout Status
+                  <select value={payoutForm.status} onChange={event => setPayoutForm(form => ({ ...form, status: event.target.value }))}>
+                    <option value="pending">Pending</option>
+                    <option value="approved">Approved</option>
+                    <option value="processing">Processing</option>
+                    <option value="paid">Paid</option>
+                    <option value="failed">Failed</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </label>
+                <label>
+                  Method
+                  <select value={payoutForm.method} onChange={event => setPayoutForm(form => ({ ...form, method: event.target.value }))}>
+                    <option value="bank_transfer">Bank Transfer</option>
+                    <option value="ecocash">EcoCash</option>
+                    <option value="onemoney">OneMoney</option>
+                    <option value="cash">Cash</option>
+                    <option value="openapi_africa">ClicknPay</option>
+                  </select>
+                </label>
+                <label>
+                  Gateway Reference
+                  <input value={payoutForm.gatewayReference} onChange={event => setPayoutForm(form => ({ ...form, gatewayReference: event.target.value }))} placeholder="Processor reference" />
+                </label>
+                <label>
+                  Phone
+                  <input value={payoutForm.phone} onChange={event => setPayoutForm(form => ({ ...form, phone: event.target.value }))} placeholder="+263..." />
+                </label>
+                <label>
+                  Account Name
+                  <input value={payoutForm.accountName} onChange={event => setPayoutForm(form => ({ ...form, accountName: event.target.value }))} placeholder="Recipient name" />
+                </label>
+                <label>
+                  Account Number
+                  <input value={payoutForm.accountNumber} onChange={event => setPayoutForm(form => ({ ...form, accountNumber: event.target.value }))} placeholder="Bank or wallet account" />
+                </label>
+                <label>
+                  Bank Name
+                  <input value={payoutForm.bankName} onChange={event => setPayoutForm(form => ({ ...form, bankName: event.target.value }))} placeholder="Bank name" />
+                </label>
+                <label className="builder-field-wide">
+                  Failure / Cancellation Reason
+                  <textarea value={payoutForm.failureReason} onChange={event => setPayoutForm(form => ({ ...form, failureReason: event.target.value }))} placeholder="Required when failing or cancelling a payout" rows="4" />
+                </label>
+              </div>
+              <div className="modal-actions">
+                <button className="btn-secondary" onClick={() => { setShowPayoutManager(false); setEditingPayout(null); }}>Cancel</button>
+                <button className="btn-primary" onClick={saveManagedPayout}>Save Payout</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showPlanBuilder && (
-        <div className="modal-overlay" onClick={() => setShowPlanBuilder(false)}>
+        <div className="modal-overlay" onClick={() => { setShowPlanBuilder(false); setEditingPlan(null); }}>
           <div className="modal-content builder-modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header builder-modal-header">
               <div>
                 <p className="modal-kicker">Monetization</p>
-                <h2>Plan Builder</h2>
+                <h2>{editingPlan ? 'Edit Plan' : 'Plan Builder'}</h2>
               </div>
-              <button className="modal-close" onClick={() => setShowPlanBuilder(false)}>
+              <button className="modal-close" onClick={() => { setShowPlanBuilder(false); setEditingPlan(null); }}>
                 <XCircle className="icon" />
               </button>
             </div>
@@ -2018,6 +2320,10 @@ const MonetizationView = () => {
                 <label>
                   Plan Name
                   <input value={planForm.name} onChange={e => updatePlanField('name', e.target.value)} placeholder="Transporter Growth" />
+                </label>
+                <label className="builder-field-wide">
+                  Description
+                  <input value={planForm.description} onChange={e => updatePlanField('description', e.target.value)} placeholder="Short public plan description" />
                 </label>
                 <label>
                   Audience
@@ -2039,6 +2345,10 @@ const MonetizationView = () => {
                 <label>
                   Price
                   <input type="number" min="0" value={planForm.price} onChange={e => updatePlanField('price', e.target.value)} placeholder="25" />
+                </label>
+                <label>
+                  Currency
+                  <input value={planForm.currency} onChange={e => updatePlanField('currency', e.target.value.toUpperCase())} placeholder="USD" />
                 </label>
                 <label>
                   Trial Days
@@ -2064,6 +2374,22 @@ const MonetizationView = () => {
                   Monthly Bookings
                   <input type="number" min="0" value={planForm.monthlyBookings || ''} onChange={e => updatePlanField('monthlyBookings', e.target.value)} placeholder="25" />
                 </label>
+                <label>
+                  Shipment Commission Discount
+                  <input type="number" min="0" step="0.01" value={planForm.shipmentCommissionDiscount || ''} onChange={e => updatePlanField('shipmentCommissionDiscount', e.target.value)} placeholder="0.03" />
+                </label>
+                <label>
+                  Rental Commission Discount
+                  <input type="number" min="0" step="0.01" value={planForm.rentalCommissionDiscount || ''} onChange={e => updatePlanField('rentalCommissionDiscount', e.target.value)} placeholder="0.02" />
+                </label>
+                <label>
+                  Sort Order
+                  <input type="number" min="0" value={planForm.sortOrder || ''} onChange={e => updatePlanField('sortOrder', e.target.value)} placeholder="100" />
+                </label>
+                <label className="builder-field-wide">
+                  Features
+                  <textarea value={planForm.features || ''} onChange={e => updatePlanField('features', e.target.value)} placeholder="One feature per line" rows="4" />
+                </label>
                 <label className="builder-checkbox">
                   <input type="checkbox" checked={Boolean(planForm.priorityMatching)} onChange={e => updatePlanField('priorityMatching', e.target.checked)} />
                   Priority matching
@@ -2078,8 +2404,8 @@ const MonetizationView = () => {
                 </label>
               </div>
               <div className="modal-actions">
-                <button className="btn-secondary" onClick={() => setShowPlanBuilder(false)}>Cancel</button>
-                <button className="btn-primary" onClick={savePlan}>Save Plan</button>
+                <button className="btn-secondary" onClick={() => { setShowPlanBuilder(false); setEditingPlan(null); }}>Cancel</button>
+                <button className="btn-primary" onClick={savePlan}>{editingPlan ? 'Update Plan' : 'Save Plan'}</button>
               </div>
             </div>
           </div>
@@ -2087,14 +2413,14 @@ const MonetizationView = () => {
       )}
 
       {showRuleBuilder && (
-        <div className="modal-overlay" onClick={() => setShowRuleBuilder(false)}>
+        <div className="modal-overlay" onClick={() => { setShowRuleBuilder(false); setEditingRule(null); }}>
           <div className="modal-content builder-modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header builder-modal-header">
               <div>
                 <p className="modal-kicker">Monetization</p>
-                <h2>Commission Rule Builder</h2>
+                <h2>{editingRule ? 'Edit Commission Rule' : 'Commission Rule Builder'}</h2>
               </div>
-              <button className="modal-close" onClick={() => setShowRuleBuilder(false)}>
+              <button className="modal-close" onClick={() => { setShowRuleBuilder(false); setEditingRule(null); }}>
                 <XCircle className="icon" />
               </button>
             </div>
@@ -2131,6 +2457,10 @@ const MonetizationView = () => {
                   <input value={ruleForm.paymentMethod} onChange={e => updateRuleField('paymentMethod', e.target.value)} placeholder="all/openapi_africa/cash_on_delivery" />
                 </label>
                 <label>
+                  Account Tier
+                  <input value={ruleForm.accountTier} onChange={e => updateRuleField('accountTier', e.target.value)} placeholder="all/transporter_growth" />
+                </label>
+                <label>
                   Platform Fee Rate
                   <input type="number" step="0.01" min="0" value={ruleForm.platformFeeRate} onChange={e => updateRuleField('platformFeeRate', e.target.value)} placeholder="0.12" />
                 </label>
@@ -2147,8 +2477,24 @@ const MonetizationView = () => {
                   <input type="number" min="0" value={ruleForm.minimumFee} onChange={e => updateRuleField('minimumFee', e.target.value)} placeholder="5" />
                 </label>
                 <label>
+                  Maximum Fee
+                  <input type="number" min="0" value={ruleForm.maximumFee} onChange={e => updateRuleField('maximumFee', e.target.value)} placeholder="Optional cap" />
+                </label>
+                <label>
                   Priority
                   <input type="number" min="0" value={ruleForm.priority} onChange={e => updateRuleField('priority', e.target.value)} placeholder="50" />
+                </label>
+                <label>
+                  Effective From
+                  <input type="date" value={ruleForm.effectiveFrom} onChange={e => updateRuleField('effectiveFrom', e.target.value)} />
+                </label>
+                <label>
+                  Effective To
+                  <input type="date" value={ruleForm.effectiveTo} onChange={e => updateRuleField('effectiveTo', e.target.value)} />
+                </label>
+                <label className="builder-field-wide">
+                  Notes
+                  <textarea value={ruleForm.notes} onChange={e => updateRuleField('notes', e.target.value)} placeholder="Internal notes for this rule" rows="4" />
                 </label>
                 <label className="builder-checkbox">
                   <input type="checkbox" checked={Boolean(ruleForm.enabled)} onChange={e => updateRuleField('enabled', e.target.checked)} />
@@ -2156,8 +2502,8 @@ const MonetizationView = () => {
                 </label>
               </div>
               <div className="modal-actions">
-                <button className="btn-secondary" onClick={() => setShowRuleBuilder(false)}>Cancel</button>
-                <button className="btn-primary" onClick={saveCommissionRule}>Save Commission Rule</button>
+                <button className="btn-secondary" onClick={() => { setShowRuleBuilder(false); setEditingRule(null); }}>Cancel</button>
+                <button className="btn-primary" onClick={saveCommissionRule}>{editingRule ? 'Update Rule' : 'Save Commission Rule'}</button>
               </div>
             </div>
           </div>

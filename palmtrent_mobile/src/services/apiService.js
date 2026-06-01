@@ -292,7 +292,7 @@ class ApiService {
   // Health check
   async healthCheck() {
     try {
-      const response = await this.request('/health');
+      const response = await this.request('/ops/health');
       return response;
     } catch (error) {
       console.error('Health check failed:', error);
@@ -577,6 +577,33 @@ class ApiService {
 
   async getCorporateDashboardStats() {
     return this.request('/corporate/dashboard-stats');
+  }
+
+  async getPublicPlans(audience = null) {
+    const response = await this.request('/public/plans');
+    if (!audience) return response;
+
+    const plans = response.data || [];
+    return {
+      ...response,
+      data: plans.filter(plan => {
+        if (plan.audience === audience) return true;
+        return audience === 'transporter' && plan.audience === 'trailer_owner';
+      })
+    };
+  }
+
+  async getMySubscription() {
+    return this.request('/public/subscriptions/me');
+  }
+
+  async createMySubscription(plan) {
+    const planId = typeof plan === 'object' ? plan.id || plan._id : plan;
+    const planCode = typeof plan === 'object' ? plan.code : undefined;
+    return this.request('/public/subscriptions', {
+      method: 'POST',
+      body: JSON.stringify({ planId, planCode }),
+    });
   }
 
   async getCorporateUsers() {

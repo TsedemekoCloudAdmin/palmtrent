@@ -106,8 +106,9 @@ export const useApi = (apiFunction, immediate = true, initialData = null) => {
   };
 };
 
-// Safe wrapper that handles 404 errors gracefully
-export const useSafeApi = (apiFunction, immediate = true, initialData = null, shouldExecute = true) => {
+// Safe wrapper for optional requests. Missing endpoints are only swallowed when
+// explicitly enabled by the caller.
+export const useSafeApi = (apiFunction, immediate = true, initialData = null, shouldExecute = true, allowMissingEndpoint = false) => {
   const [data, setData] = useState(initialData);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -140,7 +141,7 @@ export const useSafeApi = (apiFunction, immediate = true, initialData = null, sh
     } catch (err) {
       if (isMounted.current) {
         // Handle 404 gracefully - return default data
-        if (err.message?.includes('not found') || err.message?.includes('Resource not found')) {
+        if (allowMissingEndpoint && (err.message?.includes('not found') || err.message?.includes('Resource not found'))) {
           setData(initialData);
           setError(null); // Don't show error for missing endpoints
           console.log(`Endpoint not available: ${apiFunction.name}. Using default data.`);
@@ -155,7 +156,7 @@ export const useSafeApi = (apiFunction, immediate = true, initialData = null, sh
         setLoading(false);
       }
     }
-  }, [apiFunction, shouldExecute, initialData, immediate]);
+  }, [apiFunction, shouldExecute, initialData, immediate, allowMissingEndpoint]);
 
   const refresh = useCallback(async (...args) => {
     hasExecuted.current = false;
@@ -205,9 +206,9 @@ export const useBookings = (filters = {}, immediate = true) => {
 
 export const useCorporateDashboardStats = (immediate = true) => {
   return useApi(
-    () => apiService.getDashboardStats(),
+    () => apiService.getCorporateDashboardStats(),
     immediate,
-    { activeJobs: 0, pendingPayment: 0, earnings: 0 }
+    { activeBookings: 0, completedBookings: 0, totalSpend: 0, onTimeRate: '0%' }
   );
 };
 

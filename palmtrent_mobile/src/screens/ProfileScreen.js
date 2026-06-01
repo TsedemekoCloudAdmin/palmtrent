@@ -27,7 +27,11 @@ const ProfileScreen = ({ navigation }) => {
   const [stats, setStats] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [editedProfile, setEditedProfile] = useState({});
+  const [plans, setPlans] = useState([]);
+  const [subscription, setSubscription] = useState(null);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(false);
   const [passwords, setPasswords] = useState({
     currentPassword: '',
     newPassword: '',
@@ -73,20 +77,34 @@ const ProfileScreen = ({ navigation }) => {
     }
   }, [user?.userType]);
 
+  const fetchSubscriptionData = useCallback(async () => {
+    try {
+      const audience = user?.userType || profileData?.userType;
+      const [plansResponse, subscriptionResponse] = await Promise.all([
+        apiService.getPublicPlans(audience),
+        apiService.getMySubscription()
+      ]);
+      setPlans(plansResponse.data || []);
+      setSubscription(subscriptionResponse.data || null);
+    } catch (error) {
+      console.error('Fetch subscription error:', error);
+    }
+  }, [profileData?.userType, user?.userType]);
+
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      await Promise.all([fetchProfile(), fetchStats()]);
+      await Promise.all([fetchProfile(), fetchStats(), fetchSubscriptionData()]);
       setLoading(false);
     };
     loadData();
-  }, [fetchProfile, fetchStats]);
+  }, [fetchProfile, fetchStats, fetchSubscriptionData]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([fetchProfile(), fetchStats()]);
+    await Promise.all([fetchProfile(), fetchStats(), fetchSubscriptionData()]);
     setRefreshing(false);
-  }, [fetchProfile, fetchStats]);
+  }, [fetchProfile, fetchStats, fetchSubscriptionData]);
 
   const handleSaveProfile = async () => {
     setSaving(true);
@@ -184,6 +202,37 @@ const ProfileScreen = ({ navigation }) => {
     } catch (error) {
       console.error('Update preference error:', error);
     }
+  };
+
+  const selectSubscriptionPlan = async (plan) => {
+    setSubscriptionLoading(true);
+    try {
+      const response = await apiService.createMySubscription(plan);
+      if (response.success) {
+        setSubscription(response.data);
+        setShowSubscriptionModal(false);
+        Alert.alert('Subscription Updated', response.message || 'Your subscription has been updated.');
+      }
+    } catch (error) {
+      Alert.alert('Subscription Error', error.message || 'Unable to select subscription plan.');
+    } finally {
+      setSubscriptionLoading(false);
+    }
+  };
+
+  const formatPlanPrice = (plan) => {
+    const price = Number(plan?.price || 0);
+    const currency = plan?.currency || 'USD';
+    if (price <= 0) return 'Included';
+    return `${currency} ${price.toLocaleString()} / ${plan.billingCycle || 'month'}`;
+  };
+
+  const getSubscriptionStatus = () => {
+    if (!subscription) return 'No active subscription';
+    const planName = subscription.plan?.name || 'Selected plan';
+    const status = subscription.status || 'active';
+    const paymentStatus = subscription.payment?.status || 'pending';
+    return `${planName} - ${status} - payment ${paymentStatus}`;
   };
 
   const getUserTypeLabel = (type) => {
@@ -411,6 +460,39 @@ const ProfileScreen = ({ navigation }) => {
           </View>
         )}
 
+        {/* Subscription */}
+        {!editMode && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>Subscription</Text>
+              <TouchableOpacity
+                style={styles.smallPrimaryButton}
+                onPress={() => setShowSubscriptionModal(true)}
+              >
+                <Text style={styles.smallPrimaryButtonText}>
+                  {subscription ? 'Change' : 'Select'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.subscriptionCard}>
+              <View style={styles.subscriptionIcon}>
+                <MaterialIcons name="workspace-premium" size={22} color="#F37021" />
+              </View>
+              <View style={styles.subscriptionContent}>
+                <Text style={styles.subscriptionTitle}>
+                  {subscription?.plan?.name || 'Choose a subscription'}
+                </Text>
+                <Text style={styles.subscriptionMeta}>{getSubscriptionStatus()}</Text>
+                {subscription?.nextBillingAt && (
+                  <Text style={styles.subscriptionMeta}>
+                    Next billing: {new Date(subscription.nextBillingAt).toLocaleDateString()}
+                  </Text>
+                )}
+              </View>
+            </View>
+          </View>
+        )}
+
         {/* Contact Info */}
         {!editMode && (
           <View style={styles.section}>
@@ -576,6 +658,60 @@ const ProfileScreen = ({ navigation }) => {
                 <Text style={styles.confirmButtonText}>
                   {saving ? 'Changing...' : 'Change Password'}
                 </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Subscription Modal */}
+      <Modal
+        visible={showSubscriptionModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowSubscriptionModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, styles.subscriptionModalContent]}>
+            <Text style={styles.modalTitle}>Select Subscription</Text>
+            <ScrollView style={styles.planList} showsVerticalScrollIndicator={false}>
+              {plans.map((plan) => {
+                const selected = (subscription?.plan?._id || subscription?.plan?.id) === (plan.id || plan._id);
+                return (
+                  <TouchableOpacity
+                    key={plan.id || plan._id || plan.code}
+                    style={[styles.mobilePlanCard, selected && styles.mobilePlanCardSelected]}
+                    onPress={() => selectSubscriptionPlan(plan)}
+                    disabled={subscriptionLoading}
+                  >
+                    <View style={styles.mobilePlanHeader}>
+                      <View>
+                        <Text style={styles.mobilePlanTitle}>{plan.name}</Text>
+                        <Text style={styles.mobilePlanPrice}>{formatPlanPrice(plan)}</Text>
+                      </View>
+                      {selected && <MaterialIcons name="check-circle" size={24} color="#16a34a" />}
+                    </View>
+                    {!!plan.description && <Text style={styles.mobilePlanDescription}>{plan.description}</Text>}
+                    {(plan.features || []).slice(0, 5).map((feature, index) => (
+                      <View key={`${plan.code}-${index}`} style={styles.mobilePlanFeature}>
+                        <MaterialIcons name="check" size={16} color="#F37021" />
+                        <Text style={styles.mobilePlanFeatureText}>{feature}</Text>
+                      </View>
+                    ))}
+                  </TouchableOpacity>
+                );
+              })}
+              {!plans.length && (
+                <Text style={styles.emptyPlanText}>No active plans are available for this account type.</Text>
+              )}
+            </ScrollView>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setShowSubscriptionModal(false)}
+                disabled={subscriptionLoading}
+              >
+                <Text style={styles.cancelButtonText}>Close</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -794,6 +930,56 @@ const styles = StyleSheet.create({
     color: '#1f2937',
     marginBottom: 16,
   },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 12,
+  },
+  smallPrimaryButton: {
+    backgroundColor: '#0C2D48',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  smallPrimaryButtonText: {
+    color: 'white',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  subscriptionCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    padding: 14,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+  },
+  subscriptionIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: '#fff7ed',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  subscriptionContent: {
+    flex: 1,
+  },
+  subscriptionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1f2937',
+    marginBottom: 4,
+  },
+  subscriptionMeta: {
+    fontSize: 13,
+    color: '#6b7280',
+    lineHeight: 18,
+  },
   statsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -930,6 +1116,66 @@ const styles = StyleSheet.create({
     padding: 24,
     width: '90%',
     maxWidth: 400,
+  },
+  subscriptionModalContent: {
+    maxHeight: '82%',
+  },
+  planList: {
+    maxHeight: 520,
+  },
+  mobilePlanCard: {
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    backgroundColor: '#f9fafb',
+    marginBottom: 12,
+  },
+  mobilePlanCardSelected: {
+    borderColor: '#16a34a',
+    backgroundColor: '#f0fdf4',
+  },
+  mobilePlanHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 8,
+  },
+  mobilePlanTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#1f2937',
+  },
+  mobilePlanPrice: {
+    fontSize: 14,
+    color: '#0C2D48',
+    fontWeight: '700',
+    marginTop: 3,
+  },
+  mobilePlanDescription: {
+    fontSize: 13,
+    color: '#6b7280',
+    lineHeight: 18,
+    marginBottom: 10,
+  },
+  mobilePlanFeature: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginTop: 6,
+  },
+  mobilePlanFeatureText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#374151',
+    lineHeight: 18,
+  },
+  emptyPlanText: {
+    textAlign: 'center',
+    color: '#6b7280',
+    fontSize: 14,
+    paddingVertical: 24,
   },
   modalTitle: {
     fontSize: 20,

@@ -1,7 +1,8 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import SOSButton from '../screens/components/SOSButton';
 
 // Transporter Screens
 import HomeScreen from '../screens/HomeScreen';
@@ -12,26 +13,9 @@ import PendingJobsScreen from '../screens/transporter/PendingJobsScreen';
 import FleetDashboardScreen from '../screens/transporter/FleetDashboardScreen';
 
 const Tab = createBottomTabNavigator();
-
-// Custom Emergency Button Component
-const EmergencyButton = ({ onPress }) => (
-  <TouchableOpacity
-    style={styles.emergencyButton}
-    onPress={onPress}
-    activeOpacity={0.7}
-  >
-    <View style={styles.emergencyButtonInner}>
-      <MaterialIcons name="warning" size={24} color="white" />
-    </View>
-  </TouchableOpacity>
-);
+const EmergencyTabScreen = () => null;
 
 const TransporterTabs = () => {
-  const handleEmergency = () => {
-    // Handle emergency action
-    console.log('Emergency button pressed');
-  };
-
   return (
     <Tab.Navigator
       screenOptions={{
@@ -71,10 +55,10 @@ const TransporterTabs = () => {
       />
       <Tab.Screen 
         name="Emergency" 
-        component={View} // Dummy component
+        component={EmergencyTabScreen}
         options={{
           tabBarButton: () => (
-            <EmergencyButton onPress={handleEmergency} />
+            <SOSButton size="small" showLabel={false} style={styles.emergencyButton} />
           ),
           title: '',
         }}
@@ -117,16 +101,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
-  },
-  emergencyButtonInner: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#dc2626',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3,
-    borderColor: 'white',
   },
 });
 
