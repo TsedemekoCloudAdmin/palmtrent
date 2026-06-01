@@ -22,6 +22,17 @@
   margin-bottom: 2rem;
 }
 
+.fleet-brand-logo {
+  width: clamp(42px, 4vw, 56px);
+  height: clamp(42px, 4vw, 56px);
+  object-fit: contain;
+  display: block;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
 .fleet-sidebar button {
   width: 100%;
   display: flex;

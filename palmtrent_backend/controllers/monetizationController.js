@@ -1,4 +1,5 @@
 const Plan = require('../models/Plan');
+const User = require('../models/User');
 const Subscription = require('../models/Subscription');
 const CommissionRule = require('../models/CommissionRule');
 const PlatformLedger = require('../models/PlatformLedger');
@@ -103,27 +104,51 @@ exports.createSubscription = async (req, res) => {
   try {
     const plan = await Plan.findById(req.body.plan);
     if (!plan) return res.status(404).json({ success: false, message: 'Plan not found' });
+    const user = await User.findById(req.body.user);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
     const now = new Date();
     const periodEnd = new Date(now);
     if (plan.billingCycle === 'annual') periodEnd.setFullYear(periodEnd.getFullYear() + 1);
     else if (plan.billingCycle === 'quarterly') periodEnd.setMonth(periodEnd.getMonth() + 3);
     else periodEnd.setMonth(periodEnd.getMonth() + 1);
 
+    const currentPeriodStart = req.body.currentPeriodStart ? new Date(req.body.currentPeriodStart) : now;
+    const currentPeriodEnd = req.body.currentPeriodEnd ? new Date(req.body.currentPeriodEnd) : periodEnd;
+    const nextBillingAt = req.body.nextBillingAt ? new Date(req.body.nextBillingAt) : currentPeriodEnd;
+    const amount = req.body.amount !== undefined ? Number(req.body.amount) : plan.price;
+    const payment = req.body.payment || {};
+
     const subscription = await Subscription.create({
-      user: req.body.user,
-      corporateAccount: req.body.corporateAccount,
+      user: user._id,
+      corporateAccount: req.body.corporateAccount || user.corporateAccount,
       plan: plan._id,
-      audience: plan.audience,
-      status: plan.trialDays > 0 ? 'trialing' : 'active',
-      billingCycle: plan.billingCycle,
-      amount: plan.price,
-      currency: plan.currency,
-      currentPeriodStart: now,
-      currentPeriodEnd: periodEnd,
-      nextBillingAt: periodEnd,
-      trialEndsAt: plan.trialDays > 0 ? new Date(now.getTime() + plan.trialDays * 24 * 60 * 60 * 1000) : undefined,
-      payment: { status: plan.price > 0 ? 'pending' : 'not_required' },
-      seats: { included: plan.limits?.corporateSeats || 1, used: 1 }
+      audience: req.body.audience || plan.audience,
+      status: req.body.status || (plan.trialDays > 0 ? 'trialing' : 'active'),
+      billingCycle: req.body.billingCycle || plan.billingCycle,
+      amount,
+      currency: req.body.currency || plan.currency,
+      currentPeriodStart,
+      currentPeriodEnd,
+      nextBillingAt,
+      trialEndsAt: req.body.trialEndsAt
+        ? new Date(req.body.trialEndsAt)
+        : plan.trialDays > 0 ? new Date(now.getTime() + plan.trialDays * 24 * 60 * 60 * 1000) : undefined,
+      payment: {
+        status: payment.status || (amount > 0 ? 'pending' : 'not_required'),
+        method: payment.method,
+        reference: payment.reference,
+        paidAt: payment.paidAt ? new Date(payment.paidAt) : undefined
+      },
+      seats: {
+        included: Number(req.body.seats?.included || plan.limits?.corporateSeats || 1),
+        used: Number(req.body.seats?.used || 1),
+        extraSeatPrice: Number(req.body.seats?.extraSeatPrice || 0)
+      },
+      metadata: {
+        ...(req.body.metadata || {}),
+        source: 'admin_console',
+        assignedBy: req.user._id
+      }
     });
     if (subscription.payment?.status === 'paid') {
       await recordSubscriptionRevenue(subscription);

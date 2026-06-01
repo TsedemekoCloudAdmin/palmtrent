@@ -82,6 +82,10 @@ exports.getDashboardStats = async (req, res) => {
     // Claims statistics
     const pendingClaims = await InsuranceClaim.countDocuments({ status: 'pending' });
     const totalClaims = await InsuranceClaim.countDocuments();
+    const unattendedDisputes = await Booking.countDocuments({
+      hasDispute: true,
+      'dispute.status': { $in: ['open', 'investigating'] }
+    });
 
     // Calculate growth percentages
     const bookingGrowth = bookingsLastMonth > 0
@@ -124,7 +128,8 @@ exports.getDashboardStats = async (req, res) => {
         },
         claims: {
           total: totalClaims,
-          pending: pendingClaims
+          pending: pendingClaims,
+          unattendedDisputes
         }
       }
     });
@@ -570,8 +575,8 @@ exports.getDisputes = async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const bookings = await Booking.find(query)
-      .populate('shipper', 'name email phone')
-      .populate('transporter', 'name email phone')
+      .populate('shipper', 'fullName name email phone')
+      .populate('transporter', 'fullName name email phone')
       .sort('-dispute.createdAt')
       .skip(skip)
       .limit(parseInt(limit));

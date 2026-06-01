@@ -19,6 +19,7 @@ import {
   resolveApiUrl,
   downloadAuthorizedBlob
 } from '../services/api';
+import logo from '../assets/logo3.png';
 import './styles/ShipperDashboard.css';
 
 const loadSocketService = () => import('../services/socket').then(module => module.default);
@@ -184,7 +185,9 @@ export const ShipperDashboard = () => {
         <div className="shipper-sidebar-header">
           {sidebarOpen && (
             <div className="shipper-sidebar-brand">
-              <div className="shipper-brand-logo"><Truck className="icon" /></div>
+              <div className="shipper-brand-logo">
+                <img src={logo} alt="Palmtrent" />
+              </div>
               <span className="shipper-brand-text">Palmtrent</span>
             </div>
           )}

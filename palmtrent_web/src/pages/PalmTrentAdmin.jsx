@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { adminAPI, authAPI, trackingAPI } from '../services/api';
 import './styles/AdminDashboard.css';
+import logo from '../assets/logo3.png';
 
 const downloadCsv = (filename, rows) => {
   const data = rows.length ? rows : [{ message: 'No records available' }];
@@ -45,6 +46,22 @@ const AdminDashboard = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [jobsUserFilter, setJobsUserFilter] = useState(null);
+  const [unattendedDisputes, setUnattendedDisputes] = useState(0);
+
+  const loadUnattendedDisputes = useCallback(async () => {
+    try {
+      const response = await adminAPI.getDashboardStats();
+      const count = Number(response.data?.claims?.unattendedDisputes || 0);
+      setUnattendedDisputes(count);
+    } catch (error) {
+      console.error('Unable to load dispute badge count:', error);
+      setUnattendedDisputes(0);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadUnattendedDisputes();
+  }, [activeTab, loadUnattendedDisputes]);
 
   const handleNavClick = (tab) => {
     setActiveTab(tab);
@@ -65,7 +82,7 @@ const AdminDashboard = () => {
       case 'monetization':
         return <MonetizationView />;
       case 'disputes':
-        return <DisputesView />;
+        return <DisputesView onDisputesChanged={loadUnattendedDisputes} />;
       case 'reviews':
         return <ReviewsView />;
       case 'support':
@@ -85,7 +102,7 @@ const AdminDashboard = () => {
           {sidebarOpen && (
             <div className="sidebar-brand">
               <div className="brand-logo">
-                <Truck className="icon" />
+                <img src={logo} alt="Palmtrent" />
               </div>
               <span className="brand-text">Palmtrent</span>
             </div>
@@ -144,7 +161,7 @@ const AdminDashboard = () => {
           <NavItem
             icon={<AlertCircle />}
             label="Disputes"
-            badge="2"
+            badge={unattendedDisputes > 0 ? unattendedDisputes : null}
             active={activeTab === 'disputes'}
             sidebarOpen={sidebarOpen}
             onClick={() => handleNavClick('disputes')}
@@ -211,7 +228,7 @@ const DashboardView = ({ timeRange, setTimeRange, setActiveTab }) => {
               bookings: data.bookings?.thisMonth || 0,
               activeJobs: data.bookings?.active || 0,
               newUsers: data.users?.newThisMonth || 0,
-              disputes: data.claims?.pending || 0
+              disputes: data.claims?.unattendedDisputes || 0
             },
             growth: {
               revenue: data.revenue?.growth || 0,
@@ -1286,7 +1303,7 @@ const PaymentsView = () => {
 };
 
 // ============ Disputes View ============
-const DisputesView = () => {
+const DisputesView = ({ onDisputesChanged }) => {
   const [disputes, setDisputes] = useState([]);
   const [filterStatus, setFilterStatus] = useState('all');
   const [selectedDispute, setSelectedDispute] = useState(null);
@@ -1312,12 +1329,13 @@ const DisputesView = () => {
         resolution: booking.dispute?.resolution,
         createdAt: booking.dispute?.createdAt || booking.updatedAt
       })));
+      onDisputesChanged?.();
     } catch (error) {
       console.error('Failed to load disputes:', error);
       setDisputes([]);
       setDisputeMessage(error.message || 'Unable to load disputes.');
     }
-  }, [filterStatus]);
+  }, [filterStatus, onDisputesChanged]);
 
   useEffect(() => {
     loadDisputes();
@@ -1366,6 +1384,7 @@ const DisputesView = () => {
       setSelectedDispute(null);
       setResolutionText('');
       await loadDisputes();
+      onDisputesChanged?.();
       setDisputeMessage(`Dispute ${dispute.bookingRef || dispute.id} resolved.`);
     } catch (error) {
       setDisputeMessage(error.message || 'Unable to resolve dispute.');
@@ -1403,11 +1422,14 @@ const DisputesView = () => {
           <StatCard title="Open" value={disputes.filter(d => d.status === 'open').length} icon={<AlertCircle className="icon" />} color="error" />
           <StatCard title="Investigating" value={disputes.filter(d => d.status === 'investigating').length} icon={<Search className="icon" />} color="accent" />
           <StatCard title="Resolved" value={disputes.filter(d => d.status === 'resolved').length} icon={<CheckCircle className="icon" />} color="success" />
-          <StatCard title="Avg Resolution Time" value="2.5 days" icon={<Clock className="icon" />} color="primary" />
+          <StatCard title="Unattended" value={disputes.filter(d => !['resolved', 'closed'].includes(d.status)).length} icon={<Clock className="icon" />} color="primary" />
         </div>
 
         {/* Disputes List */}
         <div className="disputes-list">
+          {!filteredDisputes.length && (
+            <div className="empty-state">No disputes match the selected status.</div>
+          )}
           {filteredDisputes.map((dispute) => (
             <div key={dispute.id} className="dispute-card">
               <div className="dispute-header">
@@ -1559,6 +1581,25 @@ const MonetizationView = () => {
     payouts: []
   });
   const [monetizationMessage, setMonetizationMessage] = useState('');
+  const [showPlanBuilder, setShowPlanBuilder] = useState(false);
+  const [showRuleBuilder, setShowRuleBuilder] = useState(false);
+  const [showSubscriptionManager, setShowSubscriptionManager] = useState(false);
+  const [editingSubscription, setEditingSubscription] = useState(null);
+  const [subscriptionUsers, setSubscriptionUsers] = useState([]);
+  const [subscriptionForm, setSubscriptionForm] = useState({
+    user: '',
+    plan: '',
+    status: 'active',
+    paymentStatus: 'pending',
+    paymentMethod: '',
+    paymentReference: '',
+    amount: '',
+    currency: 'USD',
+    currentPeriodEnd: '',
+    nextBillingAt: '',
+    seatsIncluded: 1,
+    seatsUsed: 1
+  });
   const [planForm, setPlanForm] = useState({
     code: 'transporter_custom',
     name: 'Transporter Custom',
@@ -1601,6 +1642,63 @@ const MonetizationView = () => {
 
   const updatePlanField = (field, value) => setPlanForm(form => ({ ...form, [field]: value }));
   const updateRuleField = (field, value) => setRuleForm(form => ({ ...form, [field]: value }));
+  const updateSubscriptionField = (field, value) => setSubscriptionForm(form => ({ ...form, [field]: value }));
+
+  const formatDateInput = (value) => {
+    if (!value) return '';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10);
+  };
+
+  const getPlanId = (plan) => plan?._id || plan?.id || '';
+  const getUserId = (user) => user?._id || user?.id || '';
+
+  const loadSubscriptionUsers = async () => {
+    try {
+      const response = await adminAPI.getUsers({ limit: 200 });
+      setSubscriptionUsers(response.data || []);
+    } catch (error) {
+      setSubscriptionUsers([]);
+      setMonetizationMessage(error.message || 'Unable to load users for subscription management.');
+    }
+  };
+
+  const openSubscriptionManager = async (subscription = null) => {
+    const plans = data.plans || [];
+    const selectedPlan = subscription?.plan || plans[0] || {};
+    const defaultPeriodEnd = new Date();
+    defaultPeriodEnd.setMonth(defaultPeriodEnd.getMonth() + 1);
+
+    setEditingSubscription(subscription);
+    setSubscriptionForm({
+      user: getUserId(subscription?.user),
+      plan: getPlanId(selectedPlan),
+      status: subscription?.status || 'active',
+      paymentStatus: subscription?.payment?.status || (Number(selectedPlan.price || 0) > 0 ? 'pending' : 'not_required'),
+      paymentMethod: subscription?.payment?.method || '',
+      paymentReference: subscription?.payment?.reference || '',
+      amount: subscription?.amount ?? selectedPlan.price ?? '',
+      currency: subscription?.currency || selectedPlan.currency || 'USD',
+      currentPeriodEnd: formatDateInput(subscription?.currentPeriodEnd || defaultPeriodEnd),
+      nextBillingAt: formatDateInput(subscription?.nextBillingAt || subscription?.currentPeriodEnd || defaultPeriodEnd),
+      seatsIncluded: subscription?.seats?.included || selectedPlan.limits?.corporateSeats || 1,
+      seatsUsed: subscription?.seats?.used || 1
+    });
+    await loadSubscriptionUsers();
+    setShowSubscriptionManager(true);
+  };
+
+  const handleSubscriptionPlanChange = (planId) => {
+    const plan = (data.plans || []).find(item => getPlanId(item) === planId);
+    setSubscriptionForm(form => ({
+      ...form,
+      plan: planId,
+      amount: plan?.price ?? form.amount,
+      currency: plan?.currency || form.currency,
+      paymentStatus: Number(plan?.price || 0) > 0 ? form.paymentStatus || 'pending' : 'not_required',
+      seatsIncluded: plan?.limits?.corporateSeats || form.seatsIncluded || 1
+    }));
+  };
 
   const savePlan = async () => {
     try {
@@ -1620,6 +1718,7 @@ const MonetizationView = () => {
       });
       await loadMonetization();
       setMonetizationMessage('Plan saved.');
+      setShowPlanBuilder(false);
     } catch (error) {
       setMonetizationMessage(error.message || 'Unable to save plan.');
     }
@@ -1637,6 +1736,7 @@ const MonetizationView = () => {
       });
       await loadMonetization();
       setMonetizationMessage('Commission rule saved.');
+      setShowRuleBuilder(false);
     } catch (error) {
       setMonetizationMessage(error.message || 'Unable to save commission rule.');
     }
@@ -1668,6 +1768,50 @@ const MonetizationView = () => {
       }
     });
     await loadMonetization();
+  };
+
+  const saveManagedSubscription = async () => {
+    if (!subscriptionForm.user || !subscriptionForm.plan) {
+      setMonetizationMessage('Select both a subscriber and a plan.');
+      return;
+    }
+
+    const plan = (data.plans || []).find(item => getPlanId(item) === subscriptionForm.plan);
+    const payload = {
+      user: subscriptionForm.user,
+      plan: subscriptionForm.plan,
+      status: subscriptionForm.status,
+      billingCycle: plan?.billingCycle,
+      amount: Number(subscriptionForm.amount || 0),
+      currency: subscriptionForm.currency || plan?.currency || 'USD',
+      currentPeriodEnd: subscriptionForm.currentPeriodEnd || undefined,
+      nextBillingAt: subscriptionForm.nextBillingAt || undefined,
+      payment: {
+        status: subscriptionForm.paymentStatus,
+        method: subscriptionForm.paymentMethod || undefined,
+        reference: subscriptionForm.paymentReference || undefined,
+        paidAt: subscriptionForm.paymentStatus === 'paid' ? new Date().toISOString() : undefined
+      },
+      seats: {
+        included: Number(subscriptionForm.seatsIncluded || 1),
+        used: Number(subscriptionForm.seatsUsed || 1)
+      }
+    };
+
+    try {
+      if (editingSubscription) {
+        await adminAPI.updateSubscription(editingSubscription._id, payload);
+        setMonetizationMessage('Subscription updated.');
+      } else {
+        await adminAPI.createSubscription(payload);
+        setMonetizationMessage('Subscription assigned.');
+      }
+      setShowSubscriptionManager(false);
+      setEditingSubscription(null);
+      await loadMonetization();
+    } catch (error) {
+      setMonetizationMessage(error.message || 'Unable to save subscription.');
+    }
   };
 
   const updatePayoutStatus = async (payout, status) => {
@@ -1717,55 +1861,38 @@ const MonetizationView = () => {
           <StatCard title="Payouts" value={`$${Number(ledgerTotals.debit_payout || 0).toLocaleString()}`} icon={<Truck className="icon" />} color="secondary" />
         </div>
 
-        <div className="settings-grid">
-          <div className="settings-card">
-            <h3>Plan Builder</h3>
-            <div className="settings-form">
-              <input value={planForm.code} onChange={e => updatePlanField('code', e.target.value)} placeholder="plan_code" />
-              <input value={planForm.name} onChange={e => updatePlanField('name', e.target.value)} placeholder="Plan name" />
-              <select value={planForm.audience} onChange={e => updatePlanField('audience', e.target.value)}>
-                <option value="transporter">Transporter</option>
-                <option value="trailer_owner">Trailer Owner</option>
-                <option value="corporate">Corporate</option>
-                <option value="shipper">Shipper</option>
-              </select>
-              <select value={planForm.billingCycle} onChange={e => updatePlanField('billingCycle', e.target.value)}>
-                <option value="monthly">Monthly</option>
-                <option value="quarterly">Quarterly</option>
-                <option value="annual">Annual</option>
-              </select>
-              <input type="number" value={planForm.price} onChange={e => updatePlanField('price', e.target.value)} placeholder="Monthly fee" />
-              <input type="number" value={planForm.trialDays} onChange={e => updatePlanField('trialDays', e.target.value)} placeholder="Trial days" />
-              <input type="number" value={planForm.vehicles || ''} onChange={e => updatePlanField('vehicles', e.target.value)} placeholder="Vehicle limit" />
-              <input type="number" value={planForm.fleetAssets || ''} onChange={e => updatePlanField('fleetAssets', e.target.value)} placeholder="Fleet asset limit" />
-              <button className="btn-primary" onClick={savePlan}>Save Plan</button>
+        <div className="builder-actions-grid">
+          <div className="builder-action-card">
+            <div className="builder-action-icon">
+              <CreditCard className="icon" />
             </div>
+            <div>
+              <h3>Plan Builder</h3>
+              <p>Create subscription plans, limits, billing cycle, and availability for each account type.</p>
+            </div>
+            <button className="btn-primary" onClick={() => setShowPlanBuilder(true)}>Open Plan Builder</button>
           </div>
 
-          <div className="settings-card">
-            <h3>Commission Rule Builder</h3>
-            <div className="settings-form">
-              <input value={ruleForm.code} onChange={e => updateRuleField('code', e.target.value)} placeholder="rule_code" />
-              <input value={ruleForm.name} onChange={e => updateRuleField('name', e.target.value)} placeholder="Rule name" />
-              <select value={ruleForm.target} onChange={e => updateRuleField('target', e.target.value)}>
-                <option value="shipment">Shipment</option>
-                <option value="rental">Rental</option>
-                <option value="subscription">Subscription</option>
-              </select>
-              <select value={ruleForm.audience} onChange={e => updateRuleField('audience', e.target.value)}>
-                <option value="all">All</option>
-                <option value="shipper">Shipper</option>
-                <option value="transporter">Transporter</option>
-                <option value="trailer_owner">Trailer Owner</option>
-                <option value="corporate">Corporate</option>
-              </select>
-              <input value={ruleForm.paymentMethod} onChange={e => updateRuleField('paymentMethod', e.target.value)} placeholder="all/openapi_africa/cash_on_delivery" />
-              <input type="number" step="0.01" value={ruleForm.platformFeeRate} onChange={e => updateRuleField('platformFeeRate', e.target.value)} placeholder="Platform fee rate" />
-              <input type="number" step="0.01" value={ruleForm.transporterCommissionRate} onChange={e => updateRuleField('transporterCommissionRate', e.target.value)} placeholder="Transporter commission rate" />
-              <input type="number" step="0.01" value={ruleForm.rentalCommissionRate} onChange={e => updateRuleField('rentalCommissionRate', e.target.value)} placeholder="Rental commission rate" />
-              <input type="number" value={ruleForm.minimumFee} onChange={e => updateRuleField('minimumFee', e.target.value)} placeholder="Minimum fee" />
-              <button className="btn-primary" onClick={saveCommissionRule}>Save Commission Rule</button>
+          <div className="builder-action-card">
+            <div className="builder-action-icon">
+              <TrendingUp className="icon" />
             </div>
+            <div>
+              <h3>Commission Rule Builder</h3>
+              <p>Configure platform fees, transporter commissions, rental rates, payment methods, and priority.</p>
+            </div>
+            <button className="btn-primary" onClick={() => setShowRuleBuilder(true)}>Open Rule Builder</button>
+          </div>
+
+          <div className="builder-action-card">
+            <div className="builder-action-icon">
+              <Users className="icon" />
+            </div>
+            <div>
+              <h3>Subscription Manager</h3>
+              <p>Assign plans to users, update subscriber billing status, payment confirmation, seats, and renewal dates.</p>
+            </div>
+            <button className="btn-primary" onClick={() => openSubscriptionManager()}>Manage Subscription</button>
           </div>
         </div>
 
@@ -1812,7 +1939,10 @@ const MonetizationView = () => {
         </div>
 
         <div className="data-table-container">
-          <h3>Subscriptions</h3>
+          <div className="table-section-header">
+            <h3>Subscriptions</h3>
+            <button className="btn-primary" onClick={() => openSubscriptionManager()}>Assign Subscription</button>
+          </div>
           <table className="data-table">
             <thead><tr><th>User</th><th>Plan</th><th>Status</th><th>Payment</th><th>Amount</th><th>Next Billing</th><th>Actions</th></tr></thead>
             <tbody>
@@ -1828,6 +1958,7 @@ const MonetizationView = () => {
                     {subscription.payment?.status !== 'paid' && (
                       <button className="btn-success" onClick={() => markSubscriptionPaid(subscription)}>Mark Paid</button>
                     )}
+                    <button className="btn-secondary" onClick={() => openSubscriptionManager(subscription)}>Manage</button>
                     <button className="btn-secondary" onClick={() => updateSubscriptionStatus(subscription, 'active')}>Activate</button>
                     <button className="btn-danger" onClick={() => updateSubscriptionStatus(subscription, 'suspended')}>Suspend</button>
                   </td>
@@ -1865,6 +1996,278 @@ const MonetizationView = () => {
           </table>
         </div>
       </div>
+
+      {showPlanBuilder && (
+        <div className="modal-overlay" onClick={() => setShowPlanBuilder(false)}>
+          <div className="modal-content builder-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header builder-modal-header">
+              <div>
+                <p className="modal-kicker">Monetization</p>
+                <h2>Plan Builder</h2>
+              </div>
+              <button className="modal-close" onClick={() => setShowPlanBuilder(false)}>
+                <XCircle className="icon" />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="builder-form-grid">
+                <label>
+                  Plan Code
+                  <input value={planForm.code} onChange={e => updatePlanField('code', e.target.value)} placeholder="transporter_growth" />
+                </label>
+                <label>
+                  Plan Name
+                  <input value={planForm.name} onChange={e => updatePlanField('name', e.target.value)} placeholder="Transporter Growth" />
+                </label>
+                <label>
+                  Audience
+                  <select value={planForm.audience} onChange={e => updatePlanField('audience', e.target.value)}>
+                    <option value="transporter">Transporter</option>
+                    <option value="trailer_owner">Trailer Owner</option>
+                    <option value="corporate">Corporate</option>
+                    <option value="shipper">Shipper</option>
+                  </select>
+                </label>
+                <label>
+                  Billing Cycle
+                  <select value={planForm.billingCycle} onChange={e => updatePlanField('billingCycle', e.target.value)}>
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
+                    <option value="annual">Annual</option>
+                  </select>
+                </label>
+                <label>
+                  Price
+                  <input type="number" min="0" value={planForm.price} onChange={e => updatePlanField('price', e.target.value)} placeholder="25" />
+                </label>
+                <label>
+                  Trial Days
+                  <input type="number" min="0" value={planForm.trialDays} onChange={e => updatePlanField('trialDays', e.target.value)} placeholder="0" />
+                </label>
+                <label>
+                  Vehicle Limit
+                  <input type="number" min="0" value={planForm.vehicles || ''} onChange={e => updatePlanField('vehicles', e.target.value)} placeholder="1" />
+                </label>
+                <label>
+                  Driver Limit
+                  <input type="number" min="0" value={planForm.drivers || ''} onChange={e => updatePlanField('drivers', e.target.value)} placeholder="1" />
+                </label>
+                <label>
+                  Fleet Asset Limit
+                  <input type="number" min="0" value={planForm.fleetAssets || ''} onChange={e => updatePlanField('fleetAssets', e.target.value)} placeholder="15" />
+                </label>
+                <label>
+                  Corporate Seats
+                  <input type="number" min="0" value={planForm.corporateSeats || ''} onChange={e => updatePlanField('corporateSeats', e.target.value)} placeholder="25" />
+                </label>
+                <label>
+                  Monthly Bookings
+                  <input type="number" min="0" value={planForm.monthlyBookings || ''} onChange={e => updatePlanField('monthlyBookings', e.target.value)} placeholder="25" />
+                </label>
+                <label className="builder-checkbox">
+                  <input type="checkbox" checked={Boolean(planForm.priorityMatching)} onChange={e => updatePlanField('priorityMatching', e.target.checked)} />
+                  Priority matching
+                </label>
+                <label className="builder-checkbox">
+                  <input type="checkbox" checked={Boolean(planForm.apiAccess)} onChange={e => updatePlanField('apiAccess', e.target.checked)} />
+                  API access
+                </label>
+                <label className="builder-checkbox">
+                  <input type="checkbox" checked={Boolean(planForm.active)} onChange={e => updatePlanField('active', e.target.checked)} />
+                  Active plan
+                </label>
+              </div>
+              <div className="modal-actions">
+                <button className="btn-secondary" onClick={() => setShowPlanBuilder(false)}>Cancel</button>
+                <button className="btn-primary" onClick={savePlan}>Save Plan</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRuleBuilder && (
+        <div className="modal-overlay" onClick={() => setShowRuleBuilder(false)}>
+          <div className="modal-content builder-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header builder-modal-header">
+              <div>
+                <p className="modal-kicker">Monetization</p>
+                <h2>Commission Rule Builder</h2>
+              </div>
+              <button className="modal-close" onClick={() => setShowRuleBuilder(false)}>
+                <XCircle className="icon" />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="builder-form-grid">
+                <label>
+                  Rule Code
+                  <input value={ruleForm.code} onChange={e => updateRuleField('code', e.target.value)} placeholder="shipment_custom" />
+                </label>
+                <label>
+                  Rule Name
+                  <input value={ruleForm.name} onChange={e => updateRuleField('name', e.target.value)} placeholder="Shipment Custom Rule" />
+                </label>
+                <label>
+                  Target
+                  <select value={ruleForm.target} onChange={e => updateRuleField('target', e.target.value)}>
+                    <option value="shipment">Shipment</option>
+                    <option value="rental">Rental</option>
+                    <option value="subscription">Subscription</option>
+                  </select>
+                </label>
+                <label>
+                  Audience
+                  <select value={ruleForm.audience} onChange={e => updateRuleField('audience', e.target.value)}>
+                    <option value="all">All</option>
+                    <option value="shipper">Shipper</option>
+                    <option value="transporter">Transporter</option>
+                    <option value="trailer_owner">Trailer Owner</option>
+                    <option value="corporate">Corporate</option>
+                  </select>
+                </label>
+                <label>
+                  Payment Method
+                  <input value={ruleForm.paymentMethod} onChange={e => updateRuleField('paymentMethod', e.target.value)} placeholder="all/openapi_africa/cash_on_delivery" />
+                </label>
+                <label>
+                  Platform Fee Rate
+                  <input type="number" step="0.01" min="0" value={ruleForm.platformFeeRate} onChange={e => updateRuleField('platformFeeRate', e.target.value)} placeholder="0.12" />
+                </label>
+                <label>
+                  Transporter Commission Rate
+                  <input type="number" step="0.01" min="0" value={ruleForm.transporterCommissionRate} onChange={e => updateRuleField('transporterCommissionRate', e.target.value)} placeholder="0.15" />
+                </label>
+                <label>
+                  Rental Commission Rate
+                  <input type="number" step="0.01" min="0" value={ruleForm.rentalCommissionRate} onChange={e => updateRuleField('rentalCommissionRate', e.target.value)} placeholder="0.10" />
+                </label>
+                <label>
+                  Minimum Fee
+                  <input type="number" min="0" value={ruleForm.minimumFee} onChange={e => updateRuleField('minimumFee', e.target.value)} placeholder="5" />
+                </label>
+                <label>
+                  Priority
+                  <input type="number" min="0" value={ruleForm.priority} onChange={e => updateRuleField('priority', e.target.value)} placeholder="50" />
+                </label>
+                <label className="builder-checkbox">
+                  <input type="checkbox" checked={Boolean(ruleForm.enabled)} onChange={e => updateRuleField('enabled', e.target.checked)} />
+                  Enabled
+                </label>
+              </div>
+              <div className="modal-actions">
+                <button className="btn-secondary" onClick={() => setShowRuleBuilder(false)}>Cancel</button>
+                <button className="btn-primary" onClick={saveCommissionRule}>Save Commission Rule</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showSubscriptionManager && (
+        <div className="modal-overlay" onClick={() => setShowSubscriptionManager(false)}>
+          <div className="modal-content builder-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header builder-modal-header">
+              <div>
+                <p className="modal-kicker">Subscribers</p>
+                <h2>{editingSubscription ? 'Manage Subscription' : 'Assign Subscription'}</h2>
+              </div>
+              <button className="modal-close" onClick={() => setShowSubscriptionManager(false)}>
+                <XCircle className="icon" />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="builder-form-grid">
+                <label>
+                  Subscriber
+                  <select
+                    value={subscriptionForm.user}
+                    onChange={event => updateSubscriptionField('user', event.target.value)}
+                    disabled={Boolean(editingSubscription)}
+                  >
+                    <option value="">Select a user</option>
+                    {subscriptionUsers.map(user => (
+                      <option key={getUserId(user)} value={getUserId(user)}>
+                        {user.fullName || user.companyName || user.email} - {user.userType}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Plan
+                  <select value={subscriptionForm.plan} onChange={event => handleSubscriptionPlanChange(event.target.value)}>
+                    <option value="">Select a plan</option>
+                    {(data.plans || []).map(plan => (
+                      <option key={getPlanId(plan)} value={getPlanId(plan)}>
+                        {plan.name} - {plan.audience} - {plan.currency || 'USD'} {plan.price}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Subscription Status
+                  <select value={subscriptionForm.status} onChange={event => updateSubscriptionField('status', event.target.value)}>
+                    <option value="trialing">Trialing</option>
+                    <option value="active">Active</option>
+                    <option value="past_due">Past Due</option>
+                    <option value="suspended">Suspended</option>
+                    <option value="cancelled">Cancelled</option>
+                    <option value="expired">Expired</option>
+                  </select>
+                </label>
+                <label>
+                  Payment Status
+                  <select value={subscriptionForm.paymentStatus} onChange={event => updateSubscriptionField('paymentStatus', event.target.value)}>
+                    <option value="not_required">Not Required</option>
+                    <option value="pending">Pending</option>
+                    <option value="paid">Paid</option>
+                    <option value="failed">Failed</option>
+                    <option value="waived">Waived</option>
+                  </select>
+                </label>
+                <label>
+                  Amount
+                  <input type="number" min="0" step="0.01" value={subscriptionForm.amount} onChange={event => updateSubscriptionField('amount', event.target.value)} />
+                </label>
+                <label>
+                  Currency
+                  <input value={subscriptionForm.currency} onChange={event => updateSubscriptionField('currency', event.target.value.toUpperCase())} />
+                </label>
+                <label>
+                  Current Period End
+                  <input type="date" value={subscriptionForm.currentPeriodEnd} onChange={event => updateSubscriptionField('currentPeriodEnd', event.target.value)} />
+                </label>
+                <label>
+                  Next Billing
+                  <input type="date" value={subscriptionForm.nextBillingAt} onChange={event => updateSubscriptionField('nextBillingAt', event.target.value)} />
+                </label>
+                <label>
+                  Payment Method
+                  <input value={subscriptionForm.paymentMethod} onChange={event => updateSubscriptionField('paymentMethod', event.target.value)} placeholder="ecocash, clicknpay, bank_transfer" />
+                </label>
+                <label>
+                  Payment Reference
+                  <input value={subscriptionForm.paymentReference} onChange={event => updateSubscriptionField('paymentReference', event.target.value)} placeholder="ADMIN-..." />
+                </label>
+                <label>
+                  Seats Included
+                  <input type="number" min="1" value={subscriptionForm.seatsIncluded} onChange={event => updateSubscriptionField('seatsIncluded', event.target.value)} />
+                </label>
+                <label>
+                  Seats Used
+                  <input type="number" min="1" value={subscriptionForm.seatsUsed} onChange={event => updateSubscriptionField('seatsUsed', event.target.value)} />
+                </label>
+              </div>
+              <div className="modal-actions">
+                <button className="btn-secondary" onClick={() => setShowSubscriptionManager(false)}>Cancel</button>
+                <button className="btn-primary" onClick={saveManagedSubscription}>
+                  {editingSubscription ? 'Save Subscription' : 'Assign Subscription'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </>
   );

@@ -4,6 +4,7 @@ import {
   Settings, Truck, Wrench, X, User, LogOut, CreditCard, Trash2
 } from 'lucide-react';
 import { authAPI, driversAPI, fleetAPI, publicAPI } from '../services/api';
+import logo from '../assets/logo3.png';
 import './styles/TrailerOwnerDashboard.css';
 
 const ASSET_TYPES = [
@@ -317,7 +318,7 @@ const TrailerOwnerDashboard = () => {
     <div className="fleet-page">
       <aside className="fleet-sidebar">
         <div className="fleet-brand">
-          <Truck className="icon" />
+          <img src={logo} alt="Palmtrent" className="fleet-brand-logo" />
           <span>Fleet Supplier</span>
         </div>
         <button className={activeTab === 'fleet' ? 'active' : ''} onClick={() => setActiveTab('fleet')}><Truck className="icon" /> Fleet</button>

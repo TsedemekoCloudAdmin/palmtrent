@@ -7,6 +7,7 @@ import {
   Check, PieChart, Activity, Layers, UserPlus, Shield, Phone, Mail, Loader
 } from 'lucide-react';
 import { authAPI, corporateAPI, bookingsAPI, trackingAPI, notificationsAPI } from '../services/api';
+import logo from '../assets/logo3.png';
 import './styles/CorporateDashboard.css';
 
 const downloadCsv = (filename, rows) => {
@@ -135,7 +136,9 @@ const CorporateDashboard = () => {
         <div className="corp-sidebar-header">
           {sidebarOpen && (
             <div className="corp-sidebar-brand">
-              <div className="corp-brand-logo"><Building className="icon" /></div>
+              <div className="corp-brand-logo">
+                <img src={logo} alt="Palmtrent" />
+              </div>
               <span className="corp-brand-text">Palmtrent</span>
             </div>
           )}
