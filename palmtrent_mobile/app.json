@@ -40,6 +40,11 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "extra": {
+      "eas": {
+        "projectId": "fb040d7e-0ce7-427d-ae2d-c66df60e9d03"
+      }
+    },
     "plugins": [
       "expo-camera",
       "expo-image-picker",
