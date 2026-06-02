@@ -1,7 +1,9 @@
 {
   "expo": {
+    "owner": "chesapride",
     "name": "PalmTrent",
-    "slug": "palmtrent_mobile",
+    "slug": "palmtrent",
+    "scheme": "palmtrent",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -13,17 +15,36 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.palmtrent.mobile",
+      "infoPlist": {
+        "NSCameraUsageDescription": "PalmTrent uses the camera to capture verification documents, cargo photos, and proof of delivery.",
+        "NSPhotoLibraryUsageDescription": "PalmTrent uses your photo library to upload verification documents, cargo photos, and claim evidence.",
+        "NSLocationWhenInUseUsageDescription": "PalmTrent uses your location to support shipment tracking and transport job updates."
+      }
     },
     "android": {
+      "package": "com.palmtrent.mobile",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "CAMERA",
+        "POST_NOTIFICATIONS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-camera",
+      "expo-image-picker",
+      "expo-location",
+      "expo-notifications"
+    ]
   }
 }

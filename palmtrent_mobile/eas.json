@@ -1,0 +1,36 @@
+{
+  "cli": {
+    "version": ">= 13.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://palmtrent-api.onrender.com/api/v1",
+        "EXPO_PUBLIC_DISABLE_PHONE_VERIFICATION": "true"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://palmtrent-api.onrender.com/api/v1",
+        "EXPO_PUBLIC_DISABLE_PHONE_VERIFICATION": "true"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://palmtrent-api.onrender.com/api/v1",
+        "EXPO_PUBLIC_DISABLE_PHONE_VERIFICATION": "false"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

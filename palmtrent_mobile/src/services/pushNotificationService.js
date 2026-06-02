@@ -3,6 +3,7 @@
 
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiService from './apiService';
@@ -46,10 +47,9 @@ class PushNotificationService {
         return null;
       }
 
-      // Get Expo push token
-      const tokenOptions = process.env.EXPO_PROJECT_ID
-        ? { projectId: process.env.EXPO_PROJECT_ID }
-        : undefined;
+      // EAS builds expose the project ID through expo-constants.
+      const projectId = Constants.easConfig?.projectId || Constants.expoConfig?.extra?.eas?.projectId;
+      const tokenOptions = projectId ? { projectId } : undefined;
       const tokenData = await Notifications.getExpoPushTokenAsync(tokenOptions);
 
       this.expoPushToken = tokenData.data;
