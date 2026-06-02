@@ -17,6 +17,29 @@ const ACTIVE_SHIPMENT_STATUSES = [
   'arrived_delivery'
 ];
 
+function normalizeId(value) {
+  return (value?._id || value)?.toString?.();
+}
+
+function bookingBelongsToUser(booking, userId) {
+  const targetId = normalizeId(userId);
+  if (!booking || !targetId) return false;
+
+  return [booking.user, booking.shipper]
+    .map(normalizeId)
+    .filter(Boolean)
+    .some(ownerId => ownerId === targetId);
+}
+
+function excludeUserOwnedBookingsQuery(userId) {
+  return {
+    $and: [
+      { $or: [{ user: { $exists: false } }, { user: { $ne: userId } }] },
+      { $or: [{ shipper: { $exists: false } }, { shipper: { $ne: userId } }] }
+    ]
+  };
+}
+
 function getBookingAvailabilityWindow(booking) {
   const pickupAt = booking.route?.pickup?.date || booking.pickupDate;
   if (!pickupAt || Number.isNaN(new Date(pickupAt).getTime())) return null;
@@ -118,6 +141,10 @@ async function findEligibleTransporters(booking) {
     const eligibleTransporters = [];
 
     for (const transporter of transporters) {
+      if (bookingBelongsToUser(booking, transporter._id)) {
+        continue;
+      }
+
       // Check if transporter has been active recently (within 7 days)
       const lastActive = transporter.lastActive ? new Date(transporter.lastActive) : new Date();
       const daysSinceActive = (Date.now() - lastActive) / (1000 * 60 * 60 * 24);
@@ -435,7 +462,8 @@ async function getAvailableJobsForTransporter(transporterId) {
     // Find bookings in 'finding_transporter' status
     const availableBookings = await Booking.find({
       status: 'finding_transporter',
-      paymentStatus: { $in: ['confirmed', 'escrowed'] }
+      paymentStatus: { $in: ['confirmed', 'escrowed'] },
+      ...excludeUserOwnedBookingsQuery(transporter._id)
     })
     .populate('shipper', 'fullName phone rating companyName')
     .sort({ createdAt: -1 })
@@ -445,6 +473,10 @@ async function getAvailableJobsForTransporter(transporterId) {
     const jobsWithScores = [];
 
     for (const booking of availableBookings) {
+      if (bookingBelongsToUser(booking, transporterId)) {
+        continue;
+      }
+
       // Get transporter's vehicles matching booking requirements
       const requiredVehicleType = booking.vehicleType || booking.vehicles?.[0]?.vehicleType;
       const vehicles = await Vehicle.find({
@@ -522,5 +554,7 @@ module.exports = {
   filterAvailableVehicles,
   getBookingAvailabilityWindow,
   buildVehicleConflictQuery,
-  recordTransporterOfferResponse
+  recordTransporterOfferResponse,
+  bookingBelongsToUser,
+  excludeUserOwnedBookingsQuery
 };

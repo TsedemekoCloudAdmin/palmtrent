@@ -382,6 +382,20 @@ const HomeScreen = ({ navigation }) => {
           ) : isTransporter ? (
             <View style={styles.actionsContainer}>
               <ActionButton
+                icon="inventory"
+                title="Send Goods"
+                subtitle="Create a transport booking as a customer"
+                color="orange"
+                onPress={navigateToBooking}
+              />
+              <ActionButton
+                icon="timeline"
+                title="Shipment Progress"
+                subtitle="Track bookings you created as a customer"
+                color="green"
+                onPress={() => navigation.navigate('MyBookings')}
+              />
+              <ActionButton
                 icon="local-shipping"
                 title="Available Jobs"
                 subtitle="Browse and accept new jobs"

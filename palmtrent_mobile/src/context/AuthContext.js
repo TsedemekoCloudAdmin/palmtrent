@@ -7,6 +7,7 @@ const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
 
   // Load user on app start
@@ -32,7 +33,13 @@ export const AuthProvider = ({ children }) => {
 
   const loadUser = async () => {
     try {
-      setIsLoading(true);
+      setIsInitializing(true);
+      const token = await apiService.getToken();
+      if (!token) {
+        setUser(null);
+        return;
+      }
+
       const response = await apiService.getCurrentUser();
       if (response.success) {
         setUser(response.data?.user || response.data);
@@ -41,7 +48,7 @@ export const AuthProvider = ({ children }) => {
       console.error('Error loading user:', error);
       await logout();
     } finally {
-      setIsLoading(false);
+      setIsInitializing(false);
     }
   };
 
@@ -132,6 +139,7 @@ export const AuthProvider = ({ children }) => {
   const authContextValue = {
     user,
     isLoading,
+    isInitializing,
     isAuthenticated: !!user,
     signIn,
     signUp,

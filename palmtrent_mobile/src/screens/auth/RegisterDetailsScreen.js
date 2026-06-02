@@ -28,6 +28,7 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
     agreeTerms: false
   });
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const updateField = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -167,15 +168,28 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
 
             <View style={styles.inputContainer}>
               <Text style={styles.label}>Confirm Password *</Text>
-              <TextInput
-                style={styles.input}
-                value={formData.confirmPassword}
-                onChangeText={(value) => updateField('confirmPassword', value)}
-                placeholder="Re-enter password"
-                secureTextEntry={!showPassword}
-                editable={!isLoading}
-                autoComplete="new-password"
-              />
+              <View style={styles.passwordContainer}>
+                <TextInput
+                  style={styles.passwordInput}
+                  value={formData.confirmPassword}
+                  onChangeText={(value) => updateField('confirmPassword', value)}
+                  placeholder="Re-enter password"
+                  secureTextEntry={!showConfirmPassword}
+                  editable={!isLoading}
+                  autoComplete="new-password"
+                />
+                <TouchableOpacity
+                  style={styles.eyeButton}
+                  onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                  disabled={isLoading}
+                >
+                  <Icon
+                    name={showConfirmPassword ? "visibility-off" : "visibility"}
+                    size={20}
+                    color="#6b7280"
+                  />
+                </TouchableOpacity>
+              </View>
             </View>
 
             <TouchableOpacity

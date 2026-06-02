@@ -290,6 +290,13 @@ exports.acceptJob = async (req, res) => {
       });
     }
 
+    if (matchingService.bookingBelongsToUser(booking, transporterId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You cannot accept your own booking'
+      });
+    }
+
     // Check if booking is available
     if (booking.status !== 'finding_transporter') {
       return res.status(400).json({

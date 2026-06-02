@@ -1008,6 +1008,14 @@ const LandingPage = () => {
                       onChange={(e) => setRegisterForm(prev => ({ ...prev, password: e.target.value }))}
                       required
                     />
+                    <button
+                      type="button"
+                      className="toggle-password"
+                      onClick={() => setShowPassword(!showPassword)}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff className="icon" /> : <Eye className="icon" />}
+                    </button>
                   </div>
                 </div>
 
@@ -1022,6 +1030,14 @@ const LandingPage = () => {
                       onChange={(e) => setRegisterForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
                       required
                     />
+                    <button
+                      type="button"
+                      className="toggle-password"
+                      onClick={() => setShowPassword(!showPassword)}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff className="icon" /> : <Eye className="icon" />}
+                    </button>
                   </div>
                 </div>
               </div>

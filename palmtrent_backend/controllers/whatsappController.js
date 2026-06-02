@@ -685,6 +685,11 @@ async function handleJobAcceptance(from, bookingId, accepted, user) {
     }
 
     if (accepted) {
+      if (matchingService.bookingBelongsToUser(booking, user._id)) {
+        return whatsappService.sendTextMessage(from,
+          'You cannot accept your own booking. It remains available for other transporters.');
+      }
+
       if (!isPaymentConfirmed(booking)) {
         return whatsappService.sendTextMessage(from, 'This job is not ready yet because payment has not been confirmed.');
       }

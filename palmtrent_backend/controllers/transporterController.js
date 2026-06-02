@@ -283,7 +283,8 @@ exports.getAvailableJobs = async (req, res) => {
     const query = {
       status: 'finding_transporter',
       paymentStatus: { $in: ['confirmed', 'escrowed'] },
-      transporter: { $exists: false }
+      transporter: { $exists: false },
+      ...matchingService.excludeUserOwnedBookingsQuery(req.user._id)
     };
 
     if (vehicleType) {
@@ -391,6 +392,13 @@ exports.getJobDetails = async (req, res) => {
         });
       }
 
+      if (matchingService.bookingBelongsToUser(job, req.user.id)) {
+        return res.status(403).json({
+          success: false,
+          message: 'You cannot view your own booking as an available transporter job'
+        });
+      }
+
       // Format booking as job
       return res.status(200).json({
         success: true,
@@ -414,6 +422,13 @@ exports.getJobDetails = async (req, res) => {
           status: job.status,
           createdAt: job.createdAt
         }
+      });
+    }
+
+    if (job.transporter?.toString?.() !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to view this accepted job'
       });
     }
 
@@ -447,6 +462,13 @@ exports.acceptJob = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Job not found'
+      });
+    }
+
+    if (matchingService.bookingBelongsToUser(booking, transporterId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You cannot accept your own booking'
       });
     }
 

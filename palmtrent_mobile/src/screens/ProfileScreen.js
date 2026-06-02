@@ -37,7 +37,16 @@ const ProfileScreen = ({ navigation }) => {
     newPassword: '',
     confirmPassword: ''
   });
+  const [visiblePasswords, setVisiblePasswords] = useState({
+    currentPassword: false,
+    newPassword: false,
+    confirmPassword: false
+  });
   const [saving, setSaving] = useState(false);
+
+  const togglePasswordVisibility = (field) => {
+    setVisiblePasswords(prev => ({ ...prev, [field]: !prev[field] }));
+  };
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -147,6 +156,7 @@ const ProfileScreen = ({ navigation }) => {
       if (response.success) {
         setShowPasswordModal(false);
         setPasswords({ currentPassword: '', newPassword: '', confirmPassword: '' });
+        setVisiblePasswords({ currentPassword: false, newPassword: false, confirmPassword: false });
         Alert.alert('Success', 'Password changed successfully');
       } else {
         Alert.alert('Error', response.message || 'Failed to change password');
@@ -611,35 +621,74 @@ const ProfileScreen = ({ navigation }) => {
 
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Current Password</Text>
-              <TextInput
-                style={styles.input}
-                value={passwords.currentPassword}
-                onChangeText={(text) => setPasswords(prev => ({ ...prev, currentPassword: text }))}
-                placeholder="Enter current password"
-                secureTextEntry
-              />
+              <View style={styles.passwordField}>
+                <TextInput
+                  style={styles.passwordInput}
+                  value={passwords.currentPassword}
+                  onChangeText={(text) => setPasswords(prev => ({ ...prev, currentPassword: text }))}
+                  placeholder="Enter current password"
+                  secureTextEntry={!visiblePasswords.currentPassword}
+                  autoComplete="current-password"
+                />
+                <TouchableOpacity
+                  style={styles.passwordToggle}
+                  onPress={() => togglePasswordVisibility('currentPassword')}
+                >
+                  <MaterialIcons
+                    name={visiblePasswords.currentPassword ? 'visibility-off' : 'visibility'}
+                    size={20}
+                    color="#64748b"
+                  />
+                </TouchableOpacity>
+              </View>
             </View>
 
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>New Password</Text>
-              <TextInput
-                style={styles.input}
-                value={passwords.newPassword}
-                onChangeText={(text) => setPasswords(prev => ({ ...prev, newPassword: text }))}
-                placeholder="Enter new password"
-                secureTextEntry
-              />
+              <View style={styles.passwordField}>
+                <TextInput
+                  style={styles.passwordInput}
+                  value={passwords.newPassword}
+                  onChangeText={(text) => setPasswords(prev => ({ ...prev, newPassword: text }))}
+                  placeholder="Enter new password"
+                  secureTextEntry={!visiblePasswords.newPassword}
+                  autoComplete="new-password"
+                />
+                <TouchableOpacity
+                  style={styles.passwordToggle}
+                  onPress={() => togglePasswordVisibility('newPassword')}
+                >
+                  <MaterialIcons
+                    name={visiblePasswords.newPassword ? 'visibility-off' : 'visibility'}
+                    size={20}
+                    color="#64748b"
+                  />
+                </TouchableOpacity>
+              </View>
             </View>
 
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Confirm New Password</Text>
-              <TextInput
-                style={styles.input}
-                value={passwords.confirmPassword}
-                onChangeText={(text) => setPasswords(prev => ({ ...prev, confirmPassword: text }))}
-                placeholder="Confirm new password"
-                secureTextEntry
-              />
+              <View style={styles.passwordField}>
+                <TextInput
+                  style={styles.passwordInput}
+                  value={passwords.confirmPassword}
+                  onChangeText={(text) => setPasswords(prev => ({ ...prev, confirmPassword: text }))}
+                  placeholder="Confirm new password"
+                  secureTextEntry={!visiblePasswords.confirmPassword}
+                  autoComplete="new-password"
+                />
+                <TouchableOpacity
+                  style={styles.passwordToggle}
+                  onPress={() => togglePasswordVisibility('confirmPassword')}
+                >
+                  <MaterialIcons
+                    name={visiblePasswords.confirmPassword ? 'visibility-off' : 'visibility'}
+                    size={20}
+                    color="#64748b"
+                  />
+                </TouchableOpacity>
+              </View>
             </View>
 
             <View style={styles.modalActions}>
@@ -899,6 +948,27 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
+  },
+  passwordField: {
+    position: 'relative',
+  },
+  passwordInput: {
+    backgroundColor: '#f9fafb',
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    padding: 12,
+    paddingRight: 48,
+    fontSize: 16,
+  },
+  passwordToggle: {
+    position: 'absolute',
+    right: 12,
+    top: 11,
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   saveButton: {
     backgroundColor: '#0C2D48',

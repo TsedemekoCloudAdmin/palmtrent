@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Eye, EyeOff } from 'lucide-react';
 import { authAPI } from '../services/api';
 import './styles/ResetPasswordPage.css';
 
@@ -12,6 +13,7 @@ const ResetPasswordPage = () => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   const submit = async (event) => {
     event.preventDefault();
@@ -51,23 +53,43 @@ const ResetPasswordPage = () => {
         <form onSubmit={submit} className="reset-form">
           <label>
             New password
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="new-password"
-              required
-            />
+            <span className="reset-password-field">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="new-password"
+                required
+              />
+              <button
+                type="button"
+                className="reset-password-toggle"
+                onClick={() => setShowPassword(value => !value)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? <EyeOff /> : <Eye />}
+              </button>
+            </span>
           </label>
           <label>
             Confirm password
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-              autoComplete="new-password"
-              required
-            />
+            <span className="reset-password-field">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                autoComplete="new-password"
+                required
+              />
+              <button
+                type="button"
+                className="reset-password-toggle"
+                onClick={() => setShowPassword(value => !value)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? <EyeOff /> : <Eye />}
+              </button>
+            </span>
           </label>
           {error && <div className="reset-error">{error}</div>}
           {message && <div className="reset-success">{message}</div>}
