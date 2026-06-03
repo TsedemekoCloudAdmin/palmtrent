@@ -74,7 +74,7 @@ router.post('/verify', verificationUpload.fields([
 ]), submitVerification);
 
 // Jobs
-router.get('/available-jobs', requireVerified('transporter'), getAvailableJobs);
+router.get('/available-jobs', getAvailableJobs);
 router.get('/my-jobs', getMyJobs);
 router.get('/jobs/:jobId', getJobDetails);
 router.get('/jobs/:jobId/trailer-options', requireVerified('transporter'), getTrailerPairingOptions);

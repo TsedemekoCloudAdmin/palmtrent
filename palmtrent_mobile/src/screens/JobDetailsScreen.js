@@ -18,14 +18,41 @@ import apiService from '../services/apiService';
 
 const { width } = Dimensions.get('window');
 
+const isUserVerifiedForJobs = (user) => (
+  user?.isVerified ||
+  user?.verification?.isVerified ||
+  ['approved', 'verified'].includes(user?.verification?.status)
+);
+
+const isUsableSubscription = (subscription) => {
+  if (!subscription || subscription.status !== 'active') return false;
+  const paymentStatus = subscription.payment?.status || 'pending';
+  if (!['paid', 'waived', 'not_required'].includes(paymentStatus)) return false;
+  if (subscription.currentPeriodEnd && new Date(subscription.currentPeriodEnd) < new Date()) return false;
+  return true;
+};
+
 const JobDetailsScreen = ({ navigation, route }) => {
   const { user } = useAuth();
   const { job, bookingId } = route.params || {};
   const [loading, setLoading] = useState(false);
   const [bookingData, setBookingData] = useState(null);
+  const [subscription, setSubscription] = useState(null);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(true);
 
   const isTransporter = user?.userType === 'transporter';
   const isShipper = user?.userType === 'shipper' || !user?.userType;
+  const transporterVerified = isUserVerifiedForJobs(user);
+  const hasActiveSubscription = isUsableSubscription(subscription);
+  const accessBlocker = !isTransporter
+    ? ''
+    : !transporterVerified
+      ? 'Your transporter verification must be approved before you can accept jobs.'
+      : subscriptionLoading
+        ? 'Checking your subscription before accepting jobs.'
+        : !hasActiveSubscription
+          ? 'An active paid transporter subscription is required before you can accept jobs.'
+          : '';
 
   useEffect(() => {
     if (bookingId && !job) {
@@ -34,6 +61,28 @@ const JobDetailsScreen = ({ navigation, route }) => {
       setBookingData(job);
     }
   }, [bookingId, job]);
+
+  useEffect(() => {
+    if (!isTransporter) {
+      setSubscriptionLoading(false);
+      return;
+    }
+
+    const loadSubscription = async () => {
+      try {
+        setSubscriptionLoading(true);
+        const response = await apiService.getMySubscription();
+        setSubscription(response.data || null);
+      } catch (error) {
+        console.warn('Subscription status load failed:', error.message);
+        setSubscription(null);
+      } finally {
+        setSubscriptionLoading(false);
+      }
+    };
+
+    loadSubscription();
+  }, [isTransporter]);
 
   const fetchBookingDetails = async () => {
     try {
@@ -311,12 +360,28 @@ const JobDetailsScreen = ({ navigation, route }) => {
         <View style={styles.section}>
           {isTransporter ? (
             // Transporter Actions
-            <View style={styles.actionButtons}>
+            <View style={styles.actionButtonsColumn}>
+              {accessBlocker ? (
+                <View style={styles.accessNotice}>
+                  <MaterialIcons
+                    name={transporterVerified ? 'workspace-premium' : 'verified-user'}
+                    size={22}
+                    color="#0C2D48"
+                  />
+                  <Text style={styles.accessNoticeText}>{accessBlocker}</Text>
+                </View>
+              ) : null}
               <TouchableOpacity
-                style={styles.acceptButton}
-                onPress={() => navigateTo('AcceptJobConfirmation', { job: jobData })}
+                style={[styles.acceptButton, accessBlocker && styles.acceptButtonDisabled]}
+                onPress={() => {
+                  if (accessBlocker) {
+                    Alert.alert('Action Required', accessBlocker);
+                    return;
+                  }
+                  navigateTo('AcceptJobConfirmation', { job: jobData });
+                }}
               >
-                <Text style={styles.acceptButtonText}>Accept Job</Text>
+                <Text style={styles.acceptButtonText}>{accessBlocker ? 'View Only' : 'Accept Job'}</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -666,6 +731,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
   },
+  accessNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#e0f2fe',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    borderRadius: 12,
+    padding: 14,
+  },
+  accessNoticeText: {
+    flex: 1,
+    color: '#0C2D48',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
   counterOfferButton: {
     flex: 1,
     paddingVertical: 16,
@@ -687,6 +769,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  acceptButtonDisabled: {
+    backgroundColor: '#94a3b8',
   },
   acceptButtonText: {
     fontSize: 16,

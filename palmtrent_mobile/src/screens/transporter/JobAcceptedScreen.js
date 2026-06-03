@@ -18,6 +18,12 @@ const JobAcceptedScreen = ({ navigation, route }) => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
+      {navigation.canGoBack?.() ? (
+        <TouchableOpacity style={styles.topBackButton} onPress={() => navigation.goBack()}>
+          <MaterialIcons name="arrow-back" size={22} color="#0C2D48" />
+          <Text style={styles.topBackText}>Back</Text>
+        </TouchableOpacity>
+      ) : null}
       
       <ScrollView 
         style={styles.scrollView} 
@@ -100,6 +106,26 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+  },
+  topBackButton: {
+    position: 'absolute',
+    top: 48,
+    left: 20,
+    zIndex: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'white',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  topBackText: {
+    color: '#0C2D48',
+    fontSize: 14,
+    fontWeight: '700',
   },
   scrollContent: {
     flexGrow: 1,

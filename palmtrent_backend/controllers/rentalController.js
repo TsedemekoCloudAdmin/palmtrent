@@ -4,6 +4,10 @@ const Trailer = require('../models/Trailer');
 const User = require('../models/User');
 const rentalPaymentService = require('../services/rentalPaymentService');
 const monetizationService = require('../services/monetizationService');
+const {
+  assertRentalOwnerCanList,
+  getUsableRentalOwnerIds
+} = require('../services/flowControlService');
 
 const TRAILER_FLEET_ITEM_TYPES = ['trailer', 'tractor_unit', 'truck', 'full_rig'];
 
@@ -100,12 +104,14 @@ exports.getAvailableRentals = async (req, res) => {
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const results = { vehicles: [], fleetAssets: [], trailers: [] };
+    const eligibleRentalOwnerIds = await getUsableRentalOwnerIds();
 
     // Get available vehicles
     if (!itemType || itemType === 'vehicle') {
       const vehicleQuery = {
         'rentalSettings.availableForRental': true,
-        status: 'available'
+        status: 'available',
+        owner: { $in: eligibleRentalOwnerIds }
       };
 
       if (city) {
@@ -149,7 +155,8 @@ exports.getAvailableRentals = async (req, res) => {
     if (!itemType || isTrailerFleetItem(itemType)) {
       const trailerQuery = {
         'rentalSettings.availableForRental': true,
-        status: 'available'
+        status: 'available',
+        owner: { $in: eligibleRentalOwnerIds }
       };
 
       if (itemType && itemType !== 'all') {
@@ -365,6 +372,8 @@ exports.createRentalRequest = async (req, res) => {
       });
     }
 
+    await assertRentalOwnerCanList(item.owner);
+
     // Calculate pricing
     const start = new Date(startDate);
     const end = new Date(endDate);
@@ -444,9 +453,10 @@ exports.createRentalRequest = async (req, res) => {
     });
   } catch (error) {
     console.error('Create rental request error:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      message: 'Failed to create rental request'
+      code: error.code,
+      message: error.message || 'Failed to create rental request'
     });
   }
 };

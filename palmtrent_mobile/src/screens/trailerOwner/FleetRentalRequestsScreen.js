@@ -14,7 +14,7 @@ import {
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../../services/apiService';
 
-const FleetRentalRequestsScreen = () => {
+const FleetRentalRequestsScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [rentals, setRentals] = useState([]);
@@ -91,12 +91,23 @@ const FleetRentalRequestsScreen = () => {
     return <LoadingScreen />;
   }
 
+  const canGoBack = navigation?.canGoBack?.();
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Rental Requests</Text>
-        <Text style={styles.headerSubtitle}>Approve, reject, pickup, and return fleet assets</Text>
+        <View style={styles.headerTop}>
+          {canGoBack ? (
+            <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+              <MaterialIcons name="arrow-back" size={24} color="white" />
+            </TouchableOpacity>
+          ) : null}
+          <View style={styles.headerText}>
+            <Text style={styles.headerTitle}>Rental Requests</Text>
+            <Text style={styles.headerSubtitle}>Approve, reject, pickup, and return fleet assets</Text>
+          </View>
+        </View>
       </View>
       <ScrollView
         style={styles.content}
@@ -174,6 +185,9 @@ const Action = ({ label, onPress, primary }) => (
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f7fa' },
   header: { backgroundColor: '#0C2D48', padding: 20, paddingTop: 52 },
+  headerTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  backButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
+  headerText: { flex: 1 },
   headerTitle: { color: 'white', fontSize: 24, fontWeight: '700' },
   headerSubtitle: { color: '#cbd5e1', marginTop: 4 },
   content: { padding: 16 },

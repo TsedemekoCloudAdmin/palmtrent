@@ -46,7 +46,7 @@ router.get('/pricing-config', getPricingConfig);
 
 // JOB ENDPOINTS - For transporters (MUST be before /:id)
 // GET /api/v1/bookings/jobs/available - Get available jobs for transporter
-router.get('/jobs/available', authorize('transporter'), requireVerified('transporter'), getAvailableJobs);
+router.get('/jobs/available', authorize('transporter'), getAvailableJobs);
 
 // POST /api/v1/bookings/jobs/:id/accept - Accept a job
 router.post('/jobs/:id/accept', authorize('transporter'), requireVerified('transporter'), acceptJob);

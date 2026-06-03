@@ -165,8 +165,15 @@ const PickupChecklistScreen = ({ navigation, route }) => {
       
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Pickup Checklist</Text>
-        <Text style={styles.jobId}>{jobData.id}</Text>
+        <View style={styles.headerTop}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <MaterialIcons name="arrow-back" size={24} color="white" />
+          </TouchableOpacity>
+          <View style={styles.headerText}>
+            <Text style={styles.headerTitle}>Pickup Checklist</Text>
+            <Text style={styles.jobId}>{jobData.id}</Text>
+          </View>
+        </View>
       </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
@@ -344,6 +351,22 @@ const styles = StyleSheet.create({
     paddingTop: 40,
     borderBottomLeftRadius: 24,
     borderBottomRightRadius: 24,
+  },
+  headerTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  backButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerText: {
+    flex: 1,
   },
   headerTitle: {
     color: 'white',

@@ -251,6 +251,18 @@ const vehicleSchema = new mongoose.Schema({
       unit: { type: String, enum: ['hours', 'days', 'weeks'], default: 'days' }
     }
   },
+
+  pricing: {
+    availableForRental: { type: Boolean, default: false },
+    dailyRate: Number,
+    weeklyRate: Number,
+    monthlyRate: Number,
+    deposit: Number,
+    minimumRentalPeriod: {
+      value: Number,
+      unit: { type: String, enum: ['hours', 'days', 'weeks'], default: 'days' }
+    }
+  },
   
   // Images
   images: [{

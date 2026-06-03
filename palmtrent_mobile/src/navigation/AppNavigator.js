@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createStackNavigator } from '@react-navigation/stack';
 import useAuth from '../hook/useAuth';
 
@@ -56,6 +58,7 @@ import SupportScreen from '../screens/SupportScreen';
 import ActivityHistoryScreen from '../screens/ActivityHistoryScreen';
 import ReportIssueScreen from '../screens/ReportIssueScreen';
 import ChatScreen from '../screens/ChatScreen';
+import SubscriptionOnboardingScreen, { POST_REGISTRATION_SUBSCRIPTION_KEY } from '../screens/SubscriptionOnboardingScreen';
 
 
 const Stack = createStackNavigator();
@@ -68,12 +71,40 @@ const getMainTabs = (userType) => {
 
 const AppNavigator = () => {
   const { user } = useAuth();
+  const [initialRouteName, setInitialRouteName] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const resolveInitialRoute = async () => {
+      const showSubscriptionPrompt = await AsyncStorage.getItem(POST_REGISTRATION_SUBSCRIPTION_KEY);
+      if (mounted) {
+        setInitialRouteName(showSubscriptionPrompt === 'true' ? 'SubscriptionOnboarding' : 'MainTabs');
+      }
+    };
+
+    resolveInitialRoute();
+
+    return () => {
+      mounted = false;
+    };
+  }, [user?._id]);
+
+  if (!initialRouteName) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#F37021" />
+      </View>
+    );
+  }
 
   return (
     <Stack.Navigator 
-      initialRouteName="MainTabs"
+      initialRouteName={initialRouteName}
       screenOptions={{ headerShown: false }}
     >
+      <Stack.Screen name="SubscriptionOnboarding" component={SubscriptionOnboardingScreen} />
+
       {/* Main Tab Navigator based on user type */}
       <Stack.Screen 
         name="MainTabs" 
@@ -150,5 +181,14 @@ const AppNavigator = () => {
     </Stack.Navigator>
   );
 };
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f8fafc'
+  }
+});
 
 export default AppNavigator;

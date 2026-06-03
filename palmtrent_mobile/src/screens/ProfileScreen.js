@@ -569,6 +569,11 @@ const ProfileScreen = ({ navigation }) => {
                 onPress={() => setShowPasswordModal(true)}
               />
               <ActionItem
+                icon="workspace-premium"
+                label="Manage Subscription"
+                onPress={() => setShowSubscriptionModal(true)}
+              />
+              <ActionItem
                 icon="history"
                 label="Activity History"
                 onPress={() => navigation.navigate('ActivityHistory')}

@@ -436,7 +436,7 @@ const UsersView = ({ setActiveTab, setJobsUserFilter, verificationMode = false, 
       const params = { limit: 50 };
       if (filterType !== 'all') params.role = filterType;
       if (verificationMode) {
-        params.status = 'pending';
+        params.status = 'verification_required';
       } else if (filterStatus !== 'all') {
         params.status = filterStatus;
       }
@@ -451,7 +451,9 @@ const UsersView = ({ setActiveTab, setJobsUserFilter, verificationMode = false, 
           email: u.email,
           phone: u.phone,
           userType: u.userType,
-          status: verificationMode ? (u.verification?.status || 'pending') : (u.status || 'active'),
+          status: verificationMode
+            ? (u.verification?.status || (u.isVerified ? 'approved' : 'not_started'))
+            : (u.status || 'active'),
           accountStatus: u.status || 'active',
           verified: u.isVerified || false,
           verification: u.verification || {},
@@ -485,7 +487,7 @@ const UsersView = ({ setActiveTab, setJobsUserFilter, verificationMode = false, 
                          user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          user.phone.includes(searchTerm);
     const matchesType = filterType === 'all' || user.userType === filterType;
-    const matchesStatus = filterStatus === 'all' || user.status === filterStatus;
+    const matchesStatus = verificationMode || filterStatus === 'all' || user.status === filterStatus;
     const matchesVerificationQueue = !verificationMode || user.userType !== 'shipper';
     return matchesSearch && matchesType && matchesStatus && matchesVerificationQueue;
   });

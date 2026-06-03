@@ -666,7 +666,7 @@ exports.acceptJob = async (req, res) => {
     });
   } catch (error) {
     console.error('Accept job error:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
       message: error.message || 'Failed to accept job'
     });
@@ -712,6 +712,7 @@ exports.getTrailerPairingOptions = async (req, res) => {
 
 exports.requestTrailerPairing = async (req, res) => {
   try {
+    await assertTransporterEligible(req.user.id);
     const rental = await tractorTrailerMatchingService.createLinkedTrailerRental({
       bookingId: req.params.jobId,
       transporterId: req.user.id,
@@ -721,7 +722,7 @@ exports.requestTrailerPairing = async (req, res) => {
     res.status(201).json({ success: true, data: rental, message: 'Trailer rental requested for this job' });
   } catch (error) {
     console.error('Request trailer pairing error:', error);
-    res.status(500).json({ success: false, message: error.message || 'Failed to request trailer pairing' });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Failed to request trailer pairing' });
   }
 };
 

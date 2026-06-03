@@ -31,6 +31,7 @@ const FleetDashboardScreen = () => {
   });
   const [vehicles, setVehicles] = useState([]);
   const [drivers, setDrivers] = useState([]);
+  const [rentalMarketplaceNotice, setRentalMarketplaceNotice] = useState(null);
 
   const loadData = async () => {
     try {
@@ -40,7 +41,10 @@ const FleetDashboardScreen = () => {
         apiService.getDashboardStats()
       ]);
 
-      if (vehiclesRes.success) setVehicles(vehiclesRes.data);
+      if (vehiclesRes.success) {
+        setVehicles(vehiclesRes.data);
+        setRentalMarketplaceNotice(vehiclesRes.rentalMarketplaceNotice || null);
+      }
       if (driversRes.success) setDrivers(driversRes.data);
       if (statsRes.success) setStats(statsRes.data);
     } catch (error) {
@@ -172,9 +176,18 @@ const FleetDashboardScreen = () => {
     </TouchableOpacity>
   );
 
+  const renderRentalNotice = () => rentalMarketplaceNotice ? (
+    <View style={styles.noticeBanner}>
+      <MaterialIcons name="workspace-premium" size={20} color="#F37021" />
+      <Text style={styles.noticeText}>{rentalMarketplaceNotice}</Text>
+    </View>
+  ) : null;
+
   // Render overview content without nested FlatLists
   const renderOverviewContent = () => (
     <View style={styles.overview}>
+      {renderRentalNotice()}
+
       {/* Quick Actions */}
       <View style={styles.actionsGrid}>
         <TouchableOpacity 
@@ -261,16 +274,19 @@ const FleetDashboardScreen = () => {
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
       }
       ListHeaderComponent={
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>My Vehicles</Text>
-          <TouchableOpacity 
-            style={styles.addButton}
-            onPress={() => navigation.navigate('AddVehicle')}
-          >
-            <MaterialIcons name="add" size={20} color="white" />
-            <Text style={styles.addButtonText}>Add Vehicle</Text>
-          </TouchableOpacity>
-        </View>
+        <>
+          {renderRentalNotice()}
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>My Vehicles</Text>
+            <TouchableOpacity 
+              style={styles.addButton}
+              onPress={() => navigation.navigate('AddVehicle')}
+            >
+              <MaterialIcons name="add" size={20} color="white" />
+              <Text style={styles.addButtonText}>Add Vehicle</Text>
+            </TouchableOpacity>
+          </View>
+        </>
       }
       contentContainerStyle={styles.flatListContent}
     />
@@ -305,6 +321,7 @@ const FleetDashboardScreen = () => {
   // Render rentals tab
   const renderRentalsTab = () => (
     <View style={styles.tabContent}>
+      {renderRentalNotice()}
       <Text style={styles.sectionTitle}>Vehicle Rentals</Text>
       <TouchableOpacity
         style={styles.addButton}
@@ -512,6 +529,24 @@ const styles = StyleSheet.create({
   },
   flatListContent: {
     padding: 16,
+  },
+  noticeBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#fff7ed',
+    borderWidth: 1,
+    borderColor: '#fed7aa',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+  },
+  noticeText: {
+    flex: 1,
+    color: '#9a3412',
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '600',
   },
   addButton: {
     flexDirection: 'row',

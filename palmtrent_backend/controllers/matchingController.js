@@ -8,6 +8,11 @@ const matchingService = require('../services/matchingService');
 const escrowService = require('../services/escrowService');
 const whatsappController = require('./whatsappController');
 const notificationService = require('../services/notificationService');
+const {
+  assertBookingTransition,
+  assertTransporterEligible,
+  isPaymentConfirmed
+} = require('../services/flowControlService');
 
 /**
  * Manually trigger transporter matching for a booking
@@ -305,6 +310,16 @@ exports.acceptJob = async (req, res) => {
       });
     }
 
+    if (!isPaymentConfirmed(booking)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment must be confirmed before this job can be accepted'
+      });
+    }
+
+    await assertTransporterEligible(transporterId);
+    assertBookingTransition(booking.status, 'transporter_assigned');
+
     // Assign transporter to booking
     booking.transporter = transporterId;
     booking.status = 'transporter_assigned';
@@ -401,9 +416,9 @@ exports.acceptJob = async (req, res) => {
 
   } catch (error) {
     console.error('Error accepting job:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      message: 'Error accepting job',
+      message: error.message || 'Error accepting job',
       error: error.message
     });
   }

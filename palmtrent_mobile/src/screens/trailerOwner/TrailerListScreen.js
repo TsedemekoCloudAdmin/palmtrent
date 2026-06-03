@@ -28,6 +28,7 @@ const TrailerListScreen = ({ navigation }) => {
     inUse: 0,
     maintenance: 0
   });
+  const [rentalMarketplaceNotice, setRentalMarketplaceNotice] = useState(null);
   const [error, setError] = useState(null);
 
   // Fetch trailers from API
@@ -58,6 +59,7 @@ const TrailerListScreen = ({ navigation }) => {
           rented: 0,
           maintenance: 0
         });
+        setRentalMarketplaceNotice(response.rentalMarketplaceNotice || null);
       }
     } catch (err) {
       console.error('Error fetching trailers:', err);
@@ -254,6 +256,13 @@ const TrailerListScreen = ({ navigation }) => {
               <MaterialIcons name="add" size={20} color="white" />
             </TouchableOpacity>
           </View>
+
+          {rentalMarketplaceNotice && (
+            <View style={styles.noticeBanner}>
+              <MaterialIcons name="workspace-premium" size={20} color="#F37021" />
+              <Text style={styles.noticeText}>{rentalMarketplaceNotice}</Text>
+            </View>
+          )}
 
           {/* Filter Tabs */}
           <View style={styles.filterTabs}>
@@ -549,6 +558,24 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
+  },
+  noticeBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#fff7ed',
+    borderWidth: 1,
+    borderColor: '#fed7aa',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+  },
+  noticeText: {
+    flex: 1,
+    color: '#9a3412',
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '600',
   },
   loadingContainer: {
     flex: 1,

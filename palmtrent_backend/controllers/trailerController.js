@@ -1,5 +1,23 @@
 const Trailer = require('../models/Trailer');
 const Rental = require('../models/Rental');
+const {
+  assertRentalOwnerCanList,
+  getRentalOwnerSubscriptionIssues,
+  getUsableRentalOwnerIds
+} = require('../services/flowControlService');
+
+const RENTAL_SUBSCRIPTION_NOTICE = 'Fleet asset registered, but rental marketplace listing is disabled until you activate a paid owner subscription.';
+
+function wantsTrailerRentalListing(payload = {}) {
+  return payload.rentalSettings?.availableForRental !== false;
+}
+
+function disableTrailerRentalListing(payload) {
+  payload.rentalSettings = {
+    ...(payload.rentalSettings || {}),
+    availableForRental: false
+  };
+}
 
 // @desc    Get all trailers for the current owner
 // @route   GET /api/v1/trailers/my-trailers
@@ -43,11 +61,21 @@ exports.getMyTrailers = async (req, res) => {
       inUse: await Trailer.countDocuments({ owner: req.user.id, status: 'in_use' }),
       maintenance: await Trailer.countDocuments({ owner: req.user.id, status: 'maintenance' })
     };
+    const subscriptionIssues = await getRentalOwnerSubscriptionIssues(req.user.id);
+    const rentalListingsBlocked = subscriptionIssues.length
+      ? await Trailer.countDocuments({
+          owner: req.user.id,
+          'rentalSettings.availableForRental': true
+        })
+      : 0;
 
     res.status(200).json({
       success: true,
       count: trailers.length,
       stats,
+      rentalMarketplaceNotice: rentalListingsBlocked > 0
+        ? `${rentalListingsBlocked} fleet rental listing${rentalListingsBlocked === 1 ? ' is' : 's are'} hidden from the marketplace until you activate a paid owner subscription.`
+        : undefined,
       data: trailers
     });
   } catch (error) {
@@ -121,11 +149,20 @@ exports.createTrailer = async (req, res) => {
       payload.assetName = `${payload.tractorUnit?.make || 'Fleet'} ${payload.tractorUnit?.model || 'Asset'}`.trim();
     }
 
+    let message = 'Fleet asset registered successfully';
+    if (wantsTrailerRentalListing(payload)) {
+      const subscriptionIssues = await getRentalOwnerSubscriptionIssues(req.user.id);
+      if (subscriptionIssues.length) {
+        disableTrailerRentalListing(payload);
+        message = RENTAL_SUBSCRIPTION_NOTICE;
+      }
+    }
+
     const trailer = await Trailer.create(payload);
 
     res.status(201).json({
       success: true,
-      message: 'Fleet asset registered successfully',
+      message,
       data: trailer
     });
   } catch (error) {
@@ -170,9 +207,16 @@ exports.updateTrailer = async (req, res) => {
     }
 
     // Add updatedBy
-    req.body.updatedBy = req.user.id;
+    const payload = {
+      ...req.body,
+      updatedBy: req.user.id
+    };
 
-    trailer = await Trailer.findByIdAndUpdate(req.params.id, req.body, {
+    if (payload.rentalSettings?.availableForRental === true) {
+      await assertRentalOwnerCanList(req.user.id);
+    }
+
+    trailer = await Trailer.findByIdAndUpdate(req.params.id, payload, {
       new: true,
       runValidators: true
     }).populate('trailerType', 'name category');
@@ -184,9 +228,10 @@ exports.updateTrailer = async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating trailer:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      message: 'Failed to update trailer',
+      code: error.code,
+      message: error.message || 'Failed to update trailer',
       error: error.message
     });
   }
@@ -319,6 +364,10 @@ exports.updateRentalSettings = async (req, res) => {
       });
     }
 
+    if (req.body.availableForRental === true) {
+      await assertRentalOwnerCanList(req.user.id);
+    }
+
     trailer.rentalSettings = {
       ...trailer.rentalSettings,
       ...req.body
@@ -333,9 +382,10 @@ exports.updateRentalSettings = async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating rental settings:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      message: 'Failed to update rental settings',
+      code: error.code,
+      message: error.message || 'Failed to update rental settings',
       error: error.message
     });
   }
@@ -406,7 +456,8 @@ exports.getAvailableTrailers = async (req, res) => {
 
     let query = {
       status: 'available',
-      'rentalSettings.availableForRental': true
+      'rentalSettings.availableForRental': true,
+      owner: { $in: await getUsableRentalOwnerIds() }
     };
 
     if (trailerType) {

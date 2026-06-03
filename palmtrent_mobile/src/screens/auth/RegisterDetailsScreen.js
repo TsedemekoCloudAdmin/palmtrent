@@ -12,7 +12,9 @@ import {
   ActivityIndicator
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import useAuth from '../../hook/useAuth';
+import { POST_REGISTRATION_SUBSCRIPTION_KEY } from '../SubscriptionOnboardingScreen';
 
 const RegisterDetailsScreen = ({ navigation, route }) => {
   const { signUp, isLoading } = useAuth();
@@ -29,39 +31,58 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [touchedFields, setTouchedFields] = useState({});
+  const [submitted, setSubmitted] = useState(false);
 
   const updateField = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+    setTouchedFields(prev => ({ ...prev, [field]: true }));
   };
 
-  const isFormValid = formData.agreeTerms && 
-                     formData.fullName.trim().length >= 2 && 
-                     /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/.test(formData.email) && 
-                     /^\d{9}$/.test(formData.phone) &&
-                     formData.password.length >= 8 && 
-                     formData.confirmPassword === formData.password;
+  const getValidationErrors = () => {
+    const errors = {};
+
+    if (formData.fullName.trim().length < 2) {
+      errors.fullName = 'Enter your full name, at least 2 characters.';
+    }
+    if (!/^\S+@\S+\.\S{2,}$/.test(formData.email.trim())) {
+      errors.email = 'Enter a valid email address.';
+    }
+    if (!/^\d{9}$/.test(formData.phone)) {
+      errors.phone = 'Enter a valid 9-digit Zimbabwean phone number after +263.';
+    }
+    if (formData.password.length < 8) {
+      errors.password = 'Password must be at least 8 characters long.';
+    } else if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(formData.password)) {
+      errors.password = 'Password must include uppercase, lowercase, and a number.';
+    }
+    if (!formData.confirmPassword) {
+      errors.confirmPassword = 'Confirm your password.';
+    } else if (formData.confirmPassword !== formData.password) {
+      errors.confirmPassword = 'Passwords do not match.';
+    }
+    if (!formData.agreeTerms) {
+      errors.agreeTerms = 'Accept the Terms of Service and Privacy Policy to continue.';
+    }
+
+    return errors;
+  };
+
+  const validationErrors = getValidationErrors();
+  const showError = (field) => (submitted || touchedFields[field]) && validationErrors[field];
+
+  const ErrorText = ({ field }) => {
+    const message = showError(field);
+    if (!message) return null;
+    return <Text style={styles.errorText}>{message}</Text>;
+  };
 
   const handleCreateAccount = async () => {
-    if (formData.password !== formData.confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
-      return;
-    }
-
-    if (formData.password.length < 8) {
-      Alert.alert('Error', 'Password must be at least 8 characters long');
-      return;
-    }
-
-    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(formData.password)) {
-      Alert.alert(
-        'Weak Password', 
-        'Password must contain at least one lowercase letter, one uppercase letter, and one number'
-      );
-      return;
-    }
-
-    if (!/^\d{9}$/.test(formData.phone)) {
-      Alert.alert('Error', 'Please enter a valid 9-digit Zimbabwean phone number');
+    setSubmitted(true);
+    const errors = getValidationErrors();
+    const firstError = Object.values(errors)[0];
+    if (firstError) {
+      Alert.alert('Check your details', firstError);
       return;
     }
 
@@ -74,8 +95,10 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
         userType: userType
       };
 
+      await AsyncStorage.setItem(POST_REGISTRATION_SUBSCRIPTION_KEY, 'true');
       await signUp(userData);
     } catch (error) {
+      await AsyncStorage.removeItem(POST_REGISTRATION_SUBSCRIPTION_KEY);
       Alert.alert('Error', error.message || 'Failed to create account. Please try again.');
     }
   };
@@ -105,7 +128,9 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
                 placeholder="John Moyo"
                 editable={!isLoading}
                 autoCapitalize="words"
+                onBlur={() => setTouchedFields(prev => ({ ...prev, fullName: true }))}
               />
+              <ErrorText field="fullName" />
             </View>
 
             <View style={styles.inputContainer}>
@@ -119,7 +144,9 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
                 autoCapitalize="none"
                 autoComplete="email"
                 editable={!isLoading}
+                onBlur={() => setTouchedFields(prev => ({ ...prev, email: true }))}
               />
+              <ErrorText field="email" />
             </View>
 
             <View style={styles.inputContainer}>
@@ -136,8 +163,10 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
                   keyboardType="phone-pad"
                   maxLength={9}
                   editable={!isLoading}
+                  onBlur={() => setTouchedFields(prev => ({ ...prev, phone: true }))}
                 />
               </View>
+              <ErrorText field="phone" />
             </View>
 
             <View style={styles.inputContainer}>
@@ -151,6 +180,7 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
                   secureTextEntry={!showPassword}
                   editable={!isLoading}
                   autoComplete="new-password"
+                  onBlur={() => setTouchedFields(prev => ({ ...prev, password: true }))}
                 />
                 <TouchableOpacity
                   style={styles.eyeButton}
@@ -164,6 +194,7 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
                   />
                 </TouchableOpacity>
               </View>
+              <ErrorText field="password" />
             </View>
 
             <View style={styles.inputContainer}>
@@ -177,6 +208,7 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
                   secureTextEntry={!showConfirmPassword}
                   editable={!isLoading}
                   autoComplete="new-password"
+                  onBlur={() => setTouchedFields(prev => ({ ...prev, confirmPassword: true }))}
                 />
                 <TouchableOpacity
                   style={styles.eyeButton}
@@ -190,6 +222,7 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
                   />
                 </TouchableOpacity>
               </View>
+              <ErrorText field="confirmPassword" />
             </View>
 
             <TouchableOpacity
@@ -209,11 +242,12 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
                 I agree to Palmtrent's <Text style={styles.link}>Terms of Service</Text> and <Text style={styles.link}>Privacy Policy</Text>
               </Text>
             </TouchableOpacity>
+            <ErrorText field="agreeTerms" />
 
             <TouchableOpacity
-              style={[styles.button, (!isFormValid || isLoading) && styles.buttonDisabled]}
+              style={[styles.button, isLoading && styles.buttonDisabled]}
               onPress={handleCreateAccount}
-              disabled={!isFormValid || isLoading}
+              disabled={isLoading}
             >
               {isLoading ? (
                 <ActivityIndicator color="white" />
@@ -359,6 +393,11 @@ const styles = StyleSheet.create({
   link: {
     color: '#0C2D48',
     fontWeight: '500',
+  },
+  errorText: {
+    color: '#dc2626',
+    fontSize: 13,
+    lineHeight: 18,
   },
   button: {
     backgroundColor: '#0C2D48',

@@ -67,6 +67,15 @@ function mergeDocumentAuthorityChecks(documents = [], checks = [], adminId) {
   });
 }
 
+const verificationQueueQuery = {
+  userType: { $nin: ['shipper', 'admin'] },
+  isVerified: { $ne: true },
+  $or: [
+    { 'verification.status': { $in: ['pending', 'not_started'] } },
+    { 'verification.status': { $exists: false } }
+  ]
+};
+
 // @desc    Get admin dashboard statistics
 // @route   GET /api/v1/admin/dashboard
 // @access  Private/Admin
@@ -88,10 +97,7 @@ exports.getDashboardStats = async (req, res) => {
       ...platformUserQuery,
       createdAt: { $gte: startOfMonth }
     });
-    const pendingVerifications = await User.countDocuments({
-      userType: { $nin: ['shipper', 'admin'] },
-      'verification.status': 'pending'
-    });
+    const pendingVerifications = await User.countDocuments(verificationQueueQuery);
 
     // Booking statistics
     const totalBookings = await Booking.countDocuments();
@@ -215,6 +221,8 @@ exports.getUsers = async (req, res) => {
         query['verification.status'] = 'verified';
       } else if (status === 'pending') {
         query['verification.status'] = 'pending';
+      } else if (status === 'verification_required') {
+        Object.assign(query, verificationQueueQuery);
       } else if (status === 'active') {
         query.isActive = true;
       } else if (status === 'inactive') {
@@ -1144,10 +1152,6 @@ exports.getPendingVerifications = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    const verificationQueueQuery = {
-      userType: { $nin: ['shipper', 'admin'] },
-      'verification.status': 'pending'
-    };
 
     const users = await User.find(verificationQueueQuery)
       .select('-password')

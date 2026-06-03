@@ -3,7 +3,8 @@ const {
   assertShipmentTransition,
   getVehicleComplianceIssues,
   getDriverComplianceIssues,
-  isPaymentConfirmed
+  isPaymentConfirmed,
+  isSubscriptionUsable
 } = require('../services/flowControlService');
 
 describe('flowControlService', () => {
@@ -53,5 +54,22 @@ describe('flowControlService', () => {
       licenseExpiry: yesterday
     });
     expect(driverIssues).toContain('Driver license has expired');
+  });
+
+  test('requires active paid or waived subscription access', () => {
+    expect(isSubscriptionUsable(null)).toBe(false);
+    expect(isSubscriptionUsable({ status: 'active', payment: { status: 'pending' } })).toBe(false);
+    expect(isSubscriptionUsable({ status: 'suspended', payment: { status: 'paid' } })).toBe(false);
+    expect(isSubscriptionUsable({
+      status: 'active',
+      payment: { status: 'paid' },
+      currentPeriodEnd: new Date(Date.now() - 24 * 60 * 60 * 1000)
+    })).toBe(false);
+    expect(isSubscriptionUsable({
+      status: 'active',
+      payment: { status: 'paid' },
+      currentPeriodEnd: new Date(Date.now() + 24 * 60 * 60 * 1000)
+    })).toBe(true);
+    expect(isSubscriptionUsable({ status: 'active', payment: { status: 'waived' } })).toBe(true);
   });
 });

@@ -1,7 +1,11 @@
 const Booking = require('../models/Booking');
 const CorporateAccount = require('../models/CorporateAccount');
 const Driver = require('../models/Driver');
+const Subscription = require('../models/Subscription');
 const Vehicle = require('../models/Vehicle');
+
+const RENTAL_OWNER_AUDIENCES = ['transporter', 'trailer_owner'];
+const USABLE_SUBSCRIPTION_PAYMENT_STATUSES = ['paid', 'waived', 'not_required'];
 
 const bookingTransitions = {
   draft: ['pending_payment', 'cancelled'],
@@ -107,10 +111,104 @@ function getDriverComplianceIssues(driver) {
   return issues;
 }
 
+function createEligibilityError(message, code = 'TRANSPORTER_INELIGIBLE') {
+  const error = new Error(message);
+  error.statusCode = 403;
+  error.code = code;
+  return error;
+}
+
+function isSubscriptionUsable(subscription) {
+  if (!subscription) return false;
+  if (subscription.status !== 'active') return false;
+
+  const paymentStatus = subscription.payment?.status || 'pending';
+  if (!USABLE_SUBSCRIPTION_PAYMENT_STATUSES.includes(paymentStatus)) return false;
+
+  if (subscription.currentPeriodEnd && new Date(subscription.currentPeriodEnd) < new Date()) return false;
+
+  return true;
+}
+
+async function getActiveUserSubscription(userId, audience = 'transporter') {
+  const compatibleAudiences = audience === 'transporter'
+    ? ['transporter', 'trailer_owner']
+    : [audience];
+
+  return Subscription.findOne({
+    user: userId,
+    audience: { $in: compatibleAudiences },
+    status: 'active'
+  }).populate('plan');
+}
+
+async function getUsableRentalOwnerIds(ownerIds = null, audiences = RENTAL_OWNER_AUDIENCES) {
+  const query = {
+    audience: { $in: audiences },
+    status: 'active',
+    'payment.status': { $in: USABLE_SUBSCRIPTION_PAYMENT_STATUSES },
+    $or: [
+      { currentPeriodEnd: { $exists: false } },
+      { currentPeriodEnd: null },
+      { currentPeriodEnd: { $gte: new Date() } }
+    ]
+  };
+
+  if (Array.isArray(ownerIds)) {
+    const uniqueOwnerIds = [...new Set(ownerIds.filter(Boolean).map(id => id.toString()))];
+    if (!uniqueOwnerIds.length) return [];
+    query.user = { $in: uniqueOwnerIds };
+  }
+
+  const subscriptions = await Subscription.find(query).select('user').lean();
+  return subscriptions.map(subscription => subscription.user);
+}
+
+async function getUsableRentalOwnerIdSet(ownerIds = null, audiences = RENTAL_OWNER_AUDIENCES) {
+  const usableOwnerIds = await getUsableRentalOwnerIds(ownerIds, audiences);
+  return new Set(usableOwnerIds.map(ownerId => ownerId.toString()));
+}
+
+async function getRentalOwnerSubscriptionIssues(ownerId) {
+  const usableOwnerIds = await getUsableRentalOwnerIdSet([ownerId]);
+  if (usableOwnerIds.has(ownerId.toString())) return [];
+  return ['An active paid transporter or trailer owner subscription is required before this asset can be listed for rental'];
+}
+
+async function assertRentalOwnerCanList(ownerId) {
+  const issues = await getRentalOwnerSubscriptionIssues(ownerId);
+  if (issues.length) {
+    throw createEligibilityError(issues.join('; '), 'RENTAL_OWNER_SUBSCRIPTION_REQUIRED');
+  }
+}
+
+async function getSubscriptionEligibilityIssues(userId, audience = 'transporter') {
+  const subscription = await getActiveUserSubscription(userId, audience);
+  if (isSubscriptionUsable(subscription)) return [];
+
+  if (!subscription) {
+    return [`Active ${audience.replace('_', ' ')} subscription is required`];
+  }
+
+  const issues = [];
+  if (subscription.payment?.status && !['paid', 'waived', 'not_required'].includes(subscription.payment.status)) {
+    issues.push('Subscription payment must be confirmed');
+  }
+  if (subscription.currentPeriodEnd && new Date(subscription.currentPeriodEnd) < new Date()) {
+    issues.push('Subscription period has expired');
+  }
+  if (subscription.status !== 'active') {
+    issues.push('Subscription is not active');
+  }
+
+  return issues.length ? issues : [`Active ${audience.replace('_', ' ')} subscription is required`];
+}
+
 async function assertTransporterEligible(transporterId) {
   const transporter = await require('../models/User').findById(transporterId);
   const issues = getUserVerificationIssues(transporter, 'transporter');
-  if (issues.length) throw new Error(`Transporter is not eligible: ${issues.join('; ')}`);
+  issues.push(...await getSubscriptionEligibilityIssues(transporterId, 'transporter'));
+  if (issues.length) throw createEligibilityError(`Transporter is not eligible: ${issues.join('; ')}`);
   return transporter;
 }
 
@@ -191,7 +289,13 @@ module.exports = {
   getUserVerificationIssues,
   getVehicleComplianceIssues,
   getDriverComplianceIssues,
+  getSubscriptionEligibilityIssues,
+  getUsableRentalOwnerIds,
+  getUsableRentalOwnerIdSet,
+  getRentalOwnerSubscriptionIssues,
+  isSubscriptionUsable,
   assertTransporterEligible,
+  assertRentalOwnerCanList,
   assertVehicleAssignable,
   assertDriverAssignable,
   assertBookingReadyForMatching,

@@ -383,7 +383,7 @@ const AddVehicleScreen = () => {
           setUploadingPhotos(false);
         }
 
-        Alert.alert('Success', 'Vehicle added successfully', [
+        Alert.alert('Vehicle saved', response.message || 'Vehicle added successfully', [
           { text: 'OK', onPress: () => navigation.navigate('FleetDashboard') }
         ]);
       } else {
@@ -391,7 +391,7 @@ const AddVehicleScreen = () => {
       }
     } catch (error) {
       console.error('Add vehicle error:', error);
-      Alert.alert('Error', 'Failed to add vehicle. Please try again.');
+      Alert.alert('Error', error.message || 'Failed to add vehicle. Please try again.');
     } finally {
       setLoading(false);
       setUploadingPhotos(false);

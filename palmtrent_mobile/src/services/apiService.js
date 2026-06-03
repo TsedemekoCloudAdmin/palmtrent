@@ -73,7 +73,7 @@ class ApiService {
             await this.removeToken();
             throw new Error('Session expired. Please log in again.');
           case 403:
-            throw new Error('You do not have permission to perform this action.');
+            throw new Error(data.message || 'You do not have permission to perform this action.');
           case 404:
             throw new Error('Resource not found.');
           case 422:
@@ -81,7 +81,7 @@ class ApiService {
           case 429:
             throw new Error('Too many requests. Please try again later.');
           case 500:
-            throw new Error('Server error. Please try again later.');
+            throw new Error(data.message || 'Server error. Please try again later.');
           default:
             throw new Error(data.message || `Request failed with status ${response.status}`);
         }

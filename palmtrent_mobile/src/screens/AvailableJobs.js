@@ -18,6 +18,20 @@ import apiService from '../services/apiService';
 
 const { width } = Dimensions.get('window');
 
+const isUserVerifiedForJobs = (user) => (
+  user?.isVerified ||
+  user?.verification?.isVerified ||
+  ['approved', 'verified'].includes(user?.verification?.status)
+);
+
+const isUsableSubscription = (subscription) => {
+  if (!subscription || subscription.status !== 'active') return false;
+  const paymentStatus = subscription.payment?.status || 'pending';
+  if (!['paid', 'waived', 'not_required'].includes(paymentStatus)) return false;
+  if (subscription.currentPeriodEnd && new Date(subscription.currentPeriodEnd) < new Date()) return false;
+  return true;
+};
+
 const AvailableJobsScreen = ({ navigation, onNavigate }) => {
   const { user } = useAuth();
   const [selectedFilter, setSelectedFilter] = useState('all');
@@ -25,6 +39,31 @@ const AvailableJobsScreen = ({ navigation, onNavigate }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [subscription, setSubscription] = useState(null);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(true);
+
+  const transporterVerified = isUserVerifiedForJobs(user);
+  const hasActiveSubscription = isUsableSubscription(subscription);
+  const accessBlocker = !transporterVerified
+    ? 'Your transporter verification must be approved before you can accept jobs.'
+    : subscriptionLoading
+      ? 'Checking your subscription before accepting jobs.'
+      : !hasActiveSubscription
+        ? 'An active paid transporter subscription is required before you can accept jobs.'
+        : '';
+
+  const fetchSubscription = useCallback(async () => {
+    try {
+      setSubscriptionLoading(true);
+      const response = await apiService.getMySubscription();
+      setSubscription(response.data || null);
+    } catch (err) {
+      console.warn('Subscription status load failed:', err.message);
+      setSubscription(null);
+    } finally {
+      setSubscriptionLoading(false);
+    }
+  }, []);
 
   const fetchJobs = useCallback(async () => {
     try {
@@ -76,12 +115,14 @@ const AvailableJobsScreen = ({ navigation, onNavigate }) => {
 
   useEffect(() => {
     fetchJobs();
-  }, [fetchJobs]);
+    fetchSubscription();
+  }, [fetchJobs, fetchSubscription]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     fetchJobs();
-  }, [fetchJobs]);
+    fetchSubscription();
+  }, [fetchJobs, fetchSubscription]);
 
   const formatPickupDate = (dateStr) => {
     if (!dateStr) return 'Flexible';
@@ -129,6 +170,11 @@ const AvailableJobsScreen = ({ navigation, onNavigate }) => {
 
   const handleAcceptJob = async (job) => {
     try {
+      if (accessBlocker) {
+        Alert.alert('Action Required', accessBlocker);
+        return;
+      }
+
       Alert.alert(
         'Accept Job',
         `Are you sure you want to accept this job?\n\nRoute: ${job.route.from} → ${job.route.to}\nEarnings: $${job.earnings}`,
@@ -249,6 +295,16 @@ const AvailableJobsScreen = ({ navigation, onNavigate }) => {
 
         {/* Jobs List */}
         <View style={styles.section}>
+          {accessBlocker ? (
+            <View style={styles.accessNotice}>
+              <MaterialIcons
+                name={transporterVerified ? 'workspace-premium' : 'verified-user'}
+                size={22}
+                color="#0C2D48"
+              />
+              <Text style={styles.accessNoticeText}>{accessBlocker}</Text>
+            </View>
+          ) : null}
           {filteredJobs.length > 0 ? (
             <View style={styles.jobsList}>
               {filteredJobs.map((job) => (
@@ -258,6 +314,7 @@ const AvailableJobsScreen = ({ navigation, onNavigate }) => {
                   onAccept={() => handleAcceptJob(job)}
                   onViewDetails={() => handleViewDetails(job)}
                   onViewMap={() => handleViewRouteMap(job)}
+                  accessBlocker={accessBlocker}
                 />
               ))}
             </View>
@@ -322,7 +379,7 @@ const FilterChip = ({ label, active, count, icon, onPress }) => (
 );
 
 // Job Card Component
-const JobCard = ({ job, onAccept, onViewDetails, onViewMap }) => {
+const JobCard = ({ job, onAccept, onViewDetails, onViewMap, accessBlocker }) => {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -432,11 +489,11 @@ const JobCard = ({ job, onAccept, onViewDetails, onViewMap }) => {
           <Text style={styles.detailsButtonText}>View Details</Text>
         </TouchableOpacity>
         <TouchableOpacity 
-          style={styles.acceptButton}
+          style={[styles.acceptButton, accessBlocker && styles.acceptButtonDisabled]}
           onPress={onAccept}
         >
-          <Text style={styles.acceptButtonText}>Accept Job</Text>
-          <MaterialIcons name="arrow-forward" size={16} color="white" />
+          <Text style={styles.acceptButtonText}>{accessBlocker ? 'View Only' : 'Accept Job'}</Text>
+          <MaterialIcons name={accessBlocker ? 'lock' : 'arrow-forward'} size={16} color="white" />
         </TouchableOpacity>
       </View>
 
@@ -602,6 +659,24 @@ const styles = StyleSheet.create({
   },
   jobsList: {
     gap: 16,
+  },
+  accessNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#e0f2fe',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+  },
+  accessNoticeText: {
+    flex: 1,
+    color: '#0C2D48',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '500',
   },
   jobCard: {
     backgroundColor: 'white',
@@ -820,6 +895,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 8,
+  },
+  acceptButtonDisabled: {
+    backgroundColor: '#94a3b8',
   },
   acceptButtonText: {
     fontSize: 16,

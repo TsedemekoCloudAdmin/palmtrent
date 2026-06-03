@@ -286,7 +286,7 @@ const EditTrailerScreen = ({ navigation, route }) => {
       const normalized = normalizeTrailer(updatedTrailer);
       if (onSave) onSave(normalized);
       setIsModified(false);
-      Alert.alert('Success', 'Trailer details updated successfully', [
+      Alert.alert('Trailer saved', response.message || 'Trailer details updated successfully', [
         {
           text: 'OK',
           onPress: () => navigation.navigate('TrailerDetail', {

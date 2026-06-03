@@ -3,8 +3,57 @@ const Driver = require('../models/Driver');
 const Rental = require('../models/Rental');
 const Shipment = require('../models/Shipment');
 const { recordAudit } = require('../services/auditService');
-const { assertDriverAssignable, getVehicleComplianceIssues } = require('../services/flowControlService');
+const {
+  assertDriverAssignable,
+  assertRentalOwnerCanList,
+  getRentalOwnerSubscriptionIssues,
+  getUsableRentalOwnerIds,
+  getVehicleComplianceIssues
+} = require('../services/flowControlService');
 const { finalizeUploadedFile } = require('../services/uploadFinalizationService');
+
+const RENTAL_SUBSCRIPTION_NOTICE = 'Vehicle saved, but rental marketplace listing is disabled until you activate a paid owner subscription.';
+
+function wantsVehicleRentalListing(payload = {}) {
+  return payload.rentalSettings?.availableForRental === true || payload.pricing?.availableForRental === true;
+}
+
+function disableVehicleRentalListing(payload) {
+  payload.rentalSettings = {
+    ...(payload.rentalSettings || {}),
+    availableForRental: false
+  };
+  payload.pricing = {
+    ...(payload.pricing || {}),
+    availableForRental: false
+  };
+}
+
+function syncVehicleRentalFields(payload) {
+  if (payload.pricing) {
+    payload.rentalSettings = {
+      ...(payload.rentalSettings || {}),
+      availableForRental: payload.pricing.availableForRental ?? payload.rentalSettings?.availableForRental,
+      dailyRate: payload.pricing.dailyRate ?? payload.rentalSettings?.dailyRate,
+      weeklyRate: payload.pricing.weeklyRate ?? payload.rentalSettings?.weeklyRate,
+      monthlyRate: payload.pricing.monthlyRate ?? payload.rentalSettings?.monthlyRate,
+      deposit: payload.pricing.deposit ?? payload.rentalSettings?.deposit,
+      minimumRentalPeriod: payload.pricing.minimumRentalPeriod ?? payload.rentalSettings?.minimumRentalPeriod
+    };
+  }
+
+  if (payload.rentalSettings) {
+    payload.pricing = {
+      ...(payload.pricing || {}),
+      availableForRental: payload.rentalSettings.availableForRental ?? payload.pricing?.availableForRental,
+      dailyRate: payload.rentalSettings.dailyRate ?? payload.pricing?.dailyRate,
+      weeklyRate: payload.rentalSettings.weeklyRate ?? payload.pricing?.weeklyRate,
+      monthlyRate: payload.rentalSettings.monthlyRate ?? payload.pricing?.monthlyRate,
+      deposit: payload.rentalSettings.deposit ?? payload.pricing?.deposit,
+      minimumRentalPeriod: payload.rentalSettings.minimumRentalPeriod ?? payload.pricing?.minimumRentalPeriod
+    };
+  }
+}
 
 // Get all vehicles for a transporter
 exports.getVehicles = async (req, res) => {
@@ -26,10 +75,23 @@ exports.getVehicles = async (req, res) => {
       .skip((page - 1) * limit);
 
     const total = await Vehicle.countDocuments(query);
+    const subscriptionIssues = await getRentalOwnerSubscriptionIssues(req.user._id);
+    const rentalListingsBlocked = subscriptionIssues.length
+      ? await Vehicle.countDocuments({
+          owner: req.user._id,
+          $or: [
+            { 'pricing.availableForRental': true },
+            { 'rentalSettings.availableForRental': true }
+          ]
+        })
+      : 0;
 
     res.status(200).json({
       success: true,
       data: vehicles,
+      rentalMarketplaceNotice: rentalListingsBlocked > 0
+        ? `${rentalListingsBlocked} vehicle rental listing${rentalListingsBlocked === 1 ? ' is' : 's are'} hidden from the marketplace until you activate a paid owner subscription.`
+        : undefined,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -89,6 +151,16 @@ exports.createVehicle = async (req, res) => {
       ...req.body,
       owner: req.user._id
     };
+    syncVehicleRentalFields(vehicleData);
+
+    let message = 'Vehicle added successfully';
+    if (wantsVehicleRentalListing(vehicleData)) {
+      const subscriptionIssues = await getRentalOwnerSubscriptionIssues(req.user._id);
+      if (subscriptionIssues.length) {
+        disableVehicleRentalListing(vehicleData);
+        message = RENTAL_SUBSCRIPTION_NOTICE;
+      }
+    }
 
     const vehicle = new Vehicle(vehicleData);
     await vehicle.save();
@@ -96,7 +168,7 @@ exports.createVehicle = async (req, res) => {
     res.status(201).json({
       success: true,
       data: vehicle,
-      message: 'Vehicle added successfully'
+      message
     });
   } catch (error) {
     console.error('Create vehicle error:', error);
@@ -110,7 +182,7 @@ exports.createVehicle = async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: 'Failed to create vehicle'
+      message: error.message || 'Failed to create vehicle'
     });
   }
 };
@@ -150,10 +222,16 @@ exports.updateVehicle = async (req, res) => {
     }
 
     const before = { status: vehicle.status, assignedDriver: vehicle.assignedDriver };
+    const payload = { ...req.body };
+    syncVehicleRentalFields(payload);
+
+    if (wantsVehicleRentalListing(payload)) {
+      await assertRentalOwnerCanList(req.user._id);
+    }
 
     vehicle = await Vehicle.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      payload,
       { new: true, runValidators: true }
     );
 
@@ -175,9 +253,10 @@ exports.updateVehicle = async (req, res) => {
     });
   } catch (error) {
     console.error('Update vehicle error:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      message: 'Failed to update vehicle'
+      code: error.code,
+      message: error.message || 'Failed to update vehicle'
     });
   }
 };
@@ -319,7 +398,8 @@ exports.getAvailableForRental = async (req, res) => {
       'pricing.availableForRental': true,
       status: 'available',
       'availability.isAvailable': true,
-      'verification.status': 'approved'
+      'verification.status': 'approved',
+      owner: { $in: await getUsableRentalOwnerIds() }
     };
 
     if (type) query.vehicleType = type;
@@ -377,6 +457,14 @@ exports.updateRentalSettings = async (req, res) => {
       ...vehicle.pricing,
       ...req.body
     };
+    vehicle.rentalSettings = {
+      ...vehicle.rentalSettings,
+      ...req.body
+    };
+
+    if (req.body.availableForRental === true) {
+      await assertRentalOwnerCanList(req.user._id);
+    }
 
     await vehicle.save();
 
@@ -387,9 +475,10 @@ exports.updateRentalSettings = async (req, res) => {
     });
   } catch (error) {
     console.error('Update rental settings error:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      message: 'Failed to update rental settings'
+      code: error.code,
+      message: error.message || 'Failed to update rental settings'
     });
   }
 };

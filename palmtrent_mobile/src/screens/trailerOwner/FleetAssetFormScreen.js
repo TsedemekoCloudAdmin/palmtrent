@@ -46,7 +46,7 @@ const FleetAssetFormScreen = ({ navigation }) => {
 
     try {
       setSaving(true);
-      await apiService.createTrailer({
+      const response = await apiService.createTrailer({
         assetType: form.assetType,
         registrationNumber: form.registrationNumber,
         assetName: form.assetName,
@@ -72,7 +72,7 @@ const FleetAssetFormScreen = ({ navigation }) => {
         operatingAreas: form.city ? [{ city: form.city, country: 'Zimbabwe' }] : []
       });
 
-      Alert.alert('Fleet asset added', 'Your asset is now available in your fleet.', [
+      Alert.alert('Fleet asset saved', response.message || 'Your asset is now available in your fleet.', [
         { text: 'OK', onPress: () => navigation.navigate('TrailerList') }
       ]);
     } catch (error) {

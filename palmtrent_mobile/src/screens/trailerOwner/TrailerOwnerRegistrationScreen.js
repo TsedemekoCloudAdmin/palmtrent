@@ -266,10 +266,10 @@ const TrailerOwnerRegistrationScreen = ({ navigation }) => {
 
     setSubmitting(true);
     try {
-      await apiService.createTrailer(submissionData);
+      const response = await apiService.createTrailer(submissionData);
       Alert.alert(
-        'Trailer Listed',
-        'Your trailer has been added to your fleet and is available for rental management.',
+        'Trailer Saved',
+        response.message || 'Your trailer has been added to your fleet and is available for rental management.',
         [{ text: 'OK', onPress: () => navigateTo('TrailerList') }]
       );
     } catch (error) {

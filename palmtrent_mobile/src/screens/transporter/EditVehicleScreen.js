@@ -166,7 +166,7 @@ const EditVehicleScreen = () => {
       const response = await apiService.updateVehicle(vehicleId, vehicleData);
       
       if (response.success) {
-        Alert.alert('Success', 'Vehicle updated successfully', [
+        Alert.alert('Vehicle saved', response.message || 'Vehicle updated successfully', [
           { 
             text: 'OK', 
             onPress: () => navigation.navigate('VehicleDetails', { vehicleId }) 
@@ -177,7 +177,7 @@ const EditVehicleScreen = () => {
       }
     } catch (error) {
       console.error('Update vehicle error:', error);
-      Alert.alert('Error', 'Failed to update vehicle. Please try again.');
+      Alert.alert('Error', error.message || 'Failed to update vehicle. Please try again.');
     } finally {
       setLoading(false);
     }
