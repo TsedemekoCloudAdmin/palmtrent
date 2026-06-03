@@ -28,13 +28,21 @@ exports.getDashboardStats = async (req, res) => {
     const startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
     const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
 
-    // User statistics
-    const totalUsers = await User.countDocuments();
+    // User statistics shown to platform admins should represent customers and
+    // subscribers on the platform, not the internal admin accounts.
+    const platformUserQuery = { userType: { $ne: 'admin' } };
+    const totalUsers = await User.countDocuments(platformUserQuery);
     const totalShippers = await User.countDocuments({ userType: 'shipper' });
     const totalTransporters = await User.countDocuments({ userType: 'transporter' });
     const totalTrailerOwners = await User.countDocuments({ userType: 'trailer_owner' });
-    const newUsersThisMonth = await User.countDocuments({ createdAt: { $gte: startOfMonth } });
-    const pendingVerifications = await User.countDocuments({ 'verification.status': 'pending' });
+    const newUsersThisMonth = await User.countDocuments({
+      ...platformUserQuery,
+      createdAt: { $gte: startOfMonth }
+    });
+    const pendingVerifications = await User.countDocuments({
+      ...platformUserQuery,
+      'verification.status': 'pending'
+    });
 
     // Booking statistics
     const totalBookings = await Booking.countDocuments();
@@ -103,6 +111,7 @@ exports.getDashboardStats = async (req, res) => {
       data: {
         users: {
           total: totalUsers,
+          platformTotal: totalUsers,
           shippers: totalShippers,
           transporters: totalTransporters,
           trailerOwners: totalTrailerOwners,

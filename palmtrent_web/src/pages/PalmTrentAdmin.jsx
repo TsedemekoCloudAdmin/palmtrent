@@ -208,7 +208,7 @@ const AdminDashboard = () => {
 const DashboardView = ({ timeRange, setTimeRange, setActiveTab }) => {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
-    today: { revenue: 0, bookings: 0, activeJobs: 0, newUsers: 0, disputes: 0 },
+    today: { revenue: 0, bookings: 0, activeJobs: 0, platformUsers: 0, disputes: 0 },
     growth: { revenue: 0, bookings: 0, users: 0, onTime: 0 }
   });
   const [activeJobs, setActiveJobs] = useState([]);
@@ -227,7 +227,7 @@ const DashboardView = ({ timeRange, setTimeRange, setActiveTab }) => {
               revenue: data.revenue?.thisMonth || 0,
               bookings: data.bookings?.thisMonth || 0,
               activeJobs: data.bookings?.active || 0,
-              newUsers: data.users?.newThisMonth || 0,
+              platformUsers: data.users?.platformTotal ?? data.users?.total ?? 0,
               disputes: data.claims?.unattendedDisputes || 0
             },
             growth: {
@@ -279,7 +279,7 @@ const DashboardView = ({ timeRange, setTimeRange, setActiveTab }) => {
       { metric: 'Revenue', value: stats.today.revenue },
       { metric: 'Bookings', value: stats.today.bookings },
       { metric: 'Active Jobs', value: stats.today.activeJobs },
-      { metric: 'New Users', value: stats.today.newUsers },
+      { metric: 'Current Users', value: stats.today.platformUsers },
       { metric: 'Disputes', value: stats.today.disputes }
     ]);
   };
@@ -321,7 +321,7 @@ const DashboardView = ({ timeRange, setTimeRange, setActiveTab }) => {
           <StatCard title="Revenue" value={`$${stats.today.revenue.toLocaleString()}`} change={stats.growth.revenue} icon={<DollarSign className="icon" />} color="accent" />
           <StatCard title="Bookings" value={stats.today.bookings} change={stats.growth.bookings} icon={<Package className="icon" />} color="primary" />
           <StatCard title="Active Jobs" value={stats.today.activeJobs} icon={<Truck className="icon" />} color="secondary" />
-          <StatCard title="New Users" value={stats.today.newUsers} change={stats.growth.users} icon={<Users className="icon" />} color="success" />
+          <StatCard title="Current Users" value={stats.today.platformUsers} change={stats.growth.users} icon={<Users className="icon" />} color="success" />
           <StatCard title="Disputes" value={stats.today.disputes} icon={<AlertCircle className="icon" />} color="error" alert />
         </div>
         <div className="content-grid">
