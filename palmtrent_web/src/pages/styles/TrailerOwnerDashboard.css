@@ -404,17 +404,32 @@
 }
 
 .dialog-close {
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
+  border: 1px solid #dbe4ea;
+  border-radius: 8px;
   background: #fff;
   color: #172033;
   cursor: pointer;
+  padding: 0;
+  line-height: 0;
+}
+
+.dialog-close .icon {
+  width: 20px;
+  height: 20px;
+  display: block;
+  color: currentColor;
+  stroke: currentColor;
+}
+
+.dialog-close:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
 }
 
 .fleet-account-grid {

@@ -3,7 +3,7 @@ import {
   Building, Package, MapPin, TrendingUp, TrendingDown, Clock, DollarSign, Plus,
   Search, Download, FileText, Star, Truck, Menu, Bell, User, Home,
   BarChart3, Users, Settings, LogOut, ChevronDown, Calendar, Filter,
-  Eye, RefreshCw, ChevronLeft, ChevronRight, CreditCard, AlertCircle,
+  Eye, RefreshCw, ChevronLeft, ChevronRight, CreditCard, AlertCircle, X,
   Check, PieChart, Activity, Layers, UserPlus, Shield, Phone, Mail, Loader
 } from 'lucide-react';
 import { authAPI, corporateAPI, bookingsAPI, trackingAPI, notificationsAPI } from '../services/api';
@@ -609,7 +609,9 @@ const BookingsTab = () => {
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Create Corporate Booking</h2>
-              <button className="modal-close" onClick={() => setShowNewBooking(false)}>x</button>
+              <button className="modal-close" type="button" aria-label="Close new booking dialog" onClick={() => setShowNewBooking(false)}>
+                <X className="icon" />
+              </button>
             </div>
             <div className="modal-body">
               <p>Corporate bookings use the live shipper booking workflow so pricing, documents, insurance, and payment status remain on the same backend records.</p>
@@ -816,7 +818,9 @@ const TeamTab = () => {
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Add Team Member</h2>
-              <button className="modal-close" onClick={() => setShowAddMember(false)}>×</button>
+              <button className="modal-close" type="button" aria-label="Close add member dialog" onClick={() => setShowAddMember(false)}>
+                <X className="icon" />
+              </button>
             </div>
             <div className="modal-body">
               <div className="form-group">
@@ -864,7 +868,9 @@ const TeamTab = () => {
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Edit Team Member</h2>
-              <button className="modal-close" onClick={() => setEditingMember(null)}>×</button>
+              <button className="modal-close" type="button" aria-label="Close edit member dialog" onClick={() => setEditingMember(null)}>
+                <X className="icon" />
+              </button>
             </div>
             <div className="modal-body">
               <div className="form-group">

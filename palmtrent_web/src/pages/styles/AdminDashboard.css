@@ -1280,16 +1280,32 @@
 }
 
 .modal-close {
-  background: none;
-  border: none;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  background: #ffffff;
+  border: 1px solid #dbe4ea;
+  border-radius: 8px;
   cursor: pointer;
-  padding: 0.25rem;
+  padding: 0;
+  color: var(--text-light);
 }
 
 .modal-close .icon {
-  width: 24px;
-  height: 24px;
-  color: var(--text-light);
+  width: 20px;
+  height: 20px;
+  display: block;
+  color: currentColor;
+  stroke: currentColor;
+}
+
+.modal-close:hover {
+  color: var(--text-dark);
+  background: #f8fafc;
+  border-color: #cbd5e1;
 }
 
 .modal-close:hover .icon {

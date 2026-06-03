@@ -1267,16 +1267,34 @@
 }
 
 .modal-close {
-  background: none;
-  border: none;
-  font-size: 1.5rem;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  background: #ffffff;
+  border: 1px solid #dbe4ea;
+  border-radius: 8px;
+  font-size: 0;
   color: var(--text-light);
   cursor: pointer;
-  line-height: 1;
+  line-height: 0;
+  padding: 0;
+}
+
+.modal-close .icon {
+  width: 20px;
+  height: 20px;
+  display: block;
+  color: currentColor;
+  stroke: currentColor;
 }
 
 .modal-close:hover {
   color: var(--text-dark);
+  background: #f8fafc;
+  border-color: #cbd5e1;
 }
 
 .modal-body {

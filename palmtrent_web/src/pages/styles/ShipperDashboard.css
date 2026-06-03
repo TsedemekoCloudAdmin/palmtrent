@@ -1050,6 +1050,21 @@
   background: #fff;
   color: var(--text-dark);
   cursor: pointer;
+  padding: 0;
+  line-height: 0;
+}
+
+.shipper-modal-close .icon {
+  width: 20px;
+  height: 20px;
+  display: block;
+  color: currentColor;
+  stroke: currentColor;
+}
+
+.shipper-modal-close:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
 }
 
 .shipper-modal-loading,
