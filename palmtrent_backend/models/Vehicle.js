@@ -170,6 +170,28 @@ const vehicleSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
     },
+    authorityChecks: [{
+      documentType: String,
+      authority: String,
+      method: {
+        type: String,
+        enum: ['portal', 'phone', 'email', 'in_person', 'api', 'other'],
+        default: 'portal'
+      },
+      referenceNumber: String,
+      result: {
+        type: String,
+        enum: ['passed', 'failed', 'inconclusive'],
+        default: 'inconclusive'
+      },
+      checkedAt: Date,
+      checkedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+      },
+      expiryDate: Date,
+      notes: String
+    }],
     notes: String
   },
   

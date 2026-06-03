@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight, MoreVertical, Phone, Mail, Calendar,
   CreditCard, Building, MessageSquare, FileText, Shield, Check
 } from 'lucide-react';
-import { adminAPI, authAPI, trackingAPI } from '../services/api';
+import { adminAPI, authAPI, trackingAPI, resolveApiUrl } from '../services/api';
 import './styles/AdminDashboard.css';
 import logo from '../assets/logo3.png';
 
@@ -41,27 +41,74 @@ const getPaymentMethodLabel = (method) => {
   }
 };
 
+const AUTHORITY_OPTIONS = [
+  { value: 'Civil Registry', label: 'Civil Registry' },
+  { value: 'CVR', label: 'CVR' },
+  { value: 'VID', label: 'VID' },
+  { value: 'ZINARA', label: 'ZINARA' },
+  { value: 'Insurance Provider', label: 'Insurance Provider' },
+  { value: 'Employer Reference', label: 'Employer Reference' },
+  { value: 'Other', label: 'Other' }
+];
+
+const METHOD_OPTIONS = [
+  { value: 'portal', label: 'Online portal' },
+  { value: 'phone', label: 'Phone' },
+  { value: 'email', label: 'Email' },
+  { value: 'in_person', label: 'In person' },
+  { value: 'api', label: 'API' },
+  { value: 'other', label: 'Other' }
+];
+
+const getDocumentLabel = (type = 'other') => String(type)
+  .split('_')
+  .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+  .join(' ');
+
+const getDefaultAuthority = (documentType = '') => {
+  const type = String(documentType).toLowerCase();
+  if (type.includes('national_id') || type.includes('passport')) return 'Civil Registry';
+  if (type.includes('driver_license')) return 'CVR';
+  if (type.includes('vid')) return 'VID';
+  if (type.includes('zinara')) return 'ZINARA';
+  if (type.includes('insurance')) return 'Insurance Provider';
+  return 'Other';
+};
+
+const createAuthorityCheck = (document = null) => ({
+  documentId: document?._id || '',
+  documentType: document?.type || 'general',
+  authority: getDefaultAuthority(document?.type),
+  method: 'portal',
+  referenceNumber: '',
+  result: 'inconclusive',
+  expiryDate: document?.expiryDate ? String(document.expiryDate).slice(0, 10) : '',
+  notes: ''
+});
+
 const AdminDashboard = () => {
   const [timeRange, setTimeRange] = useState('today');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [jobsUserFilter, setJobsUserFilter] = useState(null);
   const [unattendedDisputes, setUnattendedDisputes] = useState(0);
+  const [pendingVerifications, setPendingVerifications] = useState(0);
 
-  const loadUnattendedDisputes = useCallback(async () => {
+  const loadAdminBadges = useCallback(async () => {
     try {
       const response = await adminAPI.getDashboardStats();
-      const count = Number(response.data?.claims?.unattendedDisputes || 0);
-      setUnattendedDisputes(count);
+      setUnattendedDisputes(Number(response.data?.claims?.unattendedDisputes || 0));
+      setPendingVerifications(Number(response.data?.users?.pendingVerifications || 0));
     } catch (error) {
-      console.error('Unable to load dispute badge count:', error);
+      console.error('Unable to load admin badge counts:', error);
       setUnattendedDisputes(0);
+      setPendingVerifications(0);
     }
   }, []);
 
   useEffect(() => {
-    loadUnattendedDisputes();
-  }, [activeTab, loadUnattendedDisputes]);
+    loadAdminBadges();
+  }, [activeTab, loadAdminBadges]);
 
   const handleNavClick = (tab) => {
     setActiveTab(tab);
@@ -73,6 +120,8 @@ const AdminDashboard = () => {
         return <DashboardView timeRange={timeRange} setTimeRange={setTimeRange} setActiveTab={setActiveTab} />;
       case 'users':
         return <UsersView setActiveTab={setActiveTab} setJobsUserFilter={setJobsUserFilter} />;
+      case 'verifications':
+        return <UsersView verificationMode setActiveTab={setActiveTab} setJobsUserFilter={setJobsUserFilter} onVerificationChanged={loadAdminBadges} />;
       case 'jobs':
         return <JobsView userFilter={jobsUserFilter} clearUserFilter={() => setJobsUserFilter(null)} />;
       case 'payments':
@@ -82,7 +131,7 @@ const AdminDashboard = () => {
       case 'monetization':
         return <MonetizationView />;
       case 'disputes':
-        return <DisputesView onDisputesChanged={loadUnattendedDisputes} />;
+        return <DisputesView onDisputesChanged={loadAdminBadges} />;
       case 'reviews':
         return <ReviewsView />;
       case 'support':
@@ -129,6 +178,14 @@ const AdminDashboard = () => {
             active={activeTab === 'users'}
             sidebarOpen={sidebarOpen}
             onClick={() => handleNavClick('users')}
+          />
+          <NavItem
+            icon={<Shield />}
+            label="Verifications"
+            badge={pendingVerifications > 0 ? pendingVerifications : null}
+            active={activeTab === 'verifications'}
+            sidebarOpen={sidebarOpen}
+            onClick={() => handleNavClick('verifications')}
           />
           <NavItem
             icon={<Truck />}
@@ -352,18 +409,24 @@ const DashboardView = ({ timeRange, setTimeRange, setActiveTab }) => {
 };
 
 // ============ Users View ============
-const UsersView = ({ setActiveTab, setJobsUserFilter }) => {
+const UsersView = ({ setActiveTab, setJobsUserFilter, verificationMode = false, onVerificationChanged }) => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterStatus, setFilterStatus] = useState(verificationMode ? 'pending' : 'all');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedUser, setSelectedUser] = useState(null);
   const [showUserModal, setShowUserModal] = useState(false);
   const [userMessage, setUserMessage] = useState('');
   const [roleEditUser, setRoleEditUser] = useState(null);
   const [roleEditValue, setRoleEditValue] = useState('shipper');
+  const [shipperNationalId, setShipperNationalId] = useState('');
+  const [verificationForm, setVerificationForm] = useState({
+    status: 'approved',
+    notes: '',
+    authorityChecks: [createAuthorityCheck()]
+  });
   const usersPerPage = 10;
 
   const loadUsers = useCallback(async () => {
@@ -372,7 +435,11 @@ const UsersView = ({ setActiveTab, setJobsUserFilter }) => {
       setUserMessage('');
       const params = { limit: 50 };
       if (filterType !== 'all') params.role = filterType;
-      if (filterStatus !== 'all') params.status = filterStatus;
+      if (verificationMode) {
+        params.status = 'pending';
+      } else if (filterStatus !== 'all') {
+        params.status = filterStatus;
+      }
       if (searchTerm) params.search = searchTerm;
 
       const response = await adminAPI.getUsers(params);
@@ -384,8 +451,11 @@ const UsersView = ({ setActiveTab, setJobsUserFilter }) => {
           email: u.email,
           phone: u.phone,
           userType: u.userType,
-          status: u.status || 'active',
+          status: verificationMode ? (u.verification?.status || 'pending') : (u.status || 'active'),
+          accountStatus: u.status || 'active',
           verified: u.isVerified || false,
+          verification: u.verification || {},
+          governmentId: u.governmentId || u.verification?.personalInfo?.idNumber || '',
           rating: u.rating?.average || 0,
           totalBookings: u.totalBookings || 0,
           joinDate: u.createdAt,
@@ -399,7 +469,12 @@ const UsersView = ({ setActiveTab, setJobsUserFilter }) => {
     } finally {
       setLoading(false);
     }
-  }, [filterType, filterStatus, searchTerm]);
+  }, [filterType, filterStatus, searchTerm, verificationMode]);
+
+  useEffect(() => {
+    setFilterStatus(verificationMode ? 'pending' : 'all');
+    setCurrentPage(1);
+  }, [verificationMode]);
 
   useEffect(() => {
     loadUsers();
@@ -411,7 +486,8 @@ const UsersView = ({ setActiveTab, setJobsUserFilter }) => {
                          user.phone.includes(searchTerm);
     const matchesType = filterType === 'all' || user.userType === filterType;
     const matchesStatus = filterStatus === 'all' || user.status === filterStatus;
-    return matchesSearch && matchesType && matchesStatus;
+    const matchesVerificationQueue = !verificationMode || user.userType !== 'shipper';
+    return matchesSearch && matchesType && matchesStatus && matchesVerificationQueue;
   });
 
   const totalPages = Math.ceil(filteredUsers.length / usersPerPage);
@@ -441,18 +517,133 @@ const UsersView = ({ setActiveTab, setJobsUserFilter }) => {
   const handleViewUser = async (user) => {
     setSelectedUser(user);
     setShowUserModal(true);
+    setVerificationForm({
+      status: user.verified ? 'approved' : 'approved',
+      notes: '',
+      authorityChecks: [createAuthorityCheck()]
+    });
+    setShipperNationalId(user.governmentId || '');
     try {
       const response = await adminAPI.getUserById(user.id);
       const details = response.data || {};
+      const userDetails = details.user || {};
       const totalBookings = (details.bookingStats || []).reduce((sum, item) => sum + Number(item.count || 0), 0);
+      const verification = userDetails.verification || user.verification || {};
+      const documents = verification.documents || [];
+      const existingChecks = verification.authorityChecks || [];
+      const authorityChecks = documents.length
+        ? documents.map(document => createAuthorityCheck(document))
+        : [createAuthorityCheck()];
+
       setSelectedUser(current => current?.id === user.id ? {
         ...current,
+        ...userDetails,
+        id: userDetails._id || current.id,
+        fullName: userDetails.fullName || userDetails.companyName || current.fullName,
+        verified: userDetails.isVerified || verification.isVerified || current.verified,
+        verification,
+        governmentId: userDetails.governmentId || verification.personalInfo?.idNumber || current.governmentId || '',
         totalBookings,
         rating: details.rating?.avgRating || current.rating || 0,
         totalRatings: details.rating?.totalRatings || 0
       } : current);
+      setVerificationForm({
+        status: verification.status === 'rejected' ? 'rejected' : 'approved',
+        notes: verification.notes || '',
+        authorityChecks: authorityChecks.length ? authorityChecks : [createAuthorityCheck()],
+        previousChecks: existingChecks
+      });
+      setShipperNationalId(userDetails.governmentId || verification.personalInfo?.idNumber || '');
     } catch (error) {
       console.error('Unable to load user details:', error);
+    }
+  };
+
+  const updateAuthorityCheck = (index, field, value) => {
+    setVerificationForm(prev => ({
+      ...prev,
+      authorityChecks: prev.authorityChecks.map((check, checkIndex) => (
+        checkIndex === index ? { ...check, [field]: value } : check
+      ))
+    }));
+  };
+
+  const addAuthorityCheck = () => {
+    setVerificationForm(prev => ({
+      ...prev,
+      authorityChecks: [...prev.authorityChecks, createAuthorityCheck()]
+    }));
+  };
+
+  const removeAuthorityCheck = (index) => {
+    setVerificationForm(prev => ({
+      ...prev,
+      authorityChecks: prev.authorityChecks.length > 1
+        ? prev.authorityChecks.filter((_, checkIndex) => checkIndex !== index)
+        : prev.authorityChecks
+    }));
+  };
+
+  const saveVerificationDecision = async (status) => {
+    if (!selectedUser) return;
+
+    const checks = verificationForm.authorityChecks
+      .map(check => ({
+        ...check,
+        referenceNumber: check.referenceNumber.trim(),
+        notes: check.notes.trim()
+      }))
+      .filter(check => check.authority || check.referenceNumber || check.notes);
+
+    try {
+      const payload = {
+        status,
+        notes: verificationForm.notes,
+        authorityChecks: checks.filter(check => !check.documentId),
+        documentChecks: checks.filter(check => check.documentId)
+      };
+      const response = await adminAPI.verifyUser(selectedUser.id, payload);
+      const updatedUser = response.data || {};
+      setSelectedUser(current => current ? {
+        ...current,
+        verified: updatedUser.isVerified || false,
+        verification: updatedUser.verification || current.verification
+      } : current);
+      await loadUsers();
+      await onVerificationChanged?.();
+      setUserMessage(status === 'approved'
+        ? 'Documents checked and user approved.'
+        : 'Verification decision saved.');
+    } catch (error) {
+      setUserMessage(error.message || 'Unable to save verification decision.');
+    }
+  };
+
+  const saveShipperNationalId = async () => {
+    if (!selectedUser) return;
+
+    try {
+      const verification = selectedUser.verification || {};
+      const response = await adminAPI.updateUser(selectedUser.id, {
+        governmentId: shipperNationalId,
+        verification: {
+          ...verification,
+          personalInfo: {
+            ...(verification.personalInfo || {}),
+            idNumber: shipperNationalId
+          }
+        }
+      });
+      const updatedUser = response.data || {};
+      setSelectedUser(current => current ? {
+        ...current,
+        governmentId: updatedUser.governmentId || shipperNationalId,
+        verification: updatedUser.verification || current.verification
+      } : current);
+      await loadUsers();
+      setUserMessage('Shipper national ID saved.');
+    } catch (error) {
+      setUserMessage(error.message || 'Unable to save national ID.');
     }
   };
 
@@ -521,8 +712,12 @@ const UsersView = ({ setActiveTab, setJobsUserFilter }) => {
       <div className="admin-topbar">
         <div className="topbar-content">
           <div className="topbar-left">
-            <h1 className="page-title">Users Management</h1>
-            <p className="page-subtitle">{filteredUsers.length} total users</p>
+            <h1 className="page-title">{verificationMode ? 'Verifications' : 'Users Management'}</h1>
+            <p className="page-subtitle">
+              {verificationMode
+                ? `${filteredUsers.length} transporter, trailer owner, or corporate records awaiting review`
+                : `${filteredUsers.length} total users`}
+            </p>
           </div>
           <div className="topbar-right">
             <button className="btn-secondary" onClick={loadUsers}>
@@ -555,7 +750,7 @@ const UsersView = ({ setActiveTab, setJobsUserFilter }) => {
           </div>
           <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="filter-select">
             <option value="all">All Types</option>
-            <option value="shipper">Shippers</option>
+            {!verificationMode && <option value="shipper">Shippers</option>}
             <option value="transporter">Transporters</option>
             <option value="corporate">Corporate</option>
             <option value="trailer_owner">Trailer Owners</option>
@@ -741,9 +936,149 @@ const UsersView = ({ setActiveTab, setJobsUserFilter }) => {
                 </div>
               </div>
 
+              {selectedUser.userType === 'shipper' && (
+                <div className="authority-verification-panel">
+                  <div className="section-header">
+                    <div>
+                      <h3 className="section-title">National ID On Request</h3>
+                      <p className="verification-helper">Shippers are not platform-verified accounts, but admins can record a national ID number when it is requested for an investigation, dispute, high-value booking, or compliance review.</p>
+                    </div>
+                  </div>
+                  <div className="settings-form verification-notes">
+                    <label>National ID Number</label>
+                    <input
+                      value={shipperNationalId}
+                      onChange={(event) => setShipperNationalId(event.target.value)}
+                      placeholder="Enter national ID number when requested"
+                    />
+                  </div>
+                  <div className="inline-actions">
+                    <button className="btn-primary" onClick={saveShipperNationalId}>Save National ID</button>
+                  </div>
+                </div>
+              )}
+
+              {selectedUser.userType !== 'shipper' && (
+              <div className="authority-verification-panel">
+                <div className="section-header">
+                  <div>
+                    <h3 className="section-title">Authority Verification</h3>
+                    <p className="verification-helper">Record checks made against CVR, VID, ZINARA, insurers, or identity authorities before approving documents.</p>
+                  </div>
+                  <button className="btn-secondary" onClick={addAuthorityCheck}>Add Check</button>
+                </div>
+
+                <div className="document-review-list">
+                  {(selectedUser.verification?.documents || []).length > 0 ? (
+                    selectedUser.verification.documents.map(document => (
+                      <div className="document-review-card" key={document._id || document.url}>
+                        <div>
+                          <strong>{getDocumentLabel(document.type)}</strong>
+                          <p>{document.originalName || 'Uploaded document'}</p>
+                        </div>
+                        <div className="document-review-actions">
+                          {document.verified && <span className="status-badge status-active">Checked</span>}
+                          {document.url && (
+                            <a className="btn-secondary" href={resolveApiUrl(document.url)} target="_blank" rel="noreferrer">
+                              <FileText className="icon" /> Open
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="empty-state compact">
+                      <FileText className="icon" />
+                      <p>No uploaded verification documents are attached to this profile yet.</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="authority-checks-grid">
+                  {verificationForm.authorityChecks.map((check, index) => (
+                    <div className="authority-check-card" key={`${check.documentId || 'general'}-${index}`}>
+                      <div className="authority-check-header">
+                        <strong>{getDocumentLabel(check.documentType)}</strong>
+                        <button className="action-btn danger" onClick={() => removeAuthorityCheck(index)} disabled={verificationForm.authorityChecks.length === 1}>
+                          <XCircle className="icon" />
+                        </button>
+                      </div>
+                      <div className="settings-form authority-check-form">
+                        <label>Document</label>
+                        <select value={check.documentId} onChange={(event) => {
+                          const document = (selectedUser.verification?.documents || []).find(item => item._id === event.target.value);
+                          updateAuthorityCheck(index, 'documentId', event.target.value);
+                          updateAuthorityCheck(index, 'documentType', document?.type || 'general');
+                          updateAuthorityCheck(index, 'authority', getDefaultAuthority(document?.type));
+                        }}>
+                          <option value="">General profile check</option>
+                          {(selectedUser.verification?.documents || []).map(document => (
+                            <option key={document._id || document.url} value={document._id}>{getDocumentLabel(document.type)}</option>
+                          ))}
+                        </select>
+
+                        <label>Authority</label>
+                        <select value={check.authority} onChange={(event) => updateAuthorityCheck(index, 'authority', event.target.value)}>
+                          {AUTHORITY_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+
+                        <label>Method</label>
+                        <select value={check.method} onChange={(event) => updateAuthorityCheck(index, 'method', event.target.value)}>
+                          {METHOD_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+
+                        <label>Result</label>
+                        <select value={check.result} onChange={(event) => updateAuthorityCheck(index, 'result', event.target.value)}>
+                          <option value="passed">Passed</option>
+                          <option value="failed">Failed</option>
+                          <option value="inconclusive">Inconclusive</option>
+                        </select>
+
+                        <label>Authority Reference</label>
+                        <input value={check.referenceNumber} onChange={(event) => updateAuthorityCheck(index, 'referenceNumber', event.target.value)} placeholder="Reference, ticket, receipt, or case number" />
+
+                        <label>Document Expiry</label>
+                        <input type="date" value={check.expiryDate} onChange={(event) => updateAuthorityCheck(index, 'expiryDate', event.target.value)} />
+
+                        <label>Notes</label>
+                        <textarea value={check.notes} onChange={(event) => updateAuthorityCheck(index, 'notes', event.target.value)} placeholder="Who was contacted, what was confirmed, and any exceptions." />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {(verificationForm.previousChecks || []).length > 0 && (
+                  <div className="previous-checks">
+                    <h4>Previous authority checks</h4>
+                    {verificationForm.previousChecks.map((check, index) => (
+                      <div className="previous-check-row" key={`${check.referenceNumber || check.authority}-${index}`}>
+                        <span>{getDocumentLabel(check.documentType)} - {check.authority}</span>
+                        <strong>{check.result}</strong>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="settings-form verification-notes">
+                  <label>Admin verification notes</label>
+                  <textarea
+                    value={verificationForm.notes}
+                    onChange={(event) => setVerificationForm(prev => ({ ...prev, notes: event.target.value }))}
+                    placeholder="Summarize authority verification outcome for the audit trail."
+                  />
+                </div>
+              </div>
+              )}
+
               <div className="modal-actions">
                 <button className="btn-secondary" onClick={() => openUserBookings(selectedUser)}>View Bookings</button>
                 <button className="btn-secondary" onClick={() => window.location.href = `mailto:${selectedUser.email}`}>Send Message</button>
+                {selectedUser.userType !== 'shipper' && (
+                  <>
+                    <button className="btn-danger" onClick={() => saveVerificationDecision('rejected')}>Reject Verification</button>
+                    <button className="btn-success" onClick={() => saveVerificationDecision('approved')}>Approve Verification</button>
+                  </>
+                )}
                 {selectedUser.status === 'active' ? (
                   <button className="btn-danger" onClick={() => updateSelectedUserStatus('suspended')}>Suspend Account</button>
                 ) : selectedUser.status === 'pending' ? (

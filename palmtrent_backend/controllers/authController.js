@@ -26,21 +26,58 @@ function normalizeZimbabwePhone(phone) {
   return String(phone).trim();
 }
 
+function duplicateRegistrationPayload(existingUser, duplicateKey = null) {
+  const duplicateEmail = duplicateKey === 'email' || Boolean(existingUser?.email);
+  const duplicatePhone = duplicateKey === 'phone' || Boolean(existingUser?.phone);
+
+  if (duplicateEmail && duplicatePhone) {
+    return {
+      field: 'email_phone',
+      message: 'Email address and mobile number are already registered'
+    };
+  }
+
+  if (duplicateEmail) {
+    return {
+      field: 'email',
+      message: 'Email address is already registered'
+    };
+  }
+
+  return {
+    field: 'phone',
+    message: 'Mobile number is already registered'
+  };
+}
+
+function getDuplicateKey(error) {
+  if (error?.keyPattern?.email || error?.keyValue?.email) return 'email';
+  if (error?.keyPattern?.phone || error?.keyValue?.phone) return 'phone';
+  return null;
+}
+
 // Register new user
 const register = async (req, res) => {
   try {
     const { fullName, phone, password, userType } = req.body;
     const email = String(req.body.email || '').trim().toLowerCase();
+    const normalizedPhone = normalizeZimbabwePhone(phone);
 
     // Check if user already exists
     const existingUser = await User.findOne({
-      $or: [{ email }, { phone }]
+      $or: [{ email }, { phone: normalizedPhone }]
     });
 
     if (existingUser) {
-      return res.status(400).json({
+      const duplicate = duplicateRegistrationPayload({
+        email: existingUser.email === email,
+        phone: existingUser.phone === normalizedPhone
+      });
+
+      return res.status(409).json({
         success: false,
-        message: 'User with this email or phone already exists'
+        field: duplicate.field,
+        message: duplicate.message
       });
     }
 
@@ -49,7 +86,7 @@ const register = async (req, res) => {
 
     if (!skipPhoneVerification) {
       verifiedCode = await VerificationCode.findOne({
-        phone,
+        phone: normalizedPhone,
         type: 'phone_verification',
         used: true,
         expiresAt: { $gt: new Date() }
@@ -67,7 +104,7 @@ const register = async (req, res) => {
     const user = await User.create({
       fullName,
       email,
-      phone,
+      phone: normalizedPhone,
       password,
       userType,
       isPhoneVerified: skipPhoneVerification || Boolean(verifiedCode)
@@ -99,9 +136,11 @@ const register = async (req, res) => {
     }
 
     if (error.code === 11000) {
-      return res.status(400).json({
+      const duplicate = duplicateRegistrationPayload(null, getDuplicateKey(error));
+      return res.status(409).json({
         success: false,
-        message: 'User with this email or phone already exists'
+        field: duplicate.field,
+        message: duplicate.message
       });
     }
 

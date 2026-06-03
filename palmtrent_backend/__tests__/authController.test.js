@@ -119,6 +119,93 @@ test('register returns a validation response for invalid model data', async () =
   });
 });
 
+test('register rejects an email address that is already registered', async () => {
+  process.env.DISABLE_SMS_DELIVERY = 'true';
+  User.findOne.mockResolvedValue({
+    email: 'shipper@example.com',
+    phone: '+263771111111'
+  });
+  const res = createRes();
+
+  await register({
+    body: {
+      fullName: 'Test Shipper',
+      email: 'SHIPPER@example.com',
+      phone: '+263771234567',
+      password: 'password123',
+      userType: 'shipper'
+    }
+  }, res);
+
+  expect(User.findOne).toHaveBeenCalledWith({
+    $or: [{ email: 'shipper@example.com' }, { phone: '+263771234567' }]
+  });
+  expect(User.create).not.toHaveBeenCalled();
+  expect(res.status).toHaveBeenCalledWith(409);
+  expect(res.json).toHaveBeenCalledWith({
+    success: false,
+    field: 'email',
+    message: 'Email address is already registered'
+  });
+});
+
+test('register rejects a mobile number that is already registered', async () => {
+  process.env.DISABLE_SMS_DELIVERY = 'true';
+  User.findOne.mockResolvedValue({
+    email: 'other@example.com',
+    phone: '+263771234567'
+  });
+  const res = createRes();
+
+  await register({
+    body: {
+      fullName: 'Test Shipper',
+      email: 'shipper@example.com',
+      phone: '0771234567',
+      password: 'password123',
+      userType: 'shipper'
+    }
+  }, res);
+
+  expect(User.findOne).toHaveBeenCalledWith({
+    $or: [{ email: 'shipper@example.com' }, { phone: '+263771234567' }]
+  });
+  expect(User.create).not.toHaveBeenCalled();
+  expect(res.status).toHaveBeenCalledWith(409);
+  expect(res.json).toHaveBeenCalledWith({
+    success: false,
+    field: 'phone',
+    message: 'Mobile number is already registered'
+  });
+});
+
+test('register returns conflict when the database unique email index rejects a race', async () => {
+  process.env.DISABLE_SMS_DELIVERY = 'true';
+  User.findOne.mockResolvedValue(null);
+  const duplicateError = new Error('duplicate key error');
+  duplicateError.code = 11000;
+  duplicateError.keyPattern = { email: 1 };
+  User.create.mockRejectedValue(duplicateError);
+  const res = createRes();
+
+  await register({
+    body: {
+      fullName: 'Test Shipper',
+      email: 'shipper@example.com',
+      phone: '+263771234567',
+      password: 'password123',
+      userType: 'shipper'
+    }
+  }, res);
+
+  expect(res.status).toHaveBeenCalledWith(409);
+  expect(res.json).toHaveBeenCalledWith({
+    success: false,
+    field: 'email',
+    message: 'Email address is already registered'
+  });
+});
+
 test('login accepts email credentials and returns top-level auth fields for web clients', async () => {
   const user = {
     _id: 'user-1',

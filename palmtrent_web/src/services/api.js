@@ -541,6 +541,16 @@ export const adminAPI = {
     body: JSON.stringify(data),
   }),
 
+  verifyUser: (id, data) => apiFetch(`/admin/users/${id}/verify`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
+  verifyVehicle: (id, data) => apiFetch(`/admin/vehicles/${id}/verify`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
   getBookings: (params = {}) => {
     const queryString = new URLSearchParams(params).toString();
     return apiFetch(`/admin/bookings${queryString ? `?${queryString}` : ''}`);

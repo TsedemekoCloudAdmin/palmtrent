@@ -18,6 +18,55 @@ const {
   testIntegrationSetting
 } = require('../services/integrationSettingsService');
 
+function normalizeAuthorityCheck(check = {}, adminId) {
+  const result = ['passed', 'failed', 'inconclusive'].includes(check.result) ? check.result : 'inconclusive';
+  const method = ['portal', 'phone', 'email', 'in_person', 'api', 'other'].includes(check.method) ? check.method : 'portal';
+
+  return {
+    documentType: check.documentType || check.type || 'other',
+    authority: String(check.authority || '').trim(),
+    method,
+    referenceNumber: String(check.referenceNumber || '').trim(),
+    result,
+    checkedAt: check.checkedAt ? new Date(check.checkedAt) : new Date(),
+    checkedBy: adminId,
+    expiryDate: check.expiryDate ? new Date(check.expiryDate) : undefined,
+    notes: String(check.notes || '').trim()
+  };
+}
+
+function normalizeAuthorityChecks(checks = [], adminId) {
+  return (Array.isArray(checks) ? checks : [])
+    .filter(check => check && (check.authority || check.referenceNumber || check.notes))
+    .map(check => normalizeAuthorityCheck(check, adminId));
+}
+
+function mergeDocumentAuthorityChecks(documents = [], checks = [], adminId) {
+  if (!Array.isArray(documents) || !checks.length) return documents;
+
+  return documents.map(document => {
+    const documentObject = document.toObject ? document.toObject() : document;
+    const matchingChecks = checks
+      .filter(check => check.documentId && String(check.documentId) === String(documentObject._id))
+      .map(check => normalizeAuthorityCheck({
+        ...check,
+        documentType: check.documentType || documentObject.type
+      }, adminId));
+
+    if (!matchingChecks.length) return document;
+
+    return {
+      ...documentObject,
+      verified: matchingChecks.some(check => check.result === 'passed'),
+      expiryDate: matchingChecks.find(check => check.expiryDate)?.expiryDate || documentObject.expiryDate,
+      authorityChecks: [
+        ...(documentObject.authorityChecks || []),
+        ...matchingChecks
+      ]
+    };
+  });
+}
+
 // @desc    Get admin dashboard statistics
 // @route   GET /api/v1/admin/dashboard
 // @access  Private/Admin
@@ -40,7 +89,7 @@ exports.getDashboardStats = async (req, res) => {
       createdAt: { $gte: startOfMonth }
     });
     const pendingVerifications = await User.countDocuments({
-      ...platformUserQuery,
+      userType: { $nin: ['shipper', 'admin'] },
       'verification.status': 'pending'
     });
 
@@ -269,7 +318,7 @@ exports.getUserById = async (req, res) => {
 // @access  Private/Admin
 exports.updateUser = async (req, res) => {
   try {
-    const { fullName, email, phone, userType, status, verification } = req.body;
+    const { fullName, email, phone, userType, status, verification, governmentId } = req.body;
 
     const user = await User.findById(req.params.id);
 
@@ -283,6 +332,7 @@ exports.updateUser = async (req, res) => {
     if (phone) user.phone = phone;
     if (userType) user.userType = userType;
     if (status) user.status = status;
+    if (governmentId !== undefined) user.governmentId = String(governmentId || '').trim();
     if (verification) user.verification = { ...user.verification, ...verification };
 
     await user.save();
@@ -303,7 +353,7 @@ exports.updateUser = async (req, res) => {
 // @access  Private/Admin
 exports.verifyUser = async (req, res) => {
   try {
-    const { status, notes } = req.body;
+    const { status, notes, authorityChecks = [], documentChecks = [] } = req.body;
 
     const user = await User.findById(req.params.id);
 
@@ -312,13 +362,27 @@ exports.verifyUser = async (req, res) => {
     }
 
     const approved = ['verified', 'approved'].includes(status);
+    const existingVerification = user.verification?.toObject?.() || user.verification || {};
+    const normalizedAuthorityChecks = normalizeAuthorityChecks(authorityChecks, req.user._id);
+    const documentAuthorityChecks = normalizeAuthorityChecks(documentChecks, req.user._id);
+    const updatedDocuments = mergeDocumentAuthorityChecks(
+      existingVerification.documents || [],
+      documentChecks,
+      req.user._id
+    );
     user.verification = {
-      ...user.verification,
+      ...existingVerification,
       status: approved ? 'approved' : status,
       isVerified: approved,
       verifiedAt: approved ? new Date() : null,
       verifiedBy: req.user._id,
-      notes
+      notes,
+      documents: updatedDocuments,
+      authorityChecks: [
+        ...(existingVerification.authorityChecks || []),
+        ...normalizedAuthorityChecks,
+        ...documentAuthorityChecks
+      ]
     };
     user.isVerified = approved;
 
@@ -341,7 +405,11 @@ exports.verifyUser = async (req, res) => {
       entityType: 'User',
       entityId: user._id,
       after: { verification: user.verification, isVerified: user.isVerified },
-      metadata: { notes },
+      metadata: {
+        notes,
+        authorityChecks: normalizedAuthorityChecks.length,
+        documentChecks: documentAuthorityChecks.length
+      },
       req
     });
 
@@ -426,20 +494,26 @@ exports.verifyCorporateAccount = async (req, res) => {
 
 exports.verifyVehicle = async (req, res) => {
   try {
-    const { status = 'approved', notes } = req.body;
+    const { status = 'approved', notes, authorityChecks = [] } = req.body;
     const vehicle = await Vehicle.findById(req.params.id);
 
     if (!vehicle) {
       return res.status(404).json({ success: false, message: 'Vehicle not found' });
     }
 
+    const normalizedAuthorityChecks = normalizeAuthorityChecks(authorityChecks, req.user._id);
+    const existingVerification = vehicle.verification?.toObject?.() || vehicle.verification || {};
     const before = { verification: vehicle.verification, status: vehicle.status };
     vehicle.verification = {
-      ...vehicle.verification,
+      ...existingVerification,
       status,
       notes,
-      verifiedAt: status === 'approved' ? new Date() : vehicle.verification?.verifiedAt,
-      verifiedBy: status === 'approved' ? req.user._id : vehicle.verification?.verifiedBy
+      verifiedAt: status === 'approved' ? new Date() : existingVerification.verifiedAt,
+      verifiedBy: status === 'approved' ? req.user._id : existingVerification.verifiedBy,
+      authorityChecks: [
+        ...(existingVerification.authorityChecks || []),
+        ...normalizedAuthorityChecks
+      ]
     };
     await vehicle.save();
 
@@ -451,6 +525,10 @@ exports.verifyVehicle = async (req, res) => {
       entityRef: vehicle.registrationNumber,
       before,
       after: { verification: vehicle.verification, status: vehicle.status },
+      metadata: {
+        notes,
+        authorityChecks: normalizedAuthorityChecks.length
+      },
       req
     });
 
@@ -1066,14 +1144,18 @@ exports.getPendingVerifications = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
+    const verificationQueueQuery = {
+      userType: { $nin: ['shipper', 'admin'] },
+      'verification.status': 'pending'
+    };
 
-    const users = await User.find({ 'verification.status': 'pending' })
+    const users = await User.find(verificationQueueQuery)
       .select('-password')
       .sort('-createdAt')
       .skip(skip)
       .limit(parseInt(limit));
 
-    const total = await User.countDocuments({ 'verification.status': 'pending' });
+    const total = await User.countDocuments(verificationQueueQuery);
 
     res.status(200).json({
       success: true,

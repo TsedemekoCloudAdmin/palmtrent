@@ -99,13 +99,56 @@ const userSchema = new mongoose.Schema({
       storageProvider: String,
       uploadedAt: { type: Date, default: Date.now },
       expiryDate: Date,
-      verified: { type: Boolean, default: false }
+      verified: { type: Boolean, default: false },
+      authorityChecks: [{
+        authority: String,
+        method: {
+          type: String,
+          enum: ['portal', 'phone', 'email', 'in_person', 'api', 'other'],
+          default: 'portal'
+        },
+        referenceNumber: String,
+        result: {
+          type: String,
+          enum: ['passed', 'failed', 'inconclusive'],
+          default: 'inconclusive'
+        },
+        checkedAt: Date,
+        checkedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User'
+        },
+        expiryDate: Date,
+        notes: String
+      }]
     }],
     driverLicense: {
       number: String,
       expiryDate: Date,
       classes: [String]
     },
+    authorityChecks: [{
+      documentType: String,
+      authority: String,
+      method: {
+        type: String,
+        enum: ['portal', 'phone', 'email', 'in_person', 'api', 'other'],
+        default: 'portal'
+      },
+      referenceNumber: String,
+      result: {
+        type: String,
+        enum: ['passed', 'failed', 'inconclusive'],
+        default: 'inconclusive'
+      },
+      checkedAt: Date,
+      checkedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+      },
+      expiryDate: Date,
+      notes: String
+    }],
     trustScore: {
       type: Number,
       min: 0,
