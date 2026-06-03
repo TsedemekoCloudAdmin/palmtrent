@@ -527,12 +527,37 @@
   font-weight: 600;
 }
 
-.shipper-account-form input {
+.shipper-account-form input,
+.shipper-account-form textarea {
   border: 1px solid #d1d5db;
   border-radius: 8px;
   padding: 0.8rem;
   font: inherit;
   color: var(--text);
+  width: 100%;
+}
+
+.shipper-account-form textarea {
+  min-height: 78px;
+  resize: vertical;
+}
+
+.shipper-account-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.shipper-account-hint {
+  color: var(--text-light);
+  font-size: 0.78rem;
+  margin-top: -0.65rem;
+}
+
+@media (max-width: 640px) {
+  .shipper-account-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .shipper-account-primary,

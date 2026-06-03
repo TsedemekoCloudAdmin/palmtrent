@@ -19,6 +19,18 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../hook/useAuth';
 import apiService from '../services/apiService';
 
+const normalizeZimbabwePhone = (phone = '') => {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('263') && digits.length === 12) return `+${digits}`;
+  if (digits.startsWith('0') && digits.length === 10) return `+263${digits.slice(1)}`;
+  if (!digits.startsWith('0') && digits.length === 9) return `+263${digits}`;
+  if (String(phone).trim().startsWith('+263') && digits.length === 12) return `+${digits}`;
+  return String(phone || '').trim();
+};
+
+const getProfilePayload = (response) => response?.data?.user || response?.user || response?.data || null;
+
 const ProfileScreen = ({ navigation }) => {
   const { user, logout, updateUser } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -48,18 +60,37 @@ const ProfileScreen = ({ navigation }) => {
     setVisiblePasswords(prev => ({ ...prev, [field]: !prev[field] }));
   };
 
+  const hydrateProfileForm = (profile) => ({
+    fullName: profile?.fullName || '',
+    email: profile?.email || '',
+    phone: profile?.phone || '',
+    companyName: profile?.companyName || '',
+    address: {
+      ...(profile?.address || {}),
+      street: profile?.address?.street || '',
+      city: profile?.address?.city || '',
+      state: profile?.address?.state || '',
+      country: profile?.address?.country || 'Zimbabwe'
+    }
+  });
+
+  const updateEditedAddress = (field, value) => {
+    setEditedProfile(prev => ({
+      ...prev,
+      address: {
+        ...(prev.address || {}),
+        [field]: value
+      }
+    }));
+  };
+
   const fetchProfile = useCallback(async () => {
     try {
       const response = await apiService.getCurrentUser();
       if (response.success) {
-        setProfileData(response.data);
-        setEditedProfile({
-          fullName: response.data.fullName || '',
-          email: response.data.email || '',
-          phone: response.data.phone || '',
-          companyName: response.data.companyName || '',
-          address: response.data.address || {}
-        });
+        const profile = getProfilePayload(response);
+        setProfileData(profile);
+        setEditedProfile(hydrateProfileForm(profile));
       }
     } catch (error) {
       console.error('Fetch profile error:', error);
@@ -116,13 +147,46 @@ const ProfileScreen = ({ navigation }) => {
   }, [fetchProfile, fetchStats, fetchSubscriptionData]);
 
   const handleSaveProfile = async () => {
+    const trimmedName = String(editedProfile.fullName || '').trim();
+    const trimmedEmail = String(editedProfile.email || '').trim().toLowerCase();
+    const normalizedPhone = normalizeZimbabwePhone(editedProfile.phone);
+
+    if (!trimmedName) {
+      Alert.alert('Profile incomplete', 'Please enter your full name.');
+      return;
+    }
+
+    if (!/^\S+@\S+\.\S+$/.test(trimmedEmail)) {
+      Alert.alert('Invalid email', 'Please enter a valid email address.');
+      return;
+    }
+
+    if (!/^\+263[0-9]{9}$/.test(normalizedPhone)) {
+      Alert.alert('Invalid mobile number', 'Please enter a valid Zimbabwean mobile number, for example +263771234567.');
+      return;
+    }
+
     setSaving(true);
     try {
-      const response = await apiService.updateProfile(editedProfile);
+      const payload = {
+        fullName: trimmedName,
+        email: trimmedEmail,
+        phone: normalizedPhone,
+        companyName: String(editedProfile.companyName || '').trim(),
+        address: {
+          street: String(editedProfile.address?.street || '').trim(),
+          city: String(editedProfile.address?.city || '').trim(),
+          state: String(editedProfile.address?.state || '').trim(),
+          country: String(editedProfile.address?.country || 'Zimbabwe').trim()
+        }
+      };
+      const response = await apiService.updateProfile(payload);
       if (response.success) {
-        setProfileData(response.data);
+        const updatedProfile = getProfilePayload(response);
+        setProfileData(updatedProfile);
+        setEditedProfile(hydrateProfileForm(updatedProfile));
         if (updateUser) {
-          updateUser(response.data);
+          updateUser(updatedProfile);
         }
         setEditMode(false);
         Alert.alert('Success', 'Profile updated successfully');
@@ -219,8 +283,21 @@ const ProfileScreen = ({ navigation }) => {
     try {
       const response = await apiService.createMySubscription(plan);
       if (response.success) {
-        setSubscription(response.data);
+        const selectedSubscription = response.data;
+        const amount = Number(selectedSubscription?.amount || plan?.price || 0);
+        const paymentStatus = selectedSubscription?.payment?.status;
+        setSubscription(selectedSubscription);
         setShowSubscriptionModal(false);
+        if (amount > 0 && paymentStatus !== 'paid' && paymentStatus !== 'not_required') {
+          navigation.navigate('MobileMoneyPayment', {
+            paymentContext: 'subscription',
+            subscriptionId: selectedSubscription?._id || selectedSubscription?.id,
+            subscriptionName: selectedSubscription?.plan?.name || plan?.name || 'Subscription',
+            amount,
+            paymentMethod: 'ecocash'
+          });
+          return;
+        }
         Alert.alert('Subscription Updated', response.message || 'Your subscription has been updated.');
       }
     } catch (error) {
@@ -260,6 +337,13 @@ const ProfileScreen = ({ navigation }) => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
 
+  const toggleEditMode = () => {
+    if (editMode) {
+      setEditedProfile(hydrateProfileForm(profileData));
+    }
+    setEditMode(prev => !prev);
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -284,7 +368,7 @@ const ProfileScreen = ({ navigation }) => {
         <Text style={styles.headerTitle}>Profile</Text>
         <TouchableOpacity
           style={styles.editButton}
-          onPress={() => setEditMode(!editMode)}
+          onPress={toggleEditMode}
         >
           <MaterialIcons
             name={editMode ? "close" : "edit"}
@@ -331,7 +415,34 @@ const ProfileScreen = ({ navigation }) => {
                   value={editedProfile.fullName}
                   onChangeText={(text) => setEditedProfile(prev => ({ ...prev, fullName: text }))}
                   placeholder="Enter full name"
+                  autoCapitalize="words"
+                  autoComplete="name"
                 />
+              </View>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Email Address</Text>
+                <TextInput
+                  style={styles.input}
+                  value={editedProfile.email}
+                  onChangeText={(text) => setEditedProfile(prev => ({ ...prev, email: text }))}
+                  placeholder="name@example.com"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="email"
+                />
+              </View>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Mobile Number</Text>
+                <TextInput
+                  style={styles.input}
+                  value={editedProfile.phone}
+                  onChangeText={(text) => setEditedProfile(prev => ({ ...prev, phone: text }))}
+                  placeholder="+263771234567"
+                  keyboardType="phone-pad"
+                  autoComplete="tel"
+                />
+                <Text style={styles.inputHelper}>Use your Zimbabwean mobile number in +263 format.</Text>
               </View>
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Company Name</Text>
@@ -340,6 +451,19 @@ const ProfileScreen = ({ navigation }) => {
                   value={editedProfile.companyName}
                   onChangeText={(text) => setEditedProfile(prev => ({ ...prev, companyName: text }))}
                   placeholder="Enter company name (optional)"
+                  autoCapitalize="words"
+                />
+              </View>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Street Address</Text>
+                <TextInput
+                  style={[styles.input, styles.multilineInput]}
+                  value={editedProfile.address?.street || ''}
+                  onChangeText={(text) => updateEditedAddress('street', text)}
+                  placeholder="Street address"
+                  multiline
+                  textAlignVertical="top"
+                  autoCapitalize="words"
                 />
               </View>
               <View style={styles.inputGroup}>
@@ -347,22 +471,51 @@ const ProfileScreen = ({ navigation }) => {
                 <TextInput
                   style={styles.input}
                   value={editedProfile.address?.city || ''}
-                  onChangeText={(text) => setEditedProfile(prev => ({
-                    ...prev,
-                    address: { ...prev.address, city: text }
-                  }))}
+                  onChangeText={(text) => updateEditedAddress('city', text)}
                   placeholder="Enter city"
+                  autoCapitalize="words"
                 />
               </View>
-              <TouchableOpacity
-                style={[styles.saveButton, saving && styles.saveButtonDisabled]}
-                onPress={handleSaveProfile}
-                disabled={saving}
-              >
-                <Text style={styles.saveButtonText}>
-                  {saving ? 'Saving...' : 'Save Changes'}
-                </Text>
-              </TouchableOpacity>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Province / State</Text>
+                <TextInput
+                  style={styles.input}
+                  value={editedProfile.address?.state || ''}
+                  onChangeText={(text) => updateEditedAddress('state', text)}
+                  placeholder="Enter province or state"
+                  autoCapitalize="words"
+                />
+              </View>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Country</Text>
+                <TextInput
+                  style={styles.input}
+                  value={editedProfile.address?.country || ''}
+                  onChangeText={(text) => updateEditedAddress('country', text)}
+                  placeholder="Zimbabwe"
+                  autoCapitalize="words"
+                />
+              </View>
+              <View style={styles.editActions}>
+                <TouchableOpacity
+                  style={[styles.secondarySaveButton, saving && styles.saveButtonDisabled]}
+                  onPress={toggleEditMode}
+                  disabled={saving}
+                >
+                  <Text style={styles.secondarySaveButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+                  onPress={handleSaveProfile}
+                  disabled={saving}
+                >
+                  {saving ? (
+                    <ActivityIndicator size="small" color="white" />
+                  ) : (
+                    <Text style={styles.saveButtonText}>Save Changes</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
           ) : (
             <>
@@ -954,6 +1107,14 @@ const styles = StyleSheet.create({
     padding: 12,
     fontSize: 16,
   },
+  multilineInput: {
+    minHeight: 76,
+  },
+  inputHelper: {
+    fontSize: 12,
+    color: '#64748b',
+    lineHeight: 17,
+  },
   passwordField: {
     position: 'relative',
   },
@@ -976,6 +1137,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   saveButton: {
+    flex: 1,
     backgroundColor: '#0C2D48',
     borderRadius: 8,
     padding: 14,
@@ -989,6 +1151,26 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
+  },
+  editActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  secondarySaveButton: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+    borderColor: '#cbd5e1',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  secondarySaveButtonText: {
+    color: '#0C2D48',
+    fontSize: 16,
+    fontWeight: '700',
   },
   statsCard: {
     backgroundColor: 'white',

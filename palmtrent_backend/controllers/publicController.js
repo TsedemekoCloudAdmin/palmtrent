@@ -2,7 +2,9 @@ const Booking = require('../models/Booking');
 const Plan = require('../models/Plan');
 const Rating = require('../models/Rating');
 const Subscription = require('../models/Subscription');
+const Payment = require('../models/Payment');
 const monetizationService = require('../services/monetizationService');
+const paymentService = require('../services/paymentService');
 
 const ACTIVE_SUBSCRIPTION_STATUSES = ['active', 'past_due', 'suspended'];
 
@@ -163,6 +165,111 @@ async function createMySubscription(req, res) {
   }
 }
 
+async function createSubscriptionPayment(req, res) {
+  try {
+    const { id } = req.params;
+    const { paymentMethod = 'clicknpay', customer = {} } = req.body;
+
+    const subscription = await Subscription.findOne({
+      _id: id,
+      user: req.user._id,
+      status: { $in: ACTIVE_SUBSCRIPTION_STATUSES }
+    }).populate('plan');
+
+    if (!subscription) {
+      return res.status(404).json({ success: false, message: 'Subscription not found' });
+    }
+
+    if (subscription.amount <= 0 || subscription.payment?.status === 'not_required') {
+      subscription.payment = {
+        ...(subscription.payment || {}),
+        status: 'not_required'
+      };
+      await subscription.save();
+      return res.json({
+        success: true,
+        message: 'This subscription does not require payment.',
+        data: {
+          subscription,
+          paymentRequired: false
+        }
+      });
+    }
+
+    if (subscription.payment?.status === 'paid') {
+      return res.json({
+        success: true,
+        message: 'Subscription payment is already confirmed.',
+        data: {
+          subscription,
+          paymentRequired: false
+        }
+      });
+    }
+
+    const existingPayment = subscription.payment?.reference
+      ? await Payment.findOne({
+          subscription: subscription._id,
+          paymentReference: subscription.payment.reference,
+          status: { $in: ['pending', 'initiated', 'processing'] }
+        })
+      : null;
+
+    const timestamp = Date.now().toString(36);
+    const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+
+    const payment = existingPayment || await Payment.create({
+      subscription: subscription._id,
+      paymentReference: `PAY-${timestamp}-${random}`,
+      amount: subscription.amount,
+      currency: subscription.currency || 'USD',
+      paymentMethod,
+      gateway: paymentService.getGatewayForMethod(paymentMethod),
+      status: 'pending',
+      customer: {
+        email: customer.email || req.user.email,
+        phone: customer.phone || req.user.phone
+      },
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      metadata: {
+        type: 'subscription',
+        planCode: subscription.plan?.code,
+        planName: subscription.plan?.name
+      }
+    });
+
+    subscription.payment = {
+      ...(subscription.payment || {}),
+      status: 'pending',
+      method: payment.paymentMethod,
+      reference: payment.paymentReference,
+      lastPayment: payment._id
+    };
+    await subscription.save();
+
+    res.status(existingPayment ? 200 : 201).json({
+      success: true,
+      message: 'Subscription payment created. Complete payment to activate platform access.',
+      data: {
+        subscription,
+        paymentRequired: true,
+        paymentId: payment._id,
+        paymentReference: payment.paymentReference,
+        amount: payment.amount,
+        currency: payment.currency,
+        paymentMethod: payment.paymentMethod,
+        status: payment.status,
+        expiresAt: payment.expiresAt
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to create subscription payment'
+    });
+  }
+}
+
 async function getMySubscription(req, res) {
   try {
     const subscription = await Subscription.findOne({
@@ -187,6 +294,7 @@ module.exports = {
   getLandingSummary,
   getPublicPlans,
   createMySubscription,
+  createSubscriptionPayment,
   getMySubscription,
   isPlanCompatibleWithUser
 };

@@ -10,6 +10,10 @@ const paymentSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Rental'
   },
+  subscription: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Subscription'
+  },
   paymentReference: {
     type: String,
     required: true,
@@ -65,6 +69,7 @@ paymentSchema.pre('save', function(next) {
 
 // Indexes
 paymentSchema.index({ booking: 1 });
+paymentSchema.index({ subscription: 1 });
 paymentSchema.index({ status: 1 });
 paymentSchema.index({ createdAt: -1 });
 paymentSchema.index({ expiresAt: 1 });

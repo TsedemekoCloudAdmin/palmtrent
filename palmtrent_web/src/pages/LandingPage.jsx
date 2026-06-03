@@ -5,7 +5,7 @@ import {
   ArrowRight, Check, Menu, X, Eye, EyeOff, Search, Loader, AlertCircle,
   Mail, Lock, User, Phone, Building
 } from 'lucide-react';
-import { authAPI, publicAPI, trackingAPI } from '../services/api';
+import { authAPI, paymentsAPI, publicAPI, trackingAPI } from '../services/api';
 import './styles/LandingPage.css';
 import logo from '../assets/logo3.png';
 
@@ -244,7 +244,9 @@ const LandingPage = () => {
     if (selectedPlanCode) {
       try {
         const subscription = await publicAPI.createSubscription(selectedPlanCode);
-        setSubscriptionMessage(subscription.message || 'Subscription selected.');
+        setSubscriptionMessage(subscription.message || 'Subscription selected. Complete payment to activate access.');
+        const redirected = await startSubscriptionPayment(subscription.data);
+        if (redirected) return;
       } catch (error) {
         setSubscriptionMessage(error.message || 'Account created. Subscription selection still needs to be completed.');
       }
@@ -256,6 +258,41 @@ const LandingPage = () => {
     setVerificationCode('');
     setSelectedPlanCode('');
     navigate(getRoleHomePath(authAPI.getCurrentUser()));
+  };
+
+  const startSubscriptionPayment = async (subscription) => {
+    const subscriptionId = subscription?._id || subscription?.id;
+    const amount = Number(subscription?.amount || subscription?.plan?.price || 0);
+    const paymentStatus = subscription?.payment?.status;
+
+    if (!subscriptionId || amount <= 0 || paymentStatus === 'paid' || paymentStatus === 'not_required') {
+      return false;
+    }
+
+    const currentUser = authAPI.getCurrentUser() || {};
+    const customer = {
+      email: currentUser.email || registerForm.email,
+      phone: currentUser.phone || normalizeZimbabwePhone(registerForm.phone)
+    };
+    const paymentResponse = await publicAPI.createSubscriptionPayment(subscriptionId, 'clicknpay', customer);
+    const payment = paymentResponse.data || {};
+
+    if (!payment.paymentRequired) {
+      return false;
+    }
+
+    const checkout = await paymentsAPI.startCheckout(payment.paymentReference, customer);
+    const redirectUrl = checkout.data?.redirectUrl;
+
+    if (!redirectUrl) {
+      throw new Error('Payment was created, but no checkout link was returned.');
+    }
+
+    sessionStorage.setItem('palmtrent_pending_payment_reference', payment.paymentReference);
+    sessionStorage.setItem('palmtrent_pending_payment_context', 'subscription');
+    sessionStorage.setItem('palmtrent_pending_subscription_name', subscription?.plan?.name || 'Subscription');
+    window.location.href = redirectUrl;
+    return true;
   };
 
   const handleRegister = async (e) => {
@@ -419,7 +456,9 @@ const LandingPage = () => {
     try {
       setAuthLoading(true);
       const response = await publicAPI.createSubscription(plan.code);
-      setSubscriptionMessage(response.message || 'Subscription selected.');
+      setSubscriptionMessage(response.message || 'Subscription selected. Complete payment to activate access.');
+      const redirected = await startSubscriptionPayment(response.data);
+      if (redirected) return;
       navigate(getRoleHomePath(currentUser));
     } catch (error) {
       setSubscriptionMessage(error.message || 'Could not select this subscription.');

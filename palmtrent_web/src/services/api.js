@@ -191,6 +191,10 @@ export const publicAPI = {
     method: 'POST',
     body: JSON.stringify({ planCode }),
   }),
+  createSubscriptionPayment: (subscriptionId, paymentMethod = 'clicknpay', customer = {}) => apiFetch(`/public/subscriptions/${subscriptionId}/payment`, {
+    method: 'POST',
+    body: JSON.stringify({ paymentMethod, customer }),
+  }),
 };
 
 // Bookings API

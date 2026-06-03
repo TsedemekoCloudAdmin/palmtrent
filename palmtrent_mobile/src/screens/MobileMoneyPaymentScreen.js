@@ -34,7 +34,11 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
   const routeParams = route?.params || {};
   const bookingId = routeParams.bookingId || bookingData?.bookingId;
   const bookingReference = routeParams.bookingReference || bookingData?.bookingReference;
+  const paymentContext = routeParams.paymentContext || bookingData?.paymentContext || 'booking';
+  const subscriptionId = routeParams.subscriptionId || bookingData?.subscriptionId;
+  const subscriptionName = routeParams.subscriptionName || bookingData?.subscriptionName || 'Subscription';
   const amount = routeParams.amount || bookingData?.amount || bookingData?.pricing?.totals?.total;
+  const amountValue = Number(amount || 0);
   const paymentMethod = routeParams.paymentMethod || bookingData?.paymentMethod || 'ecocash';
   const existingPaymentReference = routeParams.paymentReference || bookingData?.paymentReference;
 
@@ -45,6 +49,7 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
       const screenMap = {
         'booking-review': 'BookingReview',
         'booking-confirmation': 'BookingConfirmation',
+        'main-tabs': 'MainTabs',
       };
       navigation.navigate(screenMap[screen] || screen, params);
     }
@@ -85,6 +90,7 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
   };
 
   const provider = providerConfig[paymentMethod] || providerConfig.ecocash;
+  const backTarget = paymentContext === 'subscription' ? 'main-tabs' : 'booking-review';
 
   useEffect(() => {
     return () => {
@@ -156,6 +162,11 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
   const handleInitiatePayment = async () => {
     if (!validateForm()) return;
 
+    if (paymentContext === 'subscription' && !subscriptionId && !existingPaymentReference) {
+      Alert.alert('Subscription Missing', 'We could not find the subscription to pay for. Please select the plan again.');
+      return;
+    }
+
     setProcessing(true);
     setPaymentStatus('initiated');
 
@@ -163,18 +174,30 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
       let ref = existingPaymentReference;
 
       if (!ref) {
-        const createResponse = await apiService.post('/payments/create', {
-          bookingId,
-          amount,
-          paymentMethod,
-          customer: {
-            email: email.trim(),
-            phone: phoneNumber.trim()
-          }
-        });
+        const customer = {
+          email: email.trim(),
+          phone: phoneNumber.trim()
+        };
+        const createResponse = paymentContext === 'subscription'
+          ? await apiService.createSubscriptionPayment(subscriptionId, paymentMethod, customer)
+          : await apiService.post('/payments/create', {
+              bookingId,
+              amount,
+              paymentMethod,
+              customer
+            });
 
         if (!createResponse.success) {
           throw new Error(createResponse.message || 'Failed to create payment');
+        }
+
+        if (paymentContext === 'subscription' && createResponse.data?.paymentRequired === false) {
+          Alert.alert('Subscription Ready', createResponse.message || 'This subscription does not require payment.', [
+            { text: 'Continue', onPress: () => navigateTo('main-tabs') }
+          ]);
+          setProcessing(false);
+          setPaymentStatus('idle');
+          return;
         }
 
         ref = createResponse.data.paymentReference;
@@ -267,6 +290,15 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
 
     // Navigate to confirmation after delay
     setTimeout(() => {
+      if (paymentContext === 'subscription') {
+        Alert.alert(
+          'Subscription Paid',
+          'Your subscription payment is confirmed. Your account access still depends on document verification where required.',
+          [{ text: 'Continue', onPress: () => navigateTo('main-tabs') }]
+        );
+        return;
+      }
+
       navigateTo('booking-confirmation', {
         bookingId,
         bookingReference,
@@ -363,9 +395,13 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
       </View>
       <Text style={styles.successTitle}>Payment Successful!</Text>
       <Text style={styles.successText}>
-        Your {provider.name} payment of USD ${amount?.toFixed(2)} has been confirmed.
+        Your {provider.name} payment of USD ${amountValue.toFixed(2)} has been confirmed.
       </Text>
-      <Text style={styles.successSubtext}>Redirecting to booking confirmation...</Text>
+      <Text style={styles.successSubtext}>
+        {paymentContext === 'subscription'
+          ? 'Returning to your dashboard...'
+          : 'Redirecting to booking confirmation...'}
+      </Text>
       <ActivityIndicator size="small" color={provider.color} style={{ marginTop: 20 }} />
     </View>
   );
@@ -391,14 +427,18 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
           <View style={styles.summaryCard}>
             <Text style={styles.summaryTitle}>Payment Summary</Text>
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Booking Reference</Text>
-              <Text style={styles.summaryValue}>{bookingReference}</Text>
+              <Text style={styles.summaryLabel}>
+                {paymentContext === 'subscription' ? 'Subscription' : 'Booking Reference'}
+              </Text>
+              <Text style={styles.summaryValue}>
+                {paymentContext === 'subscription' ? subscriptionName : bookingReference}
+              </Text>
             </View>
             <View style={styles.divider} />
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Amount to Pay</Text>
               <Text style={[styles.amount, { color: provider.color }]}>
-                USD ${amount?.toFixed(2) || '0.00'}
+                USD ${amountValue.toFixed(2)}
               </Text>
             </View>
           </View>
@@ -454,7 +494,7 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
       <View style={styles.bottomActions}>
         <TouchableOpacity
           style={styles.backButtonBottom}
-          onPress={() => navigateTo('booking-review')}
+          onPress={() => navigateTo(backTarget)}
           disabled={processing}
         >
           <Text style={styles.backButtonText}>Back</Text>
@@ -496,12 +536,12 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
                   { text: 'No', style: 'cancel' },
                   { text: 'Yes', onPress: () => {
                     handleCancel();
-                    navigateTo('booking-review');
+                    navigateTo(backTarget);
                   }}
                 ]
               );
             } else {
-              navigateTo('booking-review');
+              navigateTo(backTarget);
             }
           }}
           style={styles.backButton}
@@ -509,8 +549,12 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
           <MaterialIcons name="arrow-back" size={24} color="white" />
         </TouchableOpacity>
         <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>{provider.name} Payment</Text>
-          <Text style={styles.headerSubtitle}>Secure mobile money payment</Text>
+          <Text style={styles.headerTitle}>
+            {paymentContext === 'subscription' ? 'Subscription Payment' : `${provider.name} Payment`}
+          </Text>
+          <Text style={styles.headerSubtitle}>
+            {paymentContext === 'subscription' ? 'Pay to activate your subscription' : 'Secure mobile money payment'}
+          </Text>
         </View>
       </View>
 

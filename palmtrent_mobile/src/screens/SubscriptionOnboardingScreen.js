@@ -58,8 +58,23 @@ const SubscriptionOnboardingScreen = ({ navigation }) => {
     try {
       const response = await apiService.createMySubscription(plan);
       if (response.success) {
-        setSubscription(response.data);
+        const selectedSubscription = response.data;
+        const amount = Number(selectedSubscription?.amount || plan?.price || 0);
+        const paymentStatus = selectedSubscription?.payment?.status;
+        setSubscription(selectedSubscription);
         await AsyncStorage.removeItem(POST_REGISTRATION_SUBSCRIPTION_KEY);
+
+        if (amount > 0 && paymentStatus !== 'paid' && paymentStatus !== 'not_required') {
+          navigation.navigate('MobileMoneyPayment', {
+            paymentContext: 'subscription',
+            subscriptionId: selectedSubscription?._id || selectedSubscription?.id,
+            subscriptionName: selectedSubscription?.plan?.name || plan?.name || 'Subscription',
+            amount,
+            paymentMethod: 'ecocash'
+          });
+          return;
+        }
+
         Alert.alert('Subscription selected', response.message || 'Your subscription has been selected.', [
           { text: 'Continue', onPress: finish }
         ]);

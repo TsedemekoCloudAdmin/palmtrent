@@ -145,9 +145,11 @@ const CorporateAccountSetupScreen = ({ navigation }) => {
 
       if (response.success) {
         let subscriptionWarning = '';
+        let selectedSubscription = null;
         if (selectedPlanData) {
           try {
-            await apiService.createMySubscription(selectedPlanData);
+            const subscriptionResponse = await apiService.createMySubscription(selectedPlanData);
+            selectedSubscription = subscriptionResponse.data;
           } catch (subscriptionError) {
             subscriptionWarning = `\n\nSubscription could not be selected automatically: ${subscriptionError.message}`;
           }
@@ -163,13 +165,31 @@ const CorporateAccountSetupScreen = ({ navigation }) => {
           });
         }
 
+        const amount = Number(selectedSubscription?.amount || selectedPlanData?.price || 0);
+        const paymentStatus = selectedSubscription?.payment?.status;
+        const continueToPayment = amount > 0 && paymentStatus !== 'paid' && paymentStatus !== 'not_required';
+
         Alert.alert(
           'Application Submitted',
-          `Your corporate account application has been submitted for review. You will be notified once approved.${subscriptionWarning}`,
+          continueToPayment
+            ? 'Your corporate account application has been submitted for review. Complete subscription payment next while document/account verification remains pending.'
+            : `Your corporate account application has been submitted for review. You will be notified once approved.${subscriptionWarning}`,
           [
             {
-              text: 'OK',
-              onPress: () => navigation.navigate('Home')
+              text: continueToPayment ? 'Continue to Payment' : 'OK',
+              onPress: () => {
+                if (continueToPayment) {
+                  navigation.navigate('MobileMoneyPayment', {
+                    paymentContext: 'subscription',
+                    subscriptionId: selectedSubscription?._id || selectedSubscription?.id,
+                    subscriptionName: selectedSubscription?.plan?.name || selectedPlanData?.name || 'Subscription',
+                    amount,
+                    paymentMethod: 'ecocash'
+                  });
+                  return;
+                }
+                navigation.navigate('Home');
+              }
             }
           ]
         );

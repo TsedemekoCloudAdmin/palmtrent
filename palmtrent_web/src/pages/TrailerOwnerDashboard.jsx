@@ -49,6 +49,29 @@ const formatDate = (value) => {
   return new Date(value).toLocaleDateString();
 };
 
+const normalizeZimbabwePhone = (phone = '') => {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('263') && digits.length === 12) return `+${digits}`;
+  if (digits.startsWith('0') && digits.length === 10) return `+263${digits.slice(1)}`;
+  if (!digits.startsWith('0') && digits.length === 9) return `+263${digits}`;
+  if (String(phone).trim().startsWith('+263') && digits.length === 12) return `+${digits}`;
+  return String(phone || '').trim();
+};
+
+const hydrateProfileForm = (user = {}) => ({
+  fullName: user.fullName || '',
+  email: user.email || '',
+  phone: user.phone || '',
+  companyName: user.companyName || '',
+  address: {
+    street: user.address?.street || '',
+    city: user.address?.city || '',
+    state: user.address?.state || '',
+    country: user.address?.country || 'Zimbabwe'
+  }
+});
+
 const TrailerOwnerDashboard = () => {
   const currentUser = authAPI.getCurrentUser() || {};
   const [activeTab, setActiveTab] = useState('fleet');
@@ -61,11 +84,7 @@ const TrailerOwnerDashboard = () => {
   const [subscription, setSubscription] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [driverForm, setDriverForm] = useState(emptyDriverForm);
-  const [profileForm, setProfileForm] = useState({
-    fullName: currentUser.fullName || '',
-    email: currentUser.email || '',
-    phone: currentUser.phone || ''
-  });
+  const [profileForm, setProfileForm] = useState(hydrateProfileForm(currentUser));
   const [requestForm, setRequestForm] = useState({
     startDate: '',
     endDate: '',
@@ -118,6 +137,13 @@ const TrailerOwnerDashboard = () => {
   const updateForm = (field, value) => setForm((current) => ({ ...current, [field]: value }));
   const updateDriverForm = (field, value) => setDriverForm((current) => ({ ...current, [field]: value }));
   const updateProfileForm = (field, value) => setProfileForm((current) => ({ ...current, [field]: value }));
+  const updateProfileAddress = (field, value) => setProfileForm((current) => ({
+    ...current,
+    address: {
+      ...(current.address || {}),
+      [field]: value
+    }
+  }));
 
   const createAsset = async (event) => {
     event.preventDefault();
@@ -244,13 +270,26 @@ const TrailerOwnerDashboard = () => {
     event.preventDefault();
     try {
       setLoading(true);
-      const response = await authAPI.updateProfile(profileForm);
-      const user = response.data?.user || response.user || authAPI.getCurrentUser() || {};
-      setProfileForm({
-        fullName: user.fullName || '',
-        email: user.email || '',
-        phone: user.phone || ''
+      const normalizedPhone = normalizeZimbabwePhone(profileForm.phone);
+      const email = String(profileForm.email || '').trim().toLowerCase();
+      if (!String(profileForm.fullName || '').trim()) throw new Error('Full name is required.');
+      if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error('Enter a valid email address.');
+      if (!/^\+263[0-9]{9}$/.test(normalizedPhone)) throw new Error('Enter a valid Zimbabwean mobile number in +263 format.');
+
+      const response = await authAPI.updateProfile({
+        fullName: String(profileForm.fullName || '').trim(),
+        email,
+        phone: normalizedPhone,
+        companyName: String(profileForm.companyName || '').trim(),
+        address: {
+          street: String(profileForm.address?.street || '').trim(),
+          city: String(profileForm.address?.city || '').trim(),
+          state: String(profileForm.address?.state || '').trim(),
+          country: String(profileForm.address?.country || 'Zimbabwe').trim()
+        }
       });
+      const user = response.data?.user || response.user || authAPI.getCurrentUser() || {};
+      setProfileForm(hydrateProfileForm(user));
       setMessage('Profile updated');
     } catch (error) {
       setMessage(error.message || 'Could not update profile');
@@ -683,6 +722,24 @@ const TrailerOwnerDashboard = () => {
                 </label>
                 <label>Phone
                   <input value={profileForm.phone} onChange={(e) => updateProfileForm('phone', e.target.value)} required />
+                </label>
+                <small className="fleet-form-hint">Use your Zimbabwean mobile number in +263 format.</small>
+                <label>Company Name
+                  <input value={profileForm.companyName} onChange={(e) => updateProfileForm('companyName', e.target.value)} />
+                </label>
+                <label>Street Address
+                  <textarea value={profileForm.address?.street || ''} onChange={(e) => updateProfileAddress('street', e.target.value)} rows={2} />
+                </label>
+                <div className="form-row">
+                  <label>City
+                    <input value={profileForm.address?.city || ''} onChange={(e) => updateProfileAddress('city', e.target.value)} />
+                  </label>
+                  <label>Province / State
+                    <input value={profileForm.address?.state || ''} onChange={(e) => updateProfileAddress('state', e.target.value)} />
+                  </label>
+                </div>
+                <label>Country
+                  <input value={profileForm.address?.country || ''} onChange={(e) => updateProfileAddress('country', e.target.value)} />
                 </label>
                 <button className="fleet-primary" disabled={loading}>Save Profile</button>
               </form>

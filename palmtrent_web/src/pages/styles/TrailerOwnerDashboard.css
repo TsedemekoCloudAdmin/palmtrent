@@ -250,6 +250,7 @@
 }
 
 .fleet-form input,
+.fleet-form textarea,
 .fleet-form select,
 .request-controls input,
 .panel-title select {
@@ -257,6 +258,18 @@
   border-radius: 6px;
   padding: 0.65rem;
   font: inherit;
+  width: 100%;
+}
+
+.fleet-form textarea {
+  min-height: 78px;
+  resize: vertical;
+}
+
+.fleet-form-hint {
+  color: #64748b;
+  font-size: 0.78rem;
+  margin-top: -0.5rem;
 }
 
 .form-row,

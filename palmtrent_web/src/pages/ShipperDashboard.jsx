@@ -37,6 +37,29 @@ const getRouteLabel = (booking) => {
 };
 const getBookingAmount = (booking) => booking.totalAmount || booking.pricing?.totals?.total || booking.pricing?.total || 0;
 const getUserDisplayName = (user = {}) => user.fullName || user.name || user.email || 'Shipper';
+
+const normalizeZimbabwePhone = (phone = '') => {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('263') && digits.length === 12) return `+${digits}`;
+  if (digits.startsWith('0') && digits.length === 10) return `+263${digits.slice(1)}`;
+  if (!digits.startsWith('0') && digits.length === 9) return `+263${digits}`;
+  if (String(phone).trim().startsWith('+263') && digits.length === 12) return `+${digits}`;
+  return String(phone || '').trim();
+};
+
+const hydrateAccountForm = (user = {}) => ({
+  fullName: user.fullName || '',
+  email: user.email || '',
+  phone: user.phone || '',
+  companyName: user.companyName || '',
+  address: {
+    street: user.address?.street || '',
+    city: user.address?.city || '',
+    state: user.address?.state || '',
+    country: user.address?.country || 'Zimbabwe'
+  }
+});
 const getUserFirstName = (user = {}) => {
   const displayName = getUserDisplayName(user);
   return displayName.includes('@') ? displayName.split('@')[0] : displayName.split(' ')[0];
@@ -454,28 +477,44 @@ const OverviewTab = ({ setActiveNav }) => {
 };
 
 const AccountTab = ({ currentUser }) => {
-  const [form, setForm] = useState({
-    fullName: currentUser.fullName || '',
-    email: currentUser.email || '',
-    phone: currentUser.phone || ''
-  });
+  const [form, setForm] = useState(hydrateAccountForm(currentUser));
   const [status, setStatus] = useState('');
   const [saving, setSaving] = useState(false);
 
   const update = (field, value) => setForm((current) => ({ ...current, [field]: value }));
+  const updateAddress = (field, value) => setForm((current) => ({
+    ...current,
+    address: {
+      ...(current.address || {}),
+      [field]: value
+    }
+  }));
 
   const saveProfile = async (event) => {
     event.preventDefault();
     setSaving(true);
     setStatus('');
     try {
-      const response = await authAPI.updateProfile(form);
-      const user = response.data?.user || response.user || authAPI.getCurrentUser() || {};
-      setForm({
-        fullName: user.fullName || '',
-        email: user.email || '',
-        phone: user.phone || ''
+      const normalizedPhone = normalizeZimbabwePhone(form.phone);
+      const email = String(form.email || '').trim().toLowerCase();
+      if (!String(form.fullName || '').trim()) throw new Error('Full name is required.');
+      if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error('Enter a valid email address.');
+      if (!/^\+263[0-9]{9}$/.test(normalizedPhone)) throw new Error('Enter a valid Zimbabwean mobile number in +263 format.');
+
+      const response = await authAPI.updateProfile({
+        fullName: String(form.fullName || '').trim(),
+        email,
+        phone: normalizedPhone,
+        companyName: String(form.companyName || '').trim(),
+        address: {
+          street: String(form.address?.street || '').trim(),
+          city: String(form.address?.city || '').trim(),
+          state: String(form.address?.state || '').trim(),
+          country: String(form.address?.country || 'Zimbabwe').trim()
+        }
       });
+      const user = response.data?.user || response.user || authAPI.getCurrentUser() || {};
+      setForm(hydrateAccountForm(user));
       setStatus('Profile updated.');
     } catch (error) {
       setStatus(error.message || 'Could not update profile.');
@@ -498,6 +537,24 @@ const AccountTab = ({ currentUser }) => {
           </label>
           <label>Phone
             <input value={form.phone} onChange={(event) => update('phone', event.target.value)} required />
+          </label>
+          <small className="shipper-account-hint">Use your Zimbabwean mobile number in +263 format.</small>
+          <label>Company Name
+            <input value={form.companyName} onChange={(event) => update('companyName', event.target.value)} />
+          </label>
+          <label>Street Address
+            <textarea value={form.address?.street || ''} onChange={(event) => updateAddress('street', event.target.value)} rows={2} />
+          </label>
+          <div className="shipper-account-row">
+            <label>City
+              <input value={form.address?.city || ''} onChange={(event) => updateAddress('city', event.target.value)} />
+            </label>
+            <label>Province / State
+              <input value={form.address?.state || ''} onChange={(event) => updateAddress('state', event.target.value)} />
+            </label>
+          </div>
+          <label>Country
+            <input value={form.address?.country || ''} onChange={(event) => updateAddress('country', event.target.value)} />
           </label>
           <button type="submit" className="shipper-account-primary" disabled={saving}>
             {saving ? 'Saving...' : 'Save Profile'}

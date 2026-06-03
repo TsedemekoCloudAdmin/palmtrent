@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { paymentsAPI } from '../services/api';
+import { authAPI, paymentsAPI } from '../services/api';
 
 const maxChecks = 36;
 
@@ -9,6 +9,31 @@ const PaymentReturnPage = () => {
   const [message, setMessage] = useState('Checking your ClicknPay payment status...');
   const [reference] = useState(() => sessionStorage.getItem('palmtrent_pending_payment_reference') || '');
   const [bookingReference] = useState(() => sessionStorage.getItem('palmtrent_pending_booking_reference') || '');
+  const [paymentContext] = useState(() => sessionStorage.getItem('palmtrent_pending_payment_context') || 'booking');
+  const [subscriptionName] = useState(() => sessionStorage.getItem('palmtrent_pending_subscription_name') || 'Subscription');
+
+  const dashboardPath = (() => {
+    const user = authAPI.getCurrentUser();
+    switch (user?.userType) {
+      case 'admin':
+        return '/admin';
+      case 'corporate':
+        return '/corp';
+      case 'trailer_owner':
+      case 'transporter':
+        return '/fleet';
+      case 'shipper':
+      default:
+        return '/shipper';
+    }
+  })();
+
+  const clearPendingPayment = () => {
+    sessionStorage.removeItem('palmtrent_pending_payment_reference');
+    sessionStorage.removeItem('palmtrent_pending_booking_reference');
+    sessionStorage.removeItem('palmtrent_pending_payment_context');
+    sessionStorage.removeItem('palmtrent_pending_subscription_name');
+  };
 
   useEffect(() => {
     if (!reference) {
@@ -28,16 +53,19 @@ const PaymentReturnPage = () => {
         const paymentStatus = response.data?.status;
 
         if (paymentStatus === 'confirmed') {
-          sessionStorage.removeItem('palmtrent_pending_payment_reference');
-          sessionStorage.removeItem('palmtrent_pending_booking_reference');
+          clearPendingPayment();
           setStatus('confirmed');
-          setMessage('Payment confirmed. Your booking can move to matching.');
+          setMessage(paymentContext === 'subscription'
+            ? 'Subscription payment confirmed. Your account access remains pending document verification where required.'
+            : 'Payment confirmed. Your booking can move to matching.');
           return;
         }
 
         if (paymentStatus === 'failed' || paymentStatus === 'cancelled') {
           setStatus(paymentStatus);
-          setMessage(`Payment ${paymentStatus}. Return to the shipper dashboard to try again.`);
+          setMessage(paymentContext === 'subscription'
+            ? `Payment ${paymentStatus}. Return to your dashboard to choose or pay for a subscription again.`
+            : `Payment ${paymentStatus}. Return to the shipper dashboard to try again.`);
           return;
         }
 
@@ -65,9 +93,13 @@ const PaymentReturnPage = () => {
     <main className="payment-return-page">
       <section className="payment-return-panel">
         <h1>ClicknPay Payment</h1>
-        {bookingReference && <p className="payment-return-reference">Booking {bookingReference}</p>}
+        {paymentContext === 'subscription' ? (
+          <p className="payment-return-reference">{subscriptionName}</p>
+        ) : (
+          bookingReference && <p className="payment-return-reference">Booking {bookingReference}</p>
+        )}
         <p className={`payment-return-status status-${status}`}>{message}</p>
-        <Link className="btn-primary" to="/shipper">Shipper Dashboard</Link>
+        <Link className="btn-primary" to={dashboardPath}>Go to Dashboard</Link>
       </section>
     </main>
   );

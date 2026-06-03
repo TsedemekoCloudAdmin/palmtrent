@@ -10,6 +10,27 @@ import { authAPI, corporateAPI, bookingsAPI, trackingAPI, notificationsAPI } fro
 import logo from '../assets/logo3.png';
 import './styles/CorporateDashboard.css';
 
+const normalizeZimbabwePhone = (phone = '') => {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('263') && digits.length === 12) return `+${digits}`;
+  if (digits.startsWith('0') && digits.length === 10) return `+263${digits.slice(1)}`;
+  if (!digits.startsWith('0') && digits.length === 9) return `+263${digits}`;
+  if (String(phone).trim().startsWith('+263') && digits.length === 12) return `+${digits}`;
+  return String(phone || '').trim();
+};
+
+const formatAddressValue = (address) => {
+  if (!address) return '';
+  if (typeof address === 'string') return address;
+  return [
+    address.street,
+    address.city,
+    address.state,
+    address.country
+  ].filter(Boolean).join(', ');
+};
+
 const downloadCsv = (filename, rows) => {
   const safeRows = rows.length > 0 ? rows : [{ message: 'No records available' }];
   const headers = Object.keys(safeRows[0]);
@@ -1425,9 +1446,10 @@ const SettingsTab = () => {
   const [form, setForm] = useState({
     companyName: currentUser.corporateAccount?.companyName || currentUser.companyName || '',
     registrationNumber: currentUser.corporateAccount?.registrationNumber || '',
+    contactName: currentUser.fullName || currentUser.corporateAccount?.contactPerson?.name || '',
     email: currentUser.email || '',
     phone: currentUser.phone || '',
-    address: currentUser.corporateAccount?.address || currentUser.address || '',
+    address: formatAddressValue(currentUser.corporateAccount?.billingAddress || currentUser.corporateAccount?.address || currentUser.address),
     bookingConfirmations: true,
     deliveryUpdates: true,
     invoiceNotifications: true,
@@ -1454,13 +1476,28 @@ const SettingsTab = () => {
   const saveSettings = async () => {
     try {
       setSettingsMessage('');
+      const email = String(form.email || '').trim().toLowerCase();
+      const phone = normalizeZimbabwePhone(form.phone);
+      if (!String(form.contactName || '').trim()) throw new Error('Contact name is required.');
+      if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error('Enter a valid email address.');
+      if (!/^\+263[0-9]{9}$/.test(phone)) throw new Error('Enter a valid Zimbabwean mobile number in +263 format.');
+
       await corporateAPI.updateProfile({
         companyName: form.companyName,
         registrationNumber: form.registrationNumber,
-        contactPerson: { name: currentUser.fullName, email: form.email, phone: form.phone },
+        contactPerson: { name: form.contactName, email, phone },
         billingAddress: { street: form.address }
       });
-      await authAPI.updateProfile({ email: form.email, phone: form.phone });
+      await authAPI.updateProfile({
+        fullName: form.contactName,
+        email,
+        phone,
+        companyName: form.companyName,
+        address: {
+          street: String(form.address || '').trim(),
+          country: 'Zimbabwe'
+        }
+      });
       setSettingsMessage('Corporate settings saved.');
     } catch (error) {
       setSettingsMessage(error.message || 'Unable to save settings.');
@@ -1510,6 +1547,10 @@ const SettingsTab = () => {
               <label>Registration Number</label>
               <input type="text" value={form.registrationNumber} onChange={e => updateField('registrationNumber', e.target.value)} />
             </div>
+          </div>
+          <div className="form-group">
+            <label>Contact Name</label>
+            <input type="text" value={form.contactName} onChange={e => updateField('contactName', e.target.value)} />
           </div>
           <div className="form-row">
             <div className="form-group">

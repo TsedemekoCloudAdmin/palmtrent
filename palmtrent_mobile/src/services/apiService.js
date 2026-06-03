@@ -606,6 +606,13 @@ class ApiService {
     });
   }
 
+  async createSubscriptionPayment(subscriptionId, paymentMethod = 'ecocash', customer = {}) {
+    return this.request(`/public/subscriptions/${subscriptionId}/payment`, {
+      method: 'POST',
+      body: JSON.stringify({ paymentMethod, customer }),
+    });
+  }
+
   async getCorporateUsers() {
     return this.request('/corporate/users');
   }

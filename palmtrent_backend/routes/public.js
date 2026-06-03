@@ -3,6 +3,7 @@ const {
   getLandingSummary,
   getPublicPlans,
   createMySubscription,
+  createSubscriptionPayment,
   getMySubscription
 } = require('../controllers/publicController');
 const { protect } = require('../middleware/auth');
@@ -13,5 +14,6 @@ router.get('/landing', getLandingSummary);
 router.get('/plans', getPublicPlans);
 router.get('/subscriptions/me', protect, getMySubscription);
 router.post('/subscriptions', protect, createMySubscription);
+router.post('/subscriptions/:id/payment', protect, createSubscriptionPayment);
 
 module.exports = router;

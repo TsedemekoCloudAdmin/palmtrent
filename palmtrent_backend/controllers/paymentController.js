@@ -3,6 +3,7 @@ const { Paynow } = require("paynow");
 const Booking = require('../models/Booking');
 const Payment = require('../models/Payment');
 const Rental = require('../models/Rental');
+const Subscription = require('../models/Subscription');
 const paymentService = require('../services/paymentService');
 const escrowService = require('../services/escrowService');
 const openApiAfricaService = require('../services/openApiAfricaService');
@@ -26,7 +27,8 @@ const notAuthorized = (res, message = 'Not authorized to access this resource') 
 const loadPaymentWithAccessContext = (paymentReference) => {
   return Payment.findOne({ paymentReference })
     .populate('booking')
-    .populate('rental');
+    .populate('rental')
+    .populate({ path: 'subscription', populate: { path: 'plan user' } });
 };
 
 const getCurrentUserId = (user) => user?._id || user?.id;
@@ -52,8 +54,9 @@ exports.getPayments = async (req, res) => {
 
     if (!isAdmin(req.user)) {
       const userId = getCurrentUserId(req.user);
+      const canQuerySubscriptions = /^[a-f\d]{24}$/i.test(String(userId || ''));
 
-      const [bookings, rentals] = await Promise.all([
+      const [bookings, rentals, subscriptions] = await Promise.all([
         Booking.find({
           $or: [
             { user: userId },
@@ -66,19 +69,26 @@ exports.getPayments = async (req, res) => {
             { owner: userId },
             { renter: userId }
           ]
-        }).select('_id')
+        }).select('_id'),
+        canQuerySubscriptions
+          ? Subscription.find({ user: userId }).select('_id')
+          : Promise.resolve([])
       ]);
 
       query.$or = [
         { booking: { $in: bookings.map(item => item._id) } },
         { rental: { $in: rentals.map(item => item._id) } }
       ];
+      if (subscriptions.length) {
+        query.$or.push({ subscription: { $in: subscriptions.map(item => item._id) } });
+      }
     }
 
     const [payments, total] = await Promise.all([
       Payment.find(query)
         .populate('booking', 'bookingId bookingReference status route')
         .populate('rental', 'rentalReference status itemType')
+        .populate({ path: 'subscription', select: 'status amount currency payment plan', populate: { path: 'plan', select: 'name code audience billingCycle' } })
         .sort({ createdAt: -1 })
         .skip((currentPage - 1) * pageSize)
         .limit(pageSize)

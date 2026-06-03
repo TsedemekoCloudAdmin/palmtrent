@@ -1,6 +1,7 @@
 // services/paymentService.js
 const Payment = require('../models/Payment');
 const Booking = require('../models/Booking');
+const Subscription = require('../models/Subscription');
 const escrowService = require('./escrowService');
 
 class PaymentService {
@@ -118,7 +119,11 @@ class PaymentService {
 
       await payment.save();
 
-      await this.finalizeConfirmedBookingPayment(payment);
+      if (payment.subscription) {
+        await this.finalizeConfirmedSubscriptionPayment(payment);
+      } else {
+        await this.finalizeConfirmedBookingPayment(payment);
+      }
 
       return payment;
     } catch (error) {
@@ -205,6 +210,23 @@ class PaymentService {
     }
 
     await this.createShipmentFromBooking(booking._id);
+  }
+
+  async finalizeConfirmedSubscriptionPayment(payment) {
+    const subscription = await Subscription.findById(payment.subscription);
+    if (!subscription) {
+      throw new Error('Subscription not found for confirmed payment');
+    }
+
+    subscription.payment = {
+      ...(subscription.payment || {}),
+      lastPayment: payment._id,
+      status: 'paid',
+      method: payment.paymentMethod,
+      reference: payment.paymentReference
+    };
+    subscription.status = 'active';
+    await subscription.save();
   }
 
   /**

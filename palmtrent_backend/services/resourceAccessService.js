@@ -38,12 +38,20 @@ const canReadRental = (user, rental) => {
   ].some(value => isSameId(value, user));
 };
 
+const canReadSubscription = (user, subscription) => {
+  if (!user || !subscription) return false;
+  if (isAdmin(user)) return true;
+
+  return isSameId(subscription.user, user);
+};
+
 const canReadPayment = (user, payment) => {
   if (!user || !payment) return false;
   if (isAdmin(user)) return true;
 
   if (payment.booking) return canReadBooking(user, payment.booking);
   if (payment.rental) return canReadRental(user, payment.rental);
+  if (payment.subscription) return canReadSubscription(user, payment.subscription);
   return false;
 };
 
@@ -53,6 +61,7 @@ const canManagePayment = (user, payment) => {
 
   if (payment.booking) return canManageBookingPayment(user, payment.booking);
   if (payment.rental) return isSameId(payment.rental.renter, user);
+  if (payment.subscription) return canReadSubscription(user, payment.subscription);
   return false;
 };
 
@@ -98,6 +107,7 @@ module.exports = {
   canReadBooking,
   canReadEscrow,
   canReadPayment,
+  canReadSubscription,
   canRecordEscrowCashCollection,
   isAdmin,
   isUploadOwnedByUser

@@ -6,6 +6,10 @@ jest.mock('../models/Booking', () => ({
   findById: jest.fn()
 }));
 
+jest.mock('../models/Subscription', () => ({
+  findById: jest.fn()
+}));
+
 jest.mock('../models/Shipment', () => ({
   findOne: jest.fn(),
   create: jest.fn()
@@ -17,6 +21,7 @@ jest.mock('../services/escrowService', () => ({
 
 const Payment = require('../models/Payment');
 const Booking = require('../models/Booking');
+const Subscription = require('../models/Subscription');
 const Shipment = require('../models/Shipment');
 const escrowService = require('../services/escrowService');
 const paymentService = require('../services/paymentService');
@@ -82,6 +87,32 @@ describe('paymentService payment finalization', () => {
     expect(createShipment).toHaveBeenCalledWith(booking._id);
 
     createShipment.mockRestore();
+  });
+
+  test('marks subscription payment as paid when finalized', async () => {
+    const subscription = {
+      _id: 'subscription-1',
+      payment: { status: 'pending' },
+      status: 'active',
+      save: jest.fn().mockResolvedValue()
+    };
+    Subscription.findById.mockResolvedValue(subscription);
+
+    await paymentService.finalizeConfirmedSubscriptionPayment({
+      _id: 'payment-1',
+      subscription: subscription._id,
+      paymentMethod: 'clicknpay',
+      paymentReference: 'PAY-1'
+    });
+
+    expect(subscription.payment).toEqual(expect.objectContaining({
+      lastPayment: 'payment-1',
+      status: 'paid',
+      method: 'clicknpay',
+      reference: 'PAY-1'
+    }));
+    expect(subscription.status).toBe('active');
+    expect(subscription.save).toHaveBeenCalledTimes(1);
   });
 
   test('reuses an existing shipment for bookings without a shipment list yet', async () => {

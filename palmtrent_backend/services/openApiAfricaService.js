@@ -22,7 +22,9 @@ class OpenApiAfricaService {
   }
 
   async createOrder(paymentReference, customer = {}) {
-    const payment = await Payment.findOne({ paymentReference }).populate('booking');
+    const payment = await Payment.findOne({ paymentReference })
+      .populate('booking')
+      .populate({ path: 'subscription', populate: { path: 'plan' } });
     if (!payment) throw new Error('Payment not found');
 
     const config = await this.getConfig();
@@ -37,14 +39,16 @@ class OpenApiAfricaService {
       currency: payment.currency || config.currency,
       customerCharged: config.customerCharged,
       customerPhoneNumber: customer.phone || payment.customer?.phone || '',
-      description: `Palmtrent freight booking ${payment.booking?.bookingReference || payment.paymentReference}`,
+      description: payment.subscription
+        ? `Palmtrent subscription ${payment.subscription.plan?.name || payment.paymentReference}`
+        : `Palmtrent freight booking ${payment.booking?.bookingReference || payment.paymentReference}`,
       multiplePayments: config.multiplePayments,
       orderYpe: 'DYNAMIC',
       productsList: [{
-        description: 'Palmtrent freight booking payment',
+        description: payment.subscription ? 'Palmtrent subscription payment' : 'Palmtrent freight booking payment',
         id: 1,
         price: amount,
-        productName: 'Freight Booking',
+        productName: payment.subscription ? 'Palmtrent Subscription' : 'Freight Booking',
         quantity: 1
       }],
       publicUniqueId: config.publicUniqueId,
@@ -83,7 +87,10 @@ class OpenApiAfricaService {
     }
 
     const amount = Number(payment.amount || 0);
-    const referenceLabel = payment.booking?.bookingReference || payment.rental?.rentalReference || payment.paymentReference;
+    const referenceLabel = payment.booking?.bookingReference ||
+      payment.rental?.rentalReference ||
+      payment.subscription?.plan?.name ||
+      payment.paymentReference;
     const payload = {
       channel: 'AUTOMATED',
       clientReference: payment.paymentReference,
@@ -94,10 +101,14 @@ class OpenApiAfricaService {
       multiplePayments: config.multiplePayments,
       orderYpe: 'DYNAMIC',
       productsList: [{
-        description: payment.rental ? 'Palmtrent fleet rental payment' : 'Palmtrent freight booking payment',
+        description: payment.subscription
+          ? 'Palmtrent subscription payment'
+          : payment.rental
+            ? 'Palmtrent fleet rental payment'
+            : 'Palmtrent freight booking payment',
         id: 1,
         price: amount,
-        productName: payment.rental ? 'Fleet Rental' : 'Freight Booking',
+        productName: payment.subscription ? 'Palmtrent Subscription' : payment.rental ? 'Fleet Rental' : 'Freight Booking',
         quantity: 1
       }],
       publicUniqueId: config.publicUniqueId,
@@ -163,6 +174,26 @@ class OpenApiAfricaService {
           openApiAfricaStatus: response.data
         };
         await payment.save();
+      } else if (['failed', 'cancelled', 'processing'].includes(mappedStatus) && payment.status !== mappedStatus) {
+        payment.status = mappedStatus;
+        payment.gatewayReference = gatewayMetadata.gatewayReference || payment.gatewayReference;
+        payment.metadata = {
+          ...payment.metadata,
+          openApiAfricaStatus: response.data
+        };
+        await payment.save();
+      }
+
+      return {
+        status: mappedStatus,
+        rawStatus: response.data.status,
+        data: response.data
+      };
+    }
+
+    if (payment.subscription) {
+      if (mappedStatus === 'confirmed' && payment.status !== 'confirmed') {
+        await paymentService.confirmPayment(paymentReference, gatewayMetadata);
       } else if (['failed', 'cancelled', 'processing'].includes(mappedStatus) && payment.status !== mappedStatus) {
         payment.status = mappedStatus;
         payment.gatewayReference = gatewayMetadata.gatewayReference || payment.gatewayReference;
