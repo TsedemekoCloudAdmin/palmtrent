@@ -3,7 +3,7 @@ import {
   CheckCircle, Clock, DollarSign, Package, Plus, RefreshCw,
   Settings, Truck, Wrench, X, User, LogOut, CreditCard, Trash2
 } from 'lucide-react';
-import { authAPI, driversAPI, fleetAPI, publicAPI, subscriptionCheckoutAPI } from '../services/api';
+import { authAPI, driversAPI, fleetAPI, publicAPI, referenceAPI, subscriptionCheckoutAPI, vehiclesAPI } from '../services/api';
 import logo from '../assets/logo3.png';
 import './styles/TrailerOwnerDashboard.css';
 
@@ -20,6 +20,8 @@ const emptyForm = {
   assetName: '',
   year: '',
   capacityWeight: '',
+  trailerType: '',
+  vehicleType: '',
   make: '',
   model: '',
   dailyRate: '',
@@ -31,6 +33,20 @@ const emptyForm = {
   availableForShipmentWork: false,
   description: ''
 };
+
+const REFERENCE_CATEGORIES_BY_ASSET = {
+  truck: ['truck', 'van', 'bakkie'],
+  tractor_unit: ['tractor'],
+  full_rig: ['tractor', 'truck']
+};
+
+const isObjectId = (value) => /^[0-9a-f]{24}$/i.test(String(value || ''));
+
+const getRecordId = (record) => String(record?._id || record?.id || record?.value || '');
+
+const getRecordLabel = (record) => record?.name || record?.label || record?.displayName || '';
+
+const findById = (records, id) => records.find(item => getRecordId(item) === id);
 
 const emptyDriverForm = {
   fullName: '',
@@ -82,6 +98,13 @@ const TrailerOwnerDashboard = () => {
   const [market, setMarket] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [subscription, setSubscription] = useState(null);
+  const [referenceData, setReferenceData] = useState({
+    trailerTypes: [],
+    vehicleTypes: [],
+    vehicleMakes: []
+  });
+  const [vehicleModels, setVehicleModels] = useState([]);
+  const [referenceLoading, setReferenceLoading] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [driverForm, setDriverForm] = useState(emptyDriverForm);
   const [profileForm, setProfileForm] = useState(hydrateProfileForm(currentUser));
@@ -131,11 +154,59 @@ const TrailerOwnerDashboard = () => {
     loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    const loadReferenceData = async () => {
+      try {
+        setReferenceLoading(true);
+        const response = await referenceAPI.getAll();
+        const data = response.data || {};
+        setReferenceData({
+          trailerTypes: data.trailerTypes || [],
+          vehicleTypes: data.vehicleTypes || [],
+          vehicleMakes: data.vehicleMakes || []
+        });
+      } catch (error) {
+        setMessage(error.message || 'Could not load fleet reference data');
+      } finally {
+        setReferenceLoading(false);
+      }
+    };
+
+    loadReferenceData();
+  }, []);
+
+  useEffect(() => {
+    const loadModels = async () => {
+      if (!isObjectId(form.make)) {
+        setVehicleModels([]);
+        return;
+      }
+
+      try {
+        const response = await vehiclesAPI.getModels(form.make);
+        setVehicleModels(response.data || []);
+      } catch (error) {
+        setVehicleModels([]);
+        setMessage(error.message || 'Could not load vehicle models');
+      }
+    };
+
+    loadModels();
+  }, [form.make]);
+
   const totalRentalValue = useMemo(() => (
     listings.reduce((sum, rental) => sum + Number(rental.pricing?.total || 0), 0)
   ), [listings]);
 
-  const updateForm = (field, value) => setForm((current) => ({ ...current, [field]: value }));
+  const updateForm = (field, value) => setForm((current) => {
+    if (field === 'assetType') {
+      return { ...current, assetType: value, trailerType: '', vehicleType: '' };
+    }
+    if (field === 'make') {
+      return { ...current, make: value, model: '' };
+    }
+    return { ...current, [field]: value };
+  });
   const updateDriverForm = (field, value) => setDriverForm((current) => ({ ...current, [field]: value }));
   const updateProfileForm = (field, value) => setProfileForm((current) => ({ ...current, [field]: value }));
   const updateProfileAddress = (field, value) => setProfileForm((current) => ({
@@ -151,13 +222,18 @@ const TrailerOwnerDashboard = () => {
     try {
       setLoading(true);
       setMessage('');
+      const selectedMake = findById(referenceData.vehicleMakes, form.make);
+      const selectedModel = findById(vehicleModels, form.model);
+      const selectedTrailerType = findById(referenceData.trailerTypes, form.trailerType);
+      const selectedVehicleType = findById(referenceData.vehicleTypes, form.vehicleType);
+      const vehicleDescriptor = selectedVehicleType ? `${getRecordLabel(selectedVehicleType)}. ` : '';
       const payload = {
         assetType: form.assetType,
         registrationNumber: form.registrationNumber,
-        assetName: form.assetName,
+        assetName: form.assetName || [getRecordLabel(selectedMake), getRecordLabel(selectedModel) || getRecordLabel(selectedTrailerType)].filter(Boolean).join(' '),
         year: Number(form.year) || undefined,
-        description: form.description,
-        trailerType: form.trailerType || undefined,
+        description: `${vehicleDescriptor}${form.description || ''}`.trim(),
+        trailerType: isObjectId(form.trailerType) ? form.trailerType : undefined,
         capacity: {
           weight: {
             value: Number(form.capacityWeight) || 1,
@@ -165,8 +241,8 @@ const TrailerOwnerDashboard = () => {
           }
         },
         tractorUnit: {
-          make: form.make,
-          model: form.model
+          make: getRecordLabel(selectedMake) || form.make,
+          model: getRecordLabel(selectedModel) || form.model || getRecordLabel(selectedVehicleType)
         },
         rentalSettings: {
           availableForRental: form.availableForRental,
@@ -371,6 +447,13 @@ const TrailerOwnerDashboard = () => {
     }
   };
 
+  const vehicleTypeCategories = REFERENCE_CATEGORIES_BY_ASSET[form.assetType] || [];
+  const vehicleTypeOptions = referenceData.vehicleTypes.filter((type) => (
+    !vehicleTypeCategories.length || vehicleTypeCategories.includes(type.category)
+  ));
+  const showVehicleType = ['truck', 'tractor_unit', 'full_rig'].includes(form.assetType);
+  const showTrailerType = ['trailer', 'full_rig'].includes(form.assetType);
+
   return (
     <div className="fleet-page">
       <aside className="fleet-sidebar">
@@ -487,14 +570,53 @@ const TrailerOwnerDashboard = () => {
                     <label>Display Name
                       <input value={form.assetName} onChange={(e) => updateForm('assetName', e.target.value)} placeholder="Volvo FH + Flatbed" />
                     </label>
+                    {showTrailerType && (
+                      <label>Trailer Type
+                        <select value={form.trailerType} onChange={(e) => updateForm('trailerType', e.target.value)} required={form.assetType === 'trailer'}>
+                          <option value="">{referenceLoading ? 'Loading trailer types...' : 'Select trailer type'}</option>
+                          {referenceData.trailerTypes.map(type => (
+                            <option key={getRecordId(type)} value={getRecordId(type)}>
+                              {getRecordLabel(type)}{type.category ? ` (${type.category})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    {showVehicleType && (
+                      <label>Truck / Vehicle Type
+                        <select value={form.vehicleType} onChange={(e) => updateForm('vehicleType', e.target.value)} required={showVehicleType}>
+                          <option value="">{referenceLoading ? 'Loading truck types...' : 'Select truck type'}</option>
+                          {vehicleTypeOptions.map(type => (
+                            <option key={getRecordId(type)} value={getRecordId(type)}>
+                              {getRecordLabel(type)}{type.capacity?.weight?.max ? ` up to ${type.capacity.weight.max}kg` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
                     <div className="form-row">
                       <label>Make
-                        <input value={form.make} onChange={(e) => updateForm('make', e.target.value)} />
+                        <select value={form.make} onChange={(e) => updateForm('make', e.target.value)}>
+                          <option value="">{referenceLoading ? 'Loading makes...' : 'Select make'}</option>
+                          {referenceData.vehicleMakes.map(make => (
+                            <option key={getRecordId(make)} value={getRecordId(make)}>
+                              {getRecordLabel(make)}{make.country ? ` (${make.country})` : ''}
+                            </option>
+                          ))}
+                        </select>
                       </label>
                       <label>Model
-                        <input value={form.model} onChange={(e) => updateForm('model', e.target.value)} />
+                        <select value={form.model} onChange={(e) => updateForm('model', e.target.value)} disabled={!form.make || !vehicleModels.length}>
+                          <option value="">{form.make && !vehicleModels.length ? 'No models available' : 'Select model'}</option>
+                          {vehicleModels.map(model => (
+                            <option key={getRecordId(model)} value={getRecordId(model)}>{getRecordLabel(model)}</option>
+                          ))}
+                        </select>
                       </label>
                     </div>
+                    {!referenceLoading && (!referenceData.trailerTypes.length || !referenceData.vehicleTypes.length) && (
+                      <small className="fleet-form-hint">Seed reference data from Admin Settings if trailer or truck lists are empty.</small>
+                    )}
                     <div className="form-row">
                       <label>Year
                         <input type="number" value={form.year} onChange={(e) => updateForm('year', e.target.value)} />

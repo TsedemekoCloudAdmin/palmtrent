@@ -1201,18 +1201,37 @@ const seedCargoTypes = async () => {
   for (const cargo of cargoTypesData) {
     // Set recommended vehicle types based on category
     let recommendedTypes = [];
+    const addVehicle = (name) => {
+      const vehicle = vehicleTypes.find(v => v.name === name);
+      if (vehicle && !recommendedTypes.some(id => id.toString() === vehicle._id.toString())) {
+        recommendedTypes.push(vehicle._id);
+      }
+    };
+
     if (cargo.category === 'live') {
-      const livestockTruck = vehicleTypes.find(v => v.name === 'Livestock Truck');
-      if (livestockTruck) recommendedTypes.push(livestockTruck._id);
+      addVehicle('Livestock Truck');
     } else if (cargo.category === 'refrigerated') {
       const refrigeratedTrucks = vehicleTypes.filter(v => v.specialCapabilities?.includes('refrigerated'));
       recommendedTypes = refrigeratedTrucks.map(v => v._id);
     } else if (cargo.category === 'liquid') {
-      const tankerTruck = vehicleTypes.find(v => v.name === 'Tanker Truck');
-      if (tankerTruck) recommendedTypes.push(tankerTruck._id);
+      addVehicle('Tanker Truck');
     } else if (cargo.category === 'bulk') {
-      const tipperTruck = vehicleTypes.find(v => v.specialCapabilities?.includes('tipper'));
-      if (tipperTruck) recommendedTypes.push(tipperTruck._id);
+      addVehicle('Tipper Truck (10-Tonne)');
+      addVehicle('Truck Tractor (Horse Only)');
+    } else if (cargo.category === 'hazardous') {
+      addVehicle('Tanker Truck');
+      addVehicle('Truck Tractor (Horse Only)');
+    } else {
+      addVehicle('5-Tonne Truck');
+      addVehicle('10-Tonne Truck');
+      if (cargo.name === 'Furniture' || cargo.name === 'Electronics') {
+        addVehicle('Delivery Van');
+        addVehicle('Panel Van');
+      }
+      if (cargo.name === 'Building Materials' || cargo.name === 'Machinery') {
+        addVehicle('Flatbed Truck (10-Tonne)');
+        addVehicle('Truck Tractor (Horse Only)');
+      }
     }
 
     await CargoType.findOneAndUpdate(
@@ -1250,6 +1269,24 @@ const seedTrailerTypes = async () => {
     );
   }
   console.log(`✓ Seeded ${trailerTypesData.length} trailer types`);
+};
+
+const linkCargoTypesToTrailers = async () => {
+  console.log('Linking cargo types to recommended trailers...');
+  const cargoTypes = await CargoType.find({});
+  const trailerTypes = await TrailerType.find({});
+
+  for (const cargo of cargoTypes) {
+    const recommendedTrailerTypes = trailerTypes
+      .filter(trailer => (trailer.suitableForCargoTypes || []).some(id => id.toString() === cargo._id.toString()))
+      .map(trailer => trailer._id);
+
+    if (recommendedTrailerTypes.length) {
+      await CargoType.findByIdAndUpdate(cargo._id, { recommendedTrailerTypes });
+    }
+  }
+
+  console.log('✓ Linked cargo types to recommended trailers');
 };
 
 const seedInsuranceOptions = async () => {
@@ -1305,6 +1342,7 @@ const seedAll = async ({ connect = true, exit = false } = {}) => {
     await seedVehicleMakes();
     await seedCargoTypes();
     await seedTrailerTypes();
+    await linkCargoTypesToTrailers();
     await seedInsuranceOptions();
     await seedInsuranceProviders();
     await linkVehicleTypesToTrailers();

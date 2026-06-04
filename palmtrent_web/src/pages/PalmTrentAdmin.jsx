@@ -130,6 +130,8 @@ const AdminDashboard = () => {
         return <RentalsView />;
       case 'monetization':
         return <MonetizationView />;
+      case 'insurance':
+        return <InsuranceView />;
       case 'disputes':
         return <DisputesView onDisputesChanged={loadAdminBadges} />;
       case 'reviews':
@@ -214,6 +216,13 @@ const AdminDashboard = () => {
             active={activeTab === 'monetization'}
             sidebarOpen={sidebarOpen}
             onClick={() => handleNavClick('monetization')}
+          />
+          <NavItem
+            icon={<Shield />}
+            label="Insurance"
+            active={activeTab === 'insurance'}
+            sidebarOpen={sidebarOpen}
+            onClick={() => handleNavClick('insurance')}
           />
           <NavItem
             icon={<AlertCircle />}
@@ -2957,6 +2966,247 @@ const MonetizationView = () => {
         </div>
       )}
 
+    </>
+  );
+};
+
+// ============ Insurance View ============
+const emptyInsuranceProduct = {
+  productCode: '',
+  productName: '',
+  coverageType: 'standard',
+  coveragePercentage: 85,
+  premiumRate: 0.015,
+  minPremium: 10,
+  excessAmount: 0,
+  maxCoverage: 0,
+  claimProcessingDays: 10,
+  cargoTypes: 'general',
+  exclusions: '',
+  active: true
+};
+
+const emptyInsuranceProvider = {
+  name: '',
+  code: '',
+  displayName: '',
+  description: '',
+  email: '',
+  phone: '',
+  claimsEmail: '',
+  claimsPhone: '',
+  website: '',
+  commissionRate: 0.15,
+  priority: 0,
+  active: true,
+  products: [{ ...emptyInsuranceProduct }]
+};
+
+const hydrateInsuranceProviderForm = (provider = null) => {
+  if (!provider) return { ...emptyInsuranceProvider, products: [{ ...emptyInsuranceProduct }] };
+  return {
+    name: provider.name || '',
+    code: provider.code || '',
+    displayName: provider.displayName || '',
+    description: provider.description || '',
+    email: provider.contactInfo?.email || '',
+    phone: provider.contactInfo?.phone || '',
+    claimsEmail: provider.contactInfo?.claimsEmail || '',
+    claimsPhone: provider.contactInfo?.claimsPhone || '',
+    website: provider.contactInfo?.website || '',
+    commissionRate: provider.commissionRate ?? 0.15,
+    priority: provider.priority ?? 0,
+    active: provider.active !== false,
+    products: (provider.products?.length ? provider.products : [{ ...emptyInsuranceProduct }]).map(product => ({
+      productCode: product.productCode || '',
+      productName: product.productName || '',
+      coverageType: product.coverageType || 'standard',
+      coveragePercentage: product.coveragePercentage ?? 85,
+      premiumRate: product.premiumRate ?? 0.015,
+      minPremium: product.minPremium ?? 10,
+      excessAmount: product.excessAmount ?? 0,
+      maxCoverage: product.maxCoverage ?? 0,
+      claimProcessingDays: product.claimProcessingDays ?? 10,
+      cargoTypes: Array.isArray(product.cargoTypes) ? product.cargoTypes.join(', ') : product.cargoTypes || 'general',
+      exclusions: Array.isArray(product.exclusions) ? product.exclusions.join('\n') : product.exclusions || '',
+      active: product.active !== false
+    }))
+  };
+};
+
+const InsuranceView = () => {
+  const [providers, setProviders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState('');
+  const [showBuilder, setShowBuilder] = useState(false);
+  const [editingProvider, setEditingProvider] = useState(null);
+  const [form, setForm] = useState(hydrateInsuranceProviderForm());
+
+  const loadProviders = async () => {
+    setLoading(true);
+    try {
+      const response = await adminAPI.getInsuranceProviders();
+      setProviders(response.data || []);
+      setMessage('');
+    } catch (error) {
+      setMessage(error.message || 'Unable to load insurance providers.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadProviders();
+  }, []);
+
+  const updateField = (field, value) => setForm(current => ({ ...current, [field]: value }));
+  const updateProduct = (index, field, value) => setForm(current => ({
+    ...current,
+    products: current.products.map((product, productIndex) => (
+      productIndex === index ? { ...product, [field]: value } : product
+    ))
+  }));
+
+  const openBuilder = (provider = null) => {
+    setEditingProvider(provider);
+    setForm(hydrateInsuranceProviderForm(provider));
+    setShowBuilder(true);
+  };
+
+  const saveProvider = async () => {
+    const payload = {
+      ...form,
+      products: form.products.map(product => ({
+        ...product,
+        coveragePercentage: Number(product.coveragePercentage || 0),
+        premiumRate: Number(product.premiumRate || 0),
+        minPremium: Number(product.minPremium || 0),
+        excessAmount: Number(product.excessAmount || 0),
+        maxCoverage: Number(product.maxCoverage || 0),
+        claimProcessingDays: Number(product.claimProcessingDays || 0),
+        cargoTypes: product.cargoTypes,
+        exclusions: product.exclusions
+      }))
+    };
+
+    try {
+      if (editingProvider) await adminAPI.updateInsuranceProvider(editingProvider._id, payload);
+      else await adminAPI.createInsuranceProvider(payload);
+      setMessage(editingProvider ? 'Insurance provider updated.' : 'Insurance provider saved.');
+      setShowBuilder(false);
+      setEditingProvider(null);
+      await loadProviders();
+    } catch (error) {
+      setMessage(error.message || 'Unable to save insurance provider.');
+    }
+  };
+
+  const toggleProvider = async (provider) => {
+    await adminAPI.updateInsuranceProvider(provider._id, {
+      ...hydrateInsuranceProviderForm(provider),
+      active: provider.active === false
+    });
+    await loadProviders();
+  };
+
+  return (
+    <>
+      <div className="admin-topbar">
+        <div className="topbar-content">
+          <div className="topbar-left">
+            <h1 className="page-title">Insurance</h1>
+            <p className="page-subtitle">Manage cargo insurers, service offerings, rates, and active quote products</p>
+          </div>
+          <div className="topbar-right">
+            <button className="btn-secondary" onClick={loadProviders}><RefreshCw className="icon" /> Refresh</button>
+            <button className="btn-primary" onClick={() => openBuilder()}>Add Provider</button>
+          </div>
+        </div>
+      </div>
+
+      <div className="admin-content">
+        {message && <div className="alert-info">{message}</div>}
+        <div className="data-table-container">
+          <table className="data-table">
+            <thead><tr><th>Provider</th><th>Products</th><th>Rates</th><th>Claims</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>
+              {providers.map(provider => (
+                <tr key={provider._id}>
+                  <td><strong>{provider.displayName}</strong><br /><small>{provider.contactInfo?.email || provider.code}</small></td>
+                  <td>{provider.products?.length || 0}</td>
+                  <td>{(provider.products || []).map(product => `${product.coverageType}: ${(Number(product.premiumRate || 0) * 100).toFixed(2)}%`).join(', ')}</td>
+                  <td>{provider.contactInfo?.claimsEmail || provider.contactInfo?.claimsPhone || 'Not set'}</td>
+                  <td>{provider.active === false ? 'Inactive' : 'Active'}</td>
+                  <td className="action-buttons">
+                    <button className="btn-secondary" onClick={() => openBuilder(provider)}><Edit className="icon" /> Edit</button>
+                    <button className={provider.active === false ? 'btn-primary' : 'btn-danger'} onClick={() => toggleProvider(provider)}>
+                      {provider.active === false ? 'Enable' : 'Disable'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!providers.length && <tr><td colSpan="6">{loading ? 'Loading providers...' : 'No insurance providers configured.'}</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {showBuilder && (
+        <div className="modal-overlay" onClick={() => setShowBuilder(false)}>
+          <div className="modal-content builder-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header builder-modal-header">
+              <div>
+                <p className="modal-kicker">Insurance</p>
+                <h2>{editingProvider ? 'Edit Provider' : 'Insurance Provider Builder'}</h2>
+              </div>
+              <button className="modal-close" onClick={() => setShowBuilder(false)}><XCircle className="icon" /></button>
+            </div>
+            <div className="modal-body">
+              <div className="builder-form-grid">
+                <label>Name<input value={form.name} onChange={(e) => updateField('name', e.target.value)} /></label>
+                <label>Code<input value={form.code} onChange={(e) => updateField('code', e.target.value.toUpperCase())} /></label>
+                <label>Display Name<input value={form.displayName} onChange={(e) => updateField('displayName', e.target.value)} /></label>
+                <label>Email<input type="email" value={form.email} onChange={(e) => updateField('email', e.target.value)} /></label>
+                <label>Phone<input value={form.phone} onChange={(e) => updateField('phone', e.target.value)} /></label>
+                <label>Claims Email<input type="email" value={form.claimsEmail} onChange={(e) => updateField('claimsEmail', e.target.value)} /></label>
+                <label>Claims Phone<input value={form.claimsPhone} onChange={(e) => updateField('claimsPhone', e.target.value)} /></label>
+                <label>Website<input value={form.website} onChange={(e) => updateField('website', e.target.value)} /></label>
+                <label>Commission Rate<input type="number" step="0.001" value={form.commissionRate} onChange={(e) => updateField('commissionRate', e.target.value)} /></label>
+                <label>Priority<input type="number" value={form.priority} onChange={(e) => updateField('priority', e.target.value)} /></label>
+                <label>Description<textarea value={form.description} onChange={(e) => updateField('description', e.target.value)} rows={3} /></label>
+              </div>
+
+              <div className="builder-section-heading">
+                <h3>Products And Rates</h3>
+                <button className="btn-secondary" onClick={() => updateField('products', [...form.products, { ...emptyInsuranceProduct }])}>Add Product</button>
+              </div>
+
+              {form.products.map((product, index) => (
+                <div className="builder-product-card" key={index}>
+                  <div className="builder-form-grid">
+                    <label>Product Code<input value={product.productCode} onChange={(e) => updateProduct(index, 'productCode', e.target.value.toUpperCase())} /></label>
+                    <label>Product Name<input value={product.productName} onChange={(e) => updateProduct(index, 'productName', e.target.value)} /></label>
+                    <label>Coverage<select value={product.coverageType} onChange={(e) => updateProduct(index, 'coverageType', e.target.value)}><option value="basic">Basic</option><option value="standard">Standard</option><option value="comprehensive">Comprehensive</option><option value="premium">Premium</option></select></label>
+                    <label>Premium Rate<input type="number" step="0.001" value={product.premiumRate} onChange={(e) => updateProduct(index, 'premiumRate', e.target.value)} /></label>
+                    <label>Coverage %<input type="number" value={product.coveragePercentage} onChange={(e) => updateProduct(index, 'coveragePercentage', e.target.value)} /></label>
+                    <label>Min Premium<input type="number" value={product.minPremium} onChange={(e) => updateProduct(index, 'minPremium', e.target.value)} /></label>
+                    <label>Excess<input type="number" value={product.excessAmount} onChange={(e) => updateProduct(index, 'excessAmount', e.target.value)} /></label>
+                    <label>Max Cover<input type="number" value={product.maxCoverage} onChange={(e) => updateProduct(index, 'maxCoverage', e.target.value)} /></label>
+                    <label>Claim Days<input type="number" value={product.claimProcessingDays} onChange={(e) => updateProduct(index, 'claimProcessingDays', e.target.value)} /></label>
+                    <label>Cargo Types<input value={product.cargoTypes} onChange={(e) => updateProduct(index, 'cargoTypes', e.target.value)} placeholder="general, agricultural" /></label>
+                    <label>Exclusions<textarea value={product.exclusions} onChange={(e) => updateProduct(index, 'exclusions', e.target.value)} rows={2} /></label>
+                  </div>
+                  <button className="btn-danger" onClick={() => updateField('products', form.products.filter((_, productIndex) => productIndex !== index))}>Remove Product</button>
+                </div>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button className="btn-secondary" onClick={() => setShowBuilder(false)}>Cancel</button>
+              <button className="btn-primary" onClick={saveProvider}>Save Provider</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

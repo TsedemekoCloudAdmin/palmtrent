@@ -437,9 +437,16 @@ export const driversAPI = {
 
 // Reference Data API
 export const referenceAPI = {
+  getAll: () => apiFetch('/reference/all'),
+
   getCargoTypes: () => apiFetch('/reference/cargo-types'),
 
   getInsuranceOptions: () => apiFetch('/reference/insurance-options'),
+
+  getInsuranceQuotes: (quoteData) => apiFetch('/reference/insurance-quotes', {
+    method: 'POST',
+    body: JSON.stringify(quoteData),
+  }),
 
   getPaymentOptions: () => apiFetch('/reference/payment-options'),
 
@@ -693,6 +700,18 @@ export const adminAPI = {
   }),
 
   updatePayout: (id, data) => apiFetch(`/admin/monetization/payouts/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
+  getInsuranceProviders: () => apiFetch('/admin/insurance/providers'),
+
+  createInsuranceProvider: (data) => apiFetch('/admin/insurance/providers', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  updateInsuranceProvider: (id, data) => apiFetch(`/admin/insurance/providers/${id}`, {
     method: 'PUT',
     body: JSON.stringify(data),
   }),

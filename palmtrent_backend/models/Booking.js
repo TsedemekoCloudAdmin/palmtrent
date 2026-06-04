@@ -72,6 +72,10 @@ const bookingSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  trailerType: {
+    type: String,
+    default: ''
+  },
 
   // Cargo details
   cargoDetails: {
@@ -169,6 +173,10 @@ const bookingSchema = new mongoose.Schema({
   // Multiple vehicles
   vehicles: [{
     vehicleType: {
+      type: String,
+      default: ''
+    },
+    trailerType: {
       type: String,
       default: ''
     },

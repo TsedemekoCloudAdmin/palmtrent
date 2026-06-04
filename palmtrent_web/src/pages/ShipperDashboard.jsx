@@ -3,7 +3,7 @@ import {
   Package, MapPin, TrendingUp, TrendingDown, Clock, DollarSign, Plus,
   Filter, Search, Download, FileText, Star, Truck, Menu,
   Bell, User, Home, BarChart3, Heart, MessageCircle,
-  HelpCircle, LogOut, CheckCircle, AlertCircle, Users,
+  HelpCircle, LogOut, CheckCircle, AlertCircle, Users, Shield,
   ChevronDown, Settings, X, Calendar, ArrowRight, Phone,
   Navigation, Eye, RefreshCw, ChevronLeft, ChevronRight,
   CreditCard, Loader, Check, Upload, Image
@@ -15,6 +15,7 @@ import {
   paymentsAPI,
   publicAPI,
   ratingsAPI,
+  referenceAPI,
   shipperAPI,
   shipmentsAPI,
   subscriptionCheckoutAPI,
@@ -28,6 +29,8 @@ const loadSocketService = () => import('../services/socket').then(module => modu
 
 const getBookingId = (booking) => booking.bookingReference || booking.bookingId || booking._id;
 const getRecordId = (record) => record?._id || record?.recordId || record?.id;
+const getRecordLabel = (record) => record?.name || record?.label || record?.displayName || '';
+const getRecordIds = (records = []) => records.map(item => String(getRecordId(item) || item)).filter(Boolean);
 const getShipmentId = (booking) => {
   const shipment = booking?.shipments?.[0] || booking?.shipment;
   return shipment?._id || shipment?.id || shipment;
@@ -633,20 +636,129 @@ const NewBookingTab = ({ setActiveNav }) => {
     pickupAddress: '', pickupCity: '', pickupPhone: '',
     deliveryAddress: '', deliveryCity: '', deliveryPhone: '',
     cargoType: '', cargoWeight: '', cargoDescription: '',
-    vehicleType: '', pickupDate: '', pickupTime: '',
-    insurance: false, insuranceValue: '',
+    vehicleType: '', trailerType: '', pickupDate: '', pickupTime: '',
+    insurance: false, insuranceValue: '', coverageType: 'standard',
     paymentMethod: 'openapi_africa'
   });
   const [quote, setQuote] = useState(null);
   const [bookingMessage, setBookingMessage] = useState('');
+  const [referenceData, setReferenceData] = useState({ cargoTypes: [], vehicleTypes: [], trailerTypes: [] });
+  const [insuranceQuotes, setInsuranceQuotes] = useState([]);
+  const [selectedInsuranceQuote, setSelectedInsuranceQuote] = useState(null);
+  const [insuranceLoading, setInsuranceLoading] = useState(false);
 
-  const cargoTypes = ['General Goods', 'Furniture', 'Electronics', 'Agricultural', 'Building Materials', 'Machinery', 'Other'];
-  const vehicleTypes = ['Small Truck (1-2 tons)', 'Medium Truck (3-5 tons)', 'Large Truck (6-10 tons)', 'Flatbed Trailer', 'Container Truck'];
+  const defaultCargoTypes = ['General Goods', 'Furniture', 'Electronics', 'Agricultural', 'Building Materials', 'Machinery', 'Other'];
+  const defaultVehicleTypes = ['Small Truck (1-2 tons)', 'Medium Truck (3-5 tons)', 'Large Truck (6-10 tons)', 'Flatbed Trailer', 'Container Truck'];
+  const cargoTypes = referenceData.cargoTypes.length ? referenceData.cargoTypes.map(item => item.name || item.label) : defaultCargoTypes;
+  const selectedCargoType = referenceData.cargoTypes.find(item => (item.name || item.label) === bookingData.cargoType);
+  const selectedCargoId = String(getRecordId(selectedCargoType) || '');
+  const recommendedVehicleIds = getRecordIds(selectedCargoType?.recommendedVehicleTypes);
+  const recommendedTrailerIds = getRecordIds(selectedCargoType?.recommendedTrailerTypes);
+  const fallbackVehicleCategories = {
+    bulk: ['truck', 'tractor'],
+    liquid: ['truck'],
+    refrigerated: ['truck'],
+    hazardous: ['truck'],
+    live: ['truck']
+  }[selectedCargoType?.category] || [];
+  const recommendedVehicles = recommendedVehicleIds.length
+    ? selectedCargoType.recommendedVehicleTypes
+    : referenceData.vehicleTypes.filter(item => !fallbackVehicleCategories.length || fallbackVehicleCategories.includes(item.category));
+  const recommendedTrailers = recommendedTrailerIds.length
+    ? selectedCargoType.recommendedTrailerTypes
+    : referenceData.trailerTypes.filter((trailer) => {
+      const suitableCargoIds = getRecordIds(trailer.suitableForCargoTypes);
+      return selectedCargoId && suitableCargoIds.includes(selectedCargoId);
+    });
+  const vehicleTypes = bookingData.cargoType && recommendedVehicles.length
+    ? recommendedVehicles.map(getRecordLabel)
+    : (referenceData.vehicleTypes.length ? referenceData.vehicleTypes.map(getRecordLabel) : defaultVehicleTypes);
   const cities = ['Harare', 'Bulawayo', 'Mutare', 'Gweru', 'Masvingo', 'Chinhoyi', 'Victoria Falls', 'Beitbridge'];
 
-  const handleInputChange = (field, value) => {
-    setBookingData(prev => ({ ...prev, [field]: value }));
+  const normalizeInsuranceCargoType = (cargoType) => {
+    const match = referenceData.cargoTypes.find(item => (item.name || item.label) === cargoType);
+    if (match?.insuranceCategory) {
+      const mappedCategory = {
+        agriculture: 'agricultural',
+        dangerous_goods: 'hazmat',
+        hazardous: 'hazmat',
+        livestock: 'livestock',
+        general: 'general'
+      }[match.insuranceCategory];
+      if (mappedCategory) return mappedCategory;
+    }
+    const value = String(cargoType || '').toLowerCase();
+    if (value.includes('electronic')) return 'electronics';
+    if (value.includes('agric')) return 'agricultural';
+    if (value.includes('machinery')) return 'machinery';
+    if (value.includes('furniture')) return 'fragile';
+    if (value.includes('livestock')) return 'livestock';
+    if (value.includes('hazard')) return 'hazmat';
+    return 'general';
   };
+
+  useEffect(() => {
+    const loadReferenceData = async () => {
+      try {
+        const response = await referenceAPI.getAll();
+        const data = response.data || {};
+        setReferenceData({
+          cargoTypes: data.cargoTypes || [],
+          vehicleTypes: data.vehicleTypes || [],
+          trailerTypes: data.trailerTypes || []
+        });
+      } catch {
+        setReferenceData({ cargoTypes: [], vehicleTypes: [], trailerTypes: [] });
+      }
+    };
+
+    loadReferenceData();
+  }, []);
+
+  const handleInputChange = (field, value) => {
+    setBookingData(prev => ({
+      ...prev,
+      [field]: value,
+      ...(field === 'cargoType' ? { vehicleType: '', trailerType: '' } : {})
+    }));
+    if (['insurance', 'insuranceValue', 'coverageType', 'cargoType'].includes(field)) {
+      setInsuranceQuotes([]);
+      setSelectedInsuranceQuote(null);
+    }
+  };
+
+  const loadInsuranceQuotes = async () => {
+    if (!bookingData.insurance) return;
+    const cargoValue = Number(bookingData.insuranceValue || 0);
+    if (!cargoValue || cargoValue <= 0 || !bookingData.cargoType) {
+      setBookingMessage('Enter cargo type and cargo value before getting insurance quotes.');
+      return;
+    }
+
+    setInsuranceLoading(true);
+    setBookingMessage('');
+    try {
+      const response = await referenceAPI.getInsuranceQuotes({
+        cargoValue,
+        cargoType: normalizeInsuranceCargoType(bookingData.cargoType),
+        coverageType: bookingData.coverageType
+      });
+      const quotes = response.data || [];
+      setInsuranceQuotes(quotes);
+      setSelectedInsuranceQuote(quotes[0] || null);
+      if (!quotes.length) setBookingMessage('No active insurance provider has a matching product for this cargo yet.');
+    } catch (error) {
+      setBookingMessage(error.message || 'Could not load insurance quotes.');
+    } finally {
+      setInsuranceLoading(false);
+    }
+  };
+
+  const buildInsuranceSelection = () => (
+    bookingData.insurance && selectedInsuranceQuote
+      ? { ...selectedInsuranceQuote, required: true, selected: true }
+      : { required: false }
+  );
 
   const calculateQuote = async () => {
     setLoading(true);
@@ -657,7 +769,8 @@ const NewBookingTab = ({ setActiveNav }) => {
         delivery: { city: bookingData.deliveryCity, address: bookingData.deliveryAddress },
         cargo: { type: bookingData.cargoType, weight: parseFloat(bookingData.cargoWeight) || 1 },
         vehicleType: bookingData.vehicleType,
-        insurance: bookingData.insurance,
+        vehicleRecommendation: { vehicleType: bookingData.vehicleType, trailerType: bookingData.trailerType },
+        insurance: buildInsuranceSelection(),
         insuranceValue: bookingData.insurance ? parseFloat(bookingData.insuranceValue) : 0
       };
 
@@ -665,12 +778,24 @@ const NewBookingTab = ({ setActiveNav }) => {
 
       if (response.success && response.data) {
         const pricing = response.data;
+        const selectedPremium = bookingData.insurance && selectedInsuranceQuote ? Number(selectedInsuranceQuote.premium || 0) : 0;
+        const currentInsurance = Number(pricing.breakdown?.insurance || pricing.insurance || 0);
+        const currentTotal = Number(pricing.totals?.total || pricing.total || 0);
+        const adjustedTotal = currentTotal - currentInsurance + selectedPremium;
         setQuote({
           ...pricing,
+          breakdown: {
+            ...(pricing.breakdown || {}),
+            insurance: selectedPremium
+          },
+          totals: {
+            ...(pricing.totals || {}),
+            total: adjustedTotal
+          },
           subtotal: pricing.totals?.subtotal || pricing.subtotal || 0,
-          insurance: pricing.breakdown?.insurance || pricing.insurance || 0,
+          insurance: selectedPremium,
           platformFee: pricing.breakdown?.platformFee || pricing.platformFee || 0,
-          total: pricing.totals?.total || pricing.total || 0,
+          total: adjustedTotal,
           estimatedDistance: pricing.route?.distance || pricing.estimatedDistance || 0,
           estimatedTime: pricing.route?.estimatedDuration || pricing.estimatedTime || 'TBD'
         });
@@ -702,8 +827,14 @@ const NewBookingTab = ({ setActiveNav }) => {
         weight: parseFloat(bookingData.cargoWeight),
         cargoValue: bookingData.insurance ? parseFloat(bookingData.insuranceValue || 0) : 0,
         specialInstructions: bookingData.cargoDescription,
-        vehicleRecommendation: { vehicleType: bookingData.vehicleType },
-        insurance: bookingData.insurance,
+        vehicleRecommendation: { vehicleType: bookingData.vehicleType, trailerType: bookingData.trailerType },
+        vehicles: [{
+          vehicleType: bookingData.vehicleType,
+          trailerType: bookingData.trailerType,
+          weight: parseFloat(bookingData.cargoWeight) || 0,
+          description: bookingData.cargoDescription || bookingData.cargoType
+        }],
+        insurance: buildInsuranceSelection(),
         paymentMethod: bookingData.paymentMethod,
         pricing: quote,
         amount,
@@ -834,16 +965,43 @@ const NewBookingTab = ({ setActiveNav }) => {
             </div>
 
             <div className="form-group">
-              <label>Vehicle Type Required</label>
+              <label>{bookingData.cargoType && recommendedVehicles.length ? 'Recommended Vehicle Type' : 'Vehicle Type Required'}</label>
               <div className="vehicle-options">
                 {vehicleTypes.map(type => (
-                  <button key={type} className={`vehicle-option ${bookingData.vehicleType === type ? 'selected' : ''}`} onClick={() => handleInputChange('vehicleType', type)}>
+                  <button type="button" key={type} className={`vehicle-option ${bookingData.vehicleType === type ? 'selected' : ''}`} onClick={() => handleInputChange('vehicleType', type)}>
                     <Truck className="icon" />
                     <span>{type}</span>
                   </button>
                 ))}
               </div>
+              {bookingData.cargoType && selectedCargoType?.specialRequirements?.length > 0 && (
+                <div className="cargo-requirements">
+                  {selectedCargoType.specialRequirements.map(requirement => <span key={requirement}>{requirement}</span>)}
+                </div>
+              )}
             </div>
+
+            {bookingData.cargoType && recommendedTrailers.length > 0 && (
+              <div className="form-group">
+                <label>Recommended Trailer Type</label>
+                <div className="vehicle-options trailer-recommendations">
+                  {recommendedTrailers.map(trailer => {
+                    const trailerName = getRecordLabel(trailer);
+                    return (
+                      <button
+                        type="button"
+                        key={getRecordId(trailer) || trailerName}
+                        className={`vehicle-option ${bookingData.trailerType === trailerName ? 'selected' : ''}`}
+                        onClick={() => handleInputChange('trailerType', trailerName)}
+                      >
+                        <Package className="icon" />
+                        <span>{trailerName}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             <div className="insurance-section">
               <label className="checkbox-label">
@@ -851,10 +1009,40 @@ const NewBookingTab = ({ setActiveNav }) => {
                 <span>Add cargo insurance</span>
               </label>
               {bookingData.insurance && (
-                <div className="form-group">
-                  <label>Cargo Value (USD)</label>
-                  <input type="number" placeholder="Enter cargo value" value={bookingData.insuranceValue} onChange={(e) => handleInputChange('insuranceValue', e.target.value)} />
-                  <small>Insurance premium: 2% of cargo value</small>
+                <div className="insurance-quote-panel">
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Cargo Value (USD)</label>
+                      <input type="number" placeholder="Enter cargo value" value={bookingData.insuranceValue} onChange={(e) => handleInputChange('insuranceValue', e.target.value)} />
+                    </div>
+                    <div className="form-group">
+                      <label>Coverage Type</label>
+                      <select value={bookingData.coverageType} onChange={(e) => handleInputChange('coverageType', e.target.value)}>
+                        <option value="basic">Basic</option>
+                        <option value="standard">Standard</option>
+                        <option value="comprehensive">Comprehensive</option>
+                        <option value="premium">Premium</option>
+                      </select>
+                    </div>
+                  </div>
+                  <button type="button" className="btn-secondary" onClick={loadInsuranceQuotes} disabled={insuranceLoading}>
+                    {insuranceLoading ? <Loader className="icon spinning" /> : <Shield className="icon" />}
+                    Get Insurance Quotes
+                  </button>
+                  <div className="insurance-quotes">
+                    {insuranceQuotes.map((insuranceQuote) => (
+                      <button
+                        type="button"
+                        key={`${insuranceQuote.providerCode}-${insuranceQuote.productCode}`}
+                        className={`insurance-quote-card ${selectedInsuranceQuote?.providerCode === insuranceQuote.providerCode && selectedInsuranceQuote?.productCode === insuranceQuote.productCode ? 'selected' : ''}`}
+                        onClick={() => setSelectedInsuranceQuote(insuranceQuote)}
+                      >
+                        <span>{insuranceQuote.providerName}</span>
+                        <strong>${insuranceQuote.premium}</strong>
+                        <small>{insuranceQuote.productName} • Covers ${insuranceQuote.coverageAmount}</small>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -894,12 +1082,13 @@ const NewBookingTab = ({ setActiveNav }) => {
               <div className="summary-item"><span>Route:</span><span>{bookingData.pickupCity} → {bookingData.deliveryCity}</span></div>
               <div className="summary-item"><span>Cargo:</span><span>{bookingData.cargoType} ({bookingData.cargoWeight} tons)</span></div>
               <div className="summary-item"><span>Vehicle:</span><span>{bookingData.vehicleType}</span></div>
+              {bookingData.trailerType && <div className="summary-item"><span>Trailer:</span><span>{bookingData.trailerType}</span></div>}
               <div className="summary-item"><span>Date:</span><span>{bookingData.pickupDate || 'Not selected'}</span></div>
             </div>
           </div>
           <div className="step-actions">
             <button className="btn-secondary" onClick={() => setStep(2)}><ChevronLeft className="icon" /> Back</button>
-            <button className="btn-primary" onClick={calculateQuote} disabled={!bookingData.pickupDate || loading}>
+            <button className="btn-primary" onClick={calculateQuote} disabled={!bookingData.pickupDate || loading || (bookingData.insurance && !selectedInsuranceQuote)}>
               {loading ? <Loader className="icon spinning" /> : <>Get Quote <ArrowRight className="icon" /></>}
             </button>
           </div>
@@ -916,6 +1105,9 @@ const NewBookingTab = ({ setActiveNav }) => {
               <div className="quote-details">
                 <div className="quote-row"><span>Base Fare</span><span>${quote.subtotal}</span></div>
                 {bookingData.insurance && <div className="quote-row"><span>Insurance</span><span>${quote.insurance}</span></div>}
+                {bookingData.insurance && selectedInsuranceQuote && (
+                  <div className="quote-row"><span>Provider</span><span>{selectedInsuranceQuote.providerName}</span></div>
+                )}
                 <div className="quote-row"><span>Platform Fee (15%)</span><span>${quote.platformFee}</span></div>
                 <div className="quote-row total"><span>Total</span><span>${quote.total}</span></div>
               </div>
@@ -964,8 +1156,8 @@ const NewBookingTab = ({ setActiveNav }) => {
                 pickupAddress: '', pickupCity: '', pickupPhone: '',
                 deliveryAddress: '', deliveryCity: '', deliveryPhone: '',
                 cargoType: '', cargoWeight: '', cargoDescription: '',
-                vehicleType: '', pickupDate: '', pickupTime: '',
-                insurance: false, insuranceValue: '', paymentMethod: 'openapi_africa'
+                vehicleType: '', trailerType: '', pickupDate: '', pickupTime: '',
+                insurance: false, insuranceValue: '', coverageType: 'standard', paymentMethod: 'openapi_africa'
               }); }}>Create Another Booking</button>
             </div>
           </div>

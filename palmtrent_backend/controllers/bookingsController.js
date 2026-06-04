@@ -170,6 +170,21 @@ function transformFrontendToBackend(frontendData, user) {
     routeInfo, vehicleRecommendation, isCrossBorder, 
     paymentMethod, pricing, insurance, bookingType, vehicles = []
   } = frontendData;
+  const insuranceSelection = typeof insurance === 'object' && insurance !== null
+    ? insurance
+    : { required: !!insurance };
+  const insurancePremium = Number(
+    insuranceSelection.premium ??
+    pricing?.breakdown?.insurance ??
+    pricing?.insurance ??
+    0
+  );
+  const insuranceCoverage = Number(
+    insuranceSelection.coverage ??
+    insuranceSelection.coverageAmount ??
+    cargoValue ??
+    0
+  );
 
   // Generate booking reference
   const generateBookingReference = () => {
@@ -214,9 +229,11 @@ function transformFrontendToBackend(frontendData, user) {
     
     // Insurance structure
     insurance: {
-      required: !!insurance,
-      premium: pricing?.breakdown?.insurance || 0,
-      coverage: parseFloat(cargoValue) || 0
+      required: Boolean(insuranceSelection.required || insuranceSelection.selected || insurancePremium > 0),
+      provider: insuranceSelection.providerName || insuranceSelection.provider || insuranceSelection.providerCode || '',
+      premium: insurancePremium,
+      coverage: insuranceCoverage,
+      policyNumber: insuranceSelection.productCode || ''
     },
     
     // Cross-border structure
@@ -285,8 +302,10 @@ function transformFrontendToBackend(frontendData, user) {
     
     // Vehicle data
     vehicleType: vehicleRecommendation?.vehicleType || vehicles?.[0]?.vehicleType || '',
+    trailerType: vehicleRecommendation?.trailerType || vehicles?.[0]?.trailerType || '',
     vehicles: Array.isArray(vehicles) ? vehicles.map(vehicle => ({
       vehicleType: vehicle.vehicleType || vehicle.type || '',
+      trailerType: vehicle.trailerType || '',
       weight: Number(vehicle.weight || weight || 0),
       description: vehicle.description || cargoType || '',
       vehicle: vehicle.vehicle
@@ -908,6 +927,7 @@ async function normalizePricingRequest(payload) {
       ? payload.vehicles
       : [{
           vehicleType: payload.vehicleType || payload.vehicleRecommendation?.vehicleType || '',
+          trailerType: payload.trailerType || payload.vehicleRecommendation?.trailerType || '',
           weight: Number(payload.cargo?.weight || payload.weight || 0)
         }],
     insurance: typeof payload.insurance === 'boolean'

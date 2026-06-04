@@ -563,8 +563,13 @@ exports.getAllReferenceData = async (req, res) => {
     ] = await Promise.all([
       VehicleMake.find({}).select('name country isPopular logo').sort({ isPopular: -1, name: 1 }),
       VehicleType.find({ isActive: true }).sort({ displayOrder: 1, name: 1 }),
-      CargoType.find({}).sort({ category: 1, name: 1 }),
-      TrailerType.find({}).sort({ category: 1, name: 1 }),
+      CargoType.find({})
+        .populate('recommendedVehicleTypes', 'name category capacity trailerConfiguration')
+        .populate('recommendedTrailerTypes', 'name category description')
+        .sort({ category: 1, name: 1 }),
+      TrailerType.find({})
+        .populate('suitableForCargoTypes', 'name category')
+        .sort({ category: 1, name: 1 }),
       InsuranceOption.find({ isActive: true }).select('name category baseRate rateType').sort({ category: 1 })
     ]);
 

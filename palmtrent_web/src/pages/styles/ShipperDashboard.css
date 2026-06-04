@@ -1863,3 +1863,72 @@
     font-size: 1.5rem;
   }
 }
+.insurance-quote-panel {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 0.85rem;
+  padding: 1rem;
+  border: 1px solid rgba(12, 45, 72, 0.12);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.insurance-quote-panel .form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr));
+  gap: 0.85rem;
+}
+
+.insurance-quotes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr));
+  gap: 0.75rem;
+}
+
+.insurance-quote-card {
+  display: grid;
+  gap: 0.25rem;
+  min-height: 108px;
+  padding: 0.9rem;
+  text-align: left;
+  border: 1px solid #d7dee8;
+  border-radius: 8px;
+  background: #fff;
+  color: #0c2d48;
+  cursor: pointer;
+}
+
+.insurance-quote-card strong {
+  color: #f37021;
+  font-size: 1.15rem;
+}
+
+.insurance-quote-card small {
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.insurance-quote-card.selected {
+  border-color: #f37021;
+  box-shadow: 0 0 0 3px rgba(243, 112, 33, 0.14);
+}
+
+.cargo-requirements {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.75rem;
+}
+
+.cargo-requirements span {
+  padding: 0.35rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(12, 45, 72, 0.08);
+  color: #0c2d48;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.trailer-recommendations .vehicle-option {
+  border-style: dashed;
+}
