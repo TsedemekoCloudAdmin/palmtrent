@@ -307,6 +307,38 @@ const ProfileScreen = ({ navigation }) => {
     }
   };
 
+  const payCurrentSubscription = () => {
+    if (!subscription) {
+      setShowSubscriptionModal(true);
+      return;
+    }
+
+    const amount = Number(subscription?.amount || subscription?.plan?.price || 0);
+    const paymentStatus = subscription?.payment?.status;
+
+    if (amount <= 0 || paymentStatus === 'paid' || paymentStatus === 'not_required') {
+      Alert.alert('Subscription', 'This subscription does not require payment or is already paid.');
+      return;
+    }
+
+    const reusableReference = ['pending', 'initiated', 'processing'].includes(paymentStatus)
+      ? subscription?.payment?.reference
+      : undefined;
+
+    navigation.navigate('MobileMoneyPayment', {
+      paymentContext: 'subscription',
+      subscriptionId: subscription?._id || subscription?.id,
+      subscriptionName: subscription?.plan?.name || 'Subscription',
+      amount,
+      paymentMethod: subscription?.payment?.method || 'ecocash',
+      paymentReference: reusableReference
+    });
+  };
+
+  const canPayCurrentSubscription = subscription &&
+    Number(subscription.amount || subscription.plan?.price || 0) > 0 &&
+    !['paid', 'not_required'].includes(subscription.payment?.status);
+
   const formatPlanPrice = (plan) => {
     const price = Number(plan?.price || 0);
     const currency = plan?.currency || 'USD';
@@ -650,6 +682,18 @@ const ProfileScreen = ({ navigation }) => {
                   <Text style={styles.subscriptionMeta}>
                     Next billing: {new Date(subscription.nextBillingAt).toLocaleDateString()}
                   </Text>
+                )}
+                {canPayCurrentSubscription && (
+                  <TouchableOpacity
+                    style={styles.subscriptionPayButton}
+                    onPress={payCurrentSubscription}
+                    disabled={subscriptionLoading}
+                  >
+                    <MaterialIcons name="payment" size={18} color="white" />
+                    <Text style={styles.subscriptionPayButtonText}>
+                      {subscriptionLoading ? 'Opening...' : 'Pay Subscription'}
+                    </Text>
+                  </TouchableOpacity>
                 )}
               </View>
             </View>
@@ -1236,6 +1280,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#6b7280',
     lineHeight: 18,
+  },
+  subscriptionPayButton: {
+    marginTop: 12,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#F37021',
+    borderRadius: 9,
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+  },
+  subscriptionPayButtonText: {
+    color: 'white',
+    fontSize: 13,
+    fontWeight: '800',
   },
   statsGrid: {
     flexDirection: 'row',

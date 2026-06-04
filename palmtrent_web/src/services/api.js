@@ -276,6 +276,43 @@ export const paymentsAPI = {
   verify: (reference) => apiFetch(`/payments/status/${reference}`),
 };
 
+export const subscriptionCheckoutAPI = {
+  start: async (subscription, customer = {}) => {
+    const subscriptionId = subscription?._id || subscription?.id;
+    const amount = Number(subscription?.amount || subscription?.plan?.price || 0);
+    const paymentStatus = subscription?.payment?.status;
+
+    if (!subscriptionId || amount <= 0 || paymentStatus === 'paid' || paymentStatus === 'not_required') {
+      return false;
+    }
+
+    const currentUser = authAPI.getCurrentUser() || {};
+    const payer = {
+      email: customer.email || currentUser.email || '',
+      phone: customer.phone || currentUser.phone || ''
+    };
+    const paymentResponse = await publicAPI.createSubscriptionPayment(subscriptionId, 'clicknpay', payer);
+    const payment = paymentResponse.data || {};
+
+    if (!payment.paymentRequired) {
+      return false;
+    }
+
+    const checkout = await paymentsAPI.startCheckout(payment.paymentReference, payer);
+    const redirectUrl = checkout.data?.redirectUrl;
+
+    if (!redirectUrl) {
+      throw new Error('Payment was created, but no checkout link was returned.');
+    }
+
+    sessionStorage.setItem('palmtrent_pending_payment_reference', payment.paymentReference);
+    sessionStorage.setItem('palmtrent_pending_payment_context', 'subscription');
+    sessionStorage.setItem('palmtrent_pending_subscription_name', subscription?.plan?.name || 'Subscription');
+    window.location.href = redirectUrl;
+    return true;
+  },
+};
+
 // Ratings API
 export const ratingsAPI = {
   create: (ratingData) => apiFetch('/ratings', {

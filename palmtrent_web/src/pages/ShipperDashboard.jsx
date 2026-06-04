@@ -13,9 +13,11 @@ import {
   trackingAPI,
   authAPI,
   paymentsAPI,
+  publicAPI,
   ratingsAPI,
   shipperAPI,
   shipmentsAPI,
+  subscriptionCheckoutAPI,
   resolveApiUrl,
   downloadAuthorizedBlob
 } from '../services/api';
@@ -478,8 +480,24 @@ const OverviewTab = ({ setActiveNav }) => {
 
 const AccountTab = ({ currentUser }) => {
   const [form, setForm] = useState(hydrateAccountForm(currentUser));
+  const [subscription, setSubscription] = useState(null);
   const [status, setStatus] = useState('');
   const [saving, setSaving] = useState(false);
+  const [payingSubscription, setPayingSubscription] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    publicAPI.getMySubscription()
+      .then(response => {
+        if (mounted) setSubscription(response.data || null);
+      })
+      .catch(() => {
+        if (mounted) setSubscription(null);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const update = (field, value) => setForm((current) => ({ ...current, [field]: value }));
   const updateAddress = (field, value) => setForm((current) => ({
@@ -523,6 +541,28 @@ const AccountTab = ({ currentUser }) => {
     }
   };
 
+  const paySubscription = async () => {
+    if (!subscription) return;
+    setPayingSubscription(true);
+    setStatus('');
+    try {
+      const redirected = await subscriptionCheckoutAPI.start(subscription, {
+        email: form.email,
+        phone: form.phone
+      });
+      if (!redirected) setStatus('Subscription does not require payment or is already paid.');
+    } catch (error) {
+      setStatus(error.message || 'Could not start subscription payment.');
+    } finally {
+      setPayingSubscription(false);
+    }
+  };
+
+  const subscriptionPaymentStatus = subscription?.payment?.status || '';
+  const canPaySubscription = subscription &&
+    Number(subscription.amount || subscription.plan?.price || 0) > 0 &&
+    !['paid', 'not_required'].includes(subscriptionPaymentStatus);
+
   return (
     <div className="shipper-account-grid">
       <section className="shipper-account-card">
@@ -565,6 +605,17 @@ const AccountTab = ({ currentUser }) => {
       <section className="shipper-account-card">
         <h2>Session</h2>
         <p>Signed in as {currentUser.email || currentUser.phone || currentUser.fullName || 'Palmtrent user'}.</p>
+        {subscription && (
+          <div className="shipper-subscription-summary">
+            <strong>{subscription.plan?.name || 'Current Subscription'}</strong>
+            <span>Payment {subscriptionPaymentStatus || 'pending'}</span>
+            {canPaySubscription && (
+              <button type="button" className="shipper-account-primary" onClick={paySubscription} disabled={payingSubscription}>
+                {payingSubscription ? 'Opening Payment...' : 'Pay Subscription'}
+              </button>
+            )}
+          </div>
+        )}
         <button type="button" className="shipper-account-secondary" onClick={authAPI.logout}>
           <LogOut className="icon" />
           Sign Out

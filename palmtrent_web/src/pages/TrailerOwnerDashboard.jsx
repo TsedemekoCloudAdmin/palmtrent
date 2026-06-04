@@ -3,7 +3,7 @@ import {
   CheckCircle, Clock, DollarSign, Package, Plus, RefreshCw,
   Settings, Truck, Wrench, X, User, LogOut, CreditCard, Trash2
 } from 'lucide-react';
-import { authAPI, driversAPI, fleetAPI, publicAPI } from '../services/api';
+import { authAPI, driversAPI, fleetAPI, publicAPI, subscriptionCheckoutAPI } from '../services/api';
 import logo from '../assets/logo3.png';
 import './styles/TrailerOwnerDashboard.css';
 
@@ -94,6 +94,7 @@ const TrailerOwnerDashboard = () => {
   const [assetFilter, setAssetFilter] = useState('all');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [payingSubscription, setPayingSubscription] = useState(false);
   const [showAddFleetDialog, setShowAddFleetDialog] = useState(false);
   const [showDriverDialog, setShowDriverDialog] = useState(false);
   const [editingDriverId, setEditingDriverId] = useState('');
@@ -295,6 +296,23 @@ const TrailerOwnerDashboard = () => {
       setMessage(error.message || 'Could not update profile');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const paySubscription = async () => {
+    if (!subscription) return;
+    try {
+      setPayingSubscription(true);
+      setMessage('');
+      const redirected = await subscriptionCheckoutAPI.start(subscription, {
+        email: profileForm.email,
+        phone: profileForm.phone
+      });
+      if (!redirected) setMessage('Subscription does not require payment or is already paid.');
+    } catch (error) {
+      setMessage(error.message || 'Could not start subscription payment');
+    } finally {
+      setPayingSubscription(false);
     }
   };
 
@@ -760,6 +778,11 @@ const TrailerOwnerDashboard = () => {
                     <div><dt>Renews</dt><dd>{formatDate(subscription.nextBillingAt || subscription.currentPeriodEnd)}</dd></div>
                     <div><dt>Fleet assets</dt><dd>{subscription.usage?.fleetAssets || 0} used</dd></div>
                   </dl>
+                  {Number(subscription.amount || subscription.plan?.price || 0) > 0 && !['paid', 'not_required'].includes(subscription.payment?.status) && (
+                    <button className="fleet-primary" onClick={paySubscription} disabled={payingSubscription}>
+                      {payingSubscription ? 'Opening Payment...' : 'Pay Subscription'}
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="empty-state">No active subscription found. Select a plan from the public pricing section.</div>

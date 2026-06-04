@@ -6,7 +6,7 @@ import {
   Eye, RefreshCw, ChevronLeft, ChevronRight, CreditCard, AlertCircle, X,
   Check, PieChart, Activity, Layers, UserPlus, Shield, Phone, Mail, Loader
 } from 'lucide-react';
-import { authAPI, corporateAPI, bookingsAPI, trackingAPI, notificationsAPI } from '../services/api';
+import { authAPI, corporateAPI, bookingsAPI, trackingAPI, notificationsAPI, publicAPI, subscriptionCheckoutAPI } from '../services/api';
 import logo from '../assets/logo3.png';
 import './styles/CorporateDashboard.css';
 
@@ -1067,8 +1067,10 @@ const AnalyticsTab = () => {
 
 // ============ Billing Tab ============
 const BillingTab = () => {
+  const currentUser = authAPI.getCurrentUser() || {};
   const [loading, setLoading] = useState(true);
   const [invoices, setInvoices] = useState([]);
+  const [subscription, setSubscription] = useState(null);
   const [currentBilling, setCurrentBilling] = useState({
     currentCharges: 0,
     pendingPayments: 0,
@@ -1076,6 +1078,7 @@ const BillingTab = () => {
     nextBillingDate: ''
   });
   const [billingMessage, setBillingMessage] = useState('');
+  const [payingSubscription, setPayingSubscription] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [paymentMethodForm, setPaymentMethodForm] = useState('monthly_invoice');
 
@@ -1084,13 +1087,17 @@ const BillingTab = () => {
       try {
         setLoading(true);
 
-        const response = await corporateAPI.getInvoices();
+        const [response, subscriptionResponse] = await Promise.all([
+          corporateAPI.getInvoices(),
+          publicAPI.getMySubscription()
+        ]);
         if (response.success && response.data) {
           setInvoices(response.data.invoices || []);
           if (response.data.billing) {
             setCurrentBilling(response.data.billing);
           }
         }
+        setSubscription(subscriptionResponse.data || null);
       } catch (error) {
         console.error('Error fetching billing data:', error);
         setInvoices([]);
@@ -1103,12 +1110,38 @@ const BillingTab = () => {
   }, []);
 
   const refreshBilling = async () => {
-    const response = await corporateAPI.getInvoices();
+    const [response, subscriptionResponse] = await Promise.all([
+      corporateAPI.getInvoices(),
+      publicAPI.getMySubscription()
+    ]);
     if (response.success && response.data) {
       setInvoices(response.data.invoices || []);
       if (response.data.billing) setCurrentBilling(response.data.billing);
     }
+    setSubscription(subscriptionResponse.data || null);
   };
+
+  const paySubscription = async () => {
+    if (!subscription) return;
+    try {
+      setPayingSubscription(true);
+      setBillingMessage('');
+      const redirected = await subscriptionCheckoutAPI.start(subscription, {
+        email: currentUser.email,
+        phone: currentUser.phone
+      });
+      if (!redirected) setBillingMessage('Subscription does not require payment or is already paid.');
+    } catch (error) {
+      setBillingMessage(error.message || 'Could not start subscription payment.');
+    } finally {
+      setPayingSubscription(false);
+    }
+  };
+
+  const subscriptionPaymentStatus = subscription?.payment?.status || '';
+  const canPaySubscription = subscription &&
+    Number(subscription.amount || subscription.plan?.price || 0) > 0 &&
+    !['paid', 'not_required'].includes(subscriptionPaymentStatus);
 
   const updatePaymentMethod = async () => {
     try {
@@ -1180,6 +1213,17 @@ const BillingTab = () => {
       )}
       {/* Billing Summary */}
       <div className="billing-summary">
+        {subscription && (
+          <div className="billing-card">
+            <span className="billing-label">{subscription.plan?.name || 'Subscription'}</span>
+            <span className="billing-value">{subscriptionPaymentStatus || 'pending'}</span>
+            {canPaySubscription && (
+              <button className="btn-primary billing-card-action" onClick={paySubscription} disabled={payingSubscription}>
+                {payingSubscription ? 'Opening...' : 'Pay Subscription'}
+              </button>
+            )}
+          </div>
+        )}
         <div className="billing-card">
           <span className="billing-label">Current Month Charges</span>
           <span className="billing-value">${currentBilling.currentCharges.toLocaleString()}</span>

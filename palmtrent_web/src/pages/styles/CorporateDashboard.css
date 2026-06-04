@@ -1471,6 +1471,12 @@
   color: #059669;
 }
 
+.billing-card-action {
+  margin-top: 0.85rem;
+  width: 100%;
+  justify-content: center;
+}
+
 /* Payment Method */
 .payment-method-card {
   display: flex;

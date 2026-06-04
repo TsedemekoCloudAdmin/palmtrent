@@ -512,6 +512,22 @@
   line-height: 1.5;
 }
 
+.shipper-subscription-summary {
+  display: grid;
+  gap: 0.65rem;
+  padding: 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+  margin: 1rem 0;
+}
+
+.shipper-subscription-summary span {
+  color: var(--text-light);
+  font-size: 0.9rem;
+  text-transform: capitalize;
+}
+
 .shipper-account-form {
   display: flex;
   flex-direction: column;
