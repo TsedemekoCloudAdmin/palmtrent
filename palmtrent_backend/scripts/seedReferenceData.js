@@ -23,11 +23,15 @@ const InsuranceProvider = require('../models/InsuranceProvider');
 
 const connectDB = async () => {
   try {
+    if (mongoose.connection.readyState === 1) {
+      console.log('MongoDB already connected');
+      return;
+    }
     await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/palmtrent');
     console.log('MongoDB connected');
   } catch (error) {
     console.error('Database connection error:', error);
-    process.exit(1);
+    throw error;
   }
 };
 
@@ -1286,9 +1290,11 @@ const linkVehicleTypesToTrailers = async () => {
 // MAIN SEED FUNCTION
 // ========================================
 
-const seedAll = async () => {
+const seedAll = async ({ connect = true, exit = false } = {}) => {
   try {
-    await connectDB();
+    if (connect) {
+      await connectDB();
+    }
 
     console.log('\n========================================');
     console.log('PALMTRENT REFERENCE DATA SEEDER');
@@ -1307,16 +1313,26 @@ const seedAll = async () => {
     console.log('✓ ALL REFERENCE DATA SEEDED SUCCESSFULLY');
     console.log('========================================\n');
 
-    process.exit(0);
+    const summary = {
+      vehicleTypes: vehicleTypesData.length,
+      vehicleMakes: vehicleMakesData.length,
+      cargoTypes: cargoTypesData.length,
+      trailerTypes: trailerTypesData.length,
+      insuranceOptions: insuranceOptionsData.length
+    };
+
+    if (exit) process.exit(0);
+    return summary;
   } catch (error) {
     console.error('Seeding error:', error);
-    process.exit(1);
+    if (exit) process.exit(1);
+    throw error;
   }
 };
 
 // Run if called directly
 if (require.main === module) {
-  seedAll();
+  seedAll({ connect: true, exit: true });
 }
 
 module.exports = { seedAll };

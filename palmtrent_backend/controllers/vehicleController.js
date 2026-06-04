@@ -2,6 +2,10 @@ const Vehicle = require('../models/Vehicle');
 const Driver = require('../models/Driver');
 const Rental = require('../models/Rental');
 const Shipment = require('../models/Shipment');
+const VehicleMake = require('../models/VehicleMake');
+const VehicleModel = require('../models/VehicleModel');
+const VehicleType = require('../models/VehicleType');
+const TrailerType = require('../models/TrailerType');
 const { recordAudit } = require('../services/auditService');
 const {
   assertDriverAssignable,
@@ -13,6 +17,167 @@ const {
 const { finalizeUploadedFile } = require('../services/uploadFinalizationService');
 
 const RENTAL_SUBSCRIPTION_NOTICE = 'Vehicle saved, but rental marketplace listing is disabled until you activate a paid owner subscription.';
+const OBJECT_ID_PATTERN = /^[0-9a-fA-F]{24}$/;
+const VEHICLE_CATEGORIES = ['bakkie', 'truck', 'tractor', 'van'];
+const VEHICLE_SUBCATEGORIES = [
+  'single_cab', 'double_cab', 'panel_van', 'delivery_van',
+  '3ton', '5ton', '7ton', '10ton', '15ton', '20ton', '30ton',
+  'horse_only', 'with_trailer', 'cargo_van', 'sprinter'
+];
+const TRAILER_CATEGORIES = ['flatbed', 'enclosed', 'specialized', 'tanker', 'refrigerated'];
+
+const isObjectId = (value) => OBJECT_ID_PATTERN.test(String(value || ''));
+
+const escapeRegex = (value = '') => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const normalizeSubcategory = (value = '') => {
+  const normalized = String(value || '')
+    .toLowerCase()
+    .replace(/tonne|tonnes|tons/g, 'ton')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '');
+  const aliases = {
+    single_cab_bakkie: 'single_cab',
+    double_cab_bakkie: 'double_cab',
+    panel_van: 'panel_van',
+    delivery_van: 'delivery_van',
+    cargo_van: 'cargo_van',
+    sprinter_van: 'sprinter',
+    truck_tractor: 'horse_only',
+    tractor_only: 'horse_only',
+    with_trailer: 'with_trailer',
+    '3_ton_truck': '3ton',
+    '5_ton_truck': '5ton',
+    '7_ton_truck': '7ton',
+    '10_ton_truck': '10ton'
+  };
+  return aliases[normalized] || normalized.replace('_ton', 'ton');
+};
+
+const categoryLabel = (category = 'truck') => ({
+  bakkie: 'Bakkie',
+  van: 'Van',
+  truck: 'Truck',
+  tractor: 'Truck Tractor'
+}[category] || 'Truck');
+
+const defaultLicenseClass = (category = 'truck') => ({
+  bakkie: 'code_8',
+  van: 'code_8',
+  truck: 'code_10',
+  tractor: 'ec'
+}[category] || 'code_10');
+
+const defaultVehicleCapacity = (category = 'truck', subcategory = '') => {
+  const maxBySubcategory = {
+    single_cab: 1,
+    double_cab: 1.2,
+    panel_van: 2,
+    delivery_van: 3,
+    cargo_van: 2,
+    sprinter: 2.5,
+    '3ton': 3,
+    '5ton': 5,
+    '7ton': 7,
+    '10ton': 10,
+    '15ton': 15,
+    '20ton': 20,
+    '30ton': 30,
+    horse_only: 34,
+    with_trailer: 34
+  };
+  const max = maxBySubcategory[subcategory] || (category === 'tractor' ? 34 : category === 'bakkie' ? 1 : 5);
+  return { weight: { min: 0, max, unit: 'tonnes' } };
+};
+
+const resolveVehicleReferences = async (vehicleData) => {
+  const requestedCategory = VEHICLE_CATEGORIES.includes(vehicleData.category)
+    ? vehicleData.category
+    : 'truck';
+  const requestedSubcategory = normalizeSubcategory(vehicleData.vehicleTypeCode || vehicleData.subType);
+  const safeSubcategory = VEHICLE_SUBCATEGORIES.includes(requestedSubcategory)
+    ? requestedSubcategory
+    : undefined;
+
+  if (!isObjectId(vehicleData.vehicleType)) {
+    const typeName = vehicleData.vehicleTypeName || vehicleData.subType || categoryLabel(requestedCategory);
+    const typeQuery = [
+      { name: new RegExp(`^${escapeRegex(typeName)}$`, 'i') }
+    ];
+    if (safeSubcategory) {
+      typeQuery.push({ category: requestedCategory, subcategory: safeSubcategory });
+    }
+
+    let vehicleType = await VehicleType.findOne({ $or: typeQuery });
+    if (!vehicleType) {
+      vehicleType = await VehicleType.findOne({ category: requestedCategory, isActive: true }).sort({ displayOrder: 1, name: 1 });
+    }
+    if (!vehicleType) {
+      vehicleType = await VehicleType.create({
+        name: typeName,
+        category: requestedCategory,
+        subcategory: safeSubcategory,
+        description: `${typeName} reference created from vehicle registration`,
+        capacity: defaultVehicleCapacity(requestedCategory, safeSubcategory),
+        trailerConfiguration: {
+          canAttachTrailer: requestedCategory === 'tractor' || requestedCategory === 'bakkie',
+          requiresTrailer: false,
+          hasIntegratedTrailer: false
+        },
+        requirements: { licenseClass: defaultLicenseClass(requestedCategory) },
+        displayOrder: 999,
+        isActive: true
+      });
+    }
+    vehicleData.vehicleType = vehicleType._id;
+  }
+
+  if (!isObjectId(vehicleData.make)) {
+    const makeName = vehicleData.makeName || vehicleData.make || 'Other';
+    const make = await VehicleMake.findOneAndUpdate(
+      { name: new RegExp(`^${escapeRegex(makeName)}$`, 'i') },
+      { $setOnInsert: { name: makeName, country: '', isPopular: false } },
+      { upsert: true, new: true }
+    );
+    vehicleData.make = make._id;
+  }
+
+  if (!isObjectId(vehicleData.model)) {
+    const modelName = vehicleData.modelName || vehicleData.model || 'Unspecified Model';
+    const model = await VehicleModel.findOneAndUpdate(
+      { make: vehicleData.make, name: new RegExp(`^${escapeRegex(modelName)}$`, 'i') },
+      {
+        $setOnInsert: {
+          make: vehicleData.make,
+          name: modelName,
+          compatibleVehicleTypes: [vehicleData.vehicleType]
+        }
+      },
+      { upsert: true, new: true }
+    );
+    vehicleData.model = model._id;
+  }
+
+  if (vehicleData.trailerType && !isObjectId(vehicleData.trailerType)) {
+    const trailerName = vehicleData.trailerTypeName || vehicleData.trailerType;
+    const trailerCategory = TRAILER_CATEGORIES.includes(vehicleData.trailerCategory)
+      ? vehicleData.trailerCategory
+      : 'flatbed';
+    const trailerType = await TrailerType.findOneAndUpdate(
+      { name: new RegExp(`^${escapeRegex(trailerName)}$`, 'i') },
+      {
+        $setOnInsert: {
+          name: trailerName,
+          category: trailerCategory,
+          description: `${trailerName} reference created from vehicle registration`,
+          capacityRange: { min: 0, max: 34, unit: 'tonnes' }
+        }
+      },
+      { upsert: true, new: true }
+    );
+    vehicleData.trailerType = trailerType._id;
+  }
+};
 
 function wantsVehicleRentalListing(payload = {}) {
   return payload.rentalSettings?.availableForRental === true || payload.pricing?.availableForRental === true;
@@ -151,6 +316,7 @@ exports.createVehicle = async (req, res) => {
       ...req.body,
       owner: req.user._id
     };
+    await resolveVehicleReferences(vehicleData);
     syncVehicleRentalFields(vehicleData);
 
     let message = 'Vehicle added successfully';

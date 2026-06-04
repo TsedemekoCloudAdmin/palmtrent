@@ -6,6 +6,143 @@ const TrailerType = require('../models/TrailerType');
 const InsuranceOption = require('../models/InsuranceOption');
 const InsuranceProvider = require('../models/InsuranceProvider');
 
+const DEFAULT_VEHICLE_MAKES = [
+  { code: 'hino', name: 'Hino', country: 'Japan', isPopular: true },
+  { code: 'isuzu', name: 'Isuzu', country: 'Japan', isPopular: true },
+  { code: 'toyota', name: 'Toyota', country: 'Japan', isPopular: true },
+  { code: 'nissan', name: 'Nissan', country: 'Japan', isPopular: true },
+  { code: 'mitsubishi-fuso', name: 'Mitsubishi Fuso', country: 'Japan', isPopular: true },
+  { code: 'mercedes-benz', name: 'Mercedes-Benz', country: 'Germany', isPopular: true },
+  { code: 'man', name: 'MAN', country: 'Germany', isPopular: true },
+  { code: 'scania', name: 'Scania', country: 'Sweden', isPopular: true },
+  { code: 'volvo', name: 'Volvo', country: 'Sweden', isPopular: true },
+  { code: 'sinotruk', name: 'Sinotruk', country: 'China', isPopular: false },
+  { code: 'faw', name: 'FAW', country: 'China', isPopular: false },
+  { code: 'other', name: 'Other', country: '', isPopular: false }
+];
+
+const DEFAULT_VEHICLE_TYPES = [
+  {
+    code: 'single_cab_bakkie',
+    name: 'Single Cab Bakkie',
+    category: 'bakkie',
+    subcategory: 'single_cab',
+    description: 'Light delivery bakkie for small loads',
+    capacity: { weight: { min: 0.5, max: 1, unit: 'tonnes' } },
+    requirements: { licenseClass: 'code_8' },
+    displayOrder: 10,
+    isActive: true
+  },
+  {
+    code: 'double_cab_bakkie',
+    name: 'Double Cab Bakkie',
+    category: 'bakkie',
+    subcategory: 'double_cab',
+    description: 'Passenger and light cargo bakkie',
+    capacity: { weight: { min: 0.5, max: 1.2, unit: 'tonnes' } },
+    requirements: { licenseClass: 'code_8' },
+    displayOrder: 20,
+    isActive: true
+  },
+  {
+    code: 'panel_van',
+    name: 'Panel Van',
+    category: 'van',
+    subcategory: 'panel_van',
+    description: 'Enclosed van for parcels and light freight',
+    capacity: { weight: { min: 0.5, max: 2, unit: 'tonnes' } },
+    requirements: { licenseClass: 'code_8' },
+    displayOrder: 30,
+    isActive: true
+  },
+  {
+    code: '3ton_truck',
+    name: '3 Tonne Truck',
+    category: 'truck',
+    subcategory: '3ton',
+    description: 'Small rigid truck for local deliveries',
+    capacity: { weight: { min: 1, max: 3, unit: 'tonnes' } },
+    requirements: { licenseClass: 'code_10' },
+    displayOrder: 40,
+    isActive: true
+  },
+  {
+    code: '5ton_truck',
+    name: '5 Tonne Truck',
+    category: 'truck',
+    subcategory: '5ton',
+    description: 'Medium rigid truck for commercial freight',
+    capacity: { weight: { min: 3, max: 5, unit: 'tonnes' } },
+    requirements: { licenseClass: 'code_10' },
+    displayOrder: 50,
+    isActive: true
+  },
+  {
+    code: '10ton_truck',
+    name: '10 Tonne Truck',
+    category: 'truck',
+    subcategory: '10ton',
+    description: 'Heavy rigid truck for larger loads',
+    capacity: { weight: { min: 5, max: 10, unit: 'tonnes' } },
+    requirements: { licenseClass: 'code_14' },
+    displayOrder: 60,
+    isActive: true
+  },
+  {
+    code: 'truck_tractor',
+    name: 'Truck Tractor',
+    category: 'tractor',
+    subcategory: 'horse_only',
+    description: 'Truck tractor/horse for trailer work',
+    capacity: { weight: { min: 10, max: 34, unit: 'tonnes' } },
+    trailerConfiguration: { canAttachTrailer: true, requiresTrailer: false },
+    requirements: { licenseClass: 'ec' },
+    displayOrder: 70,
+    isActive: true
+  }
+];
+
+const DEFAULT_TRAILER_TYPES = [
+  {
+    code: 'flatbed',
+    name: 'Flatbed Trailer',
+    category: 'flatbed',
+    description: 'Open flatbed trailer for general cargo and oversized loads',
+    capacityRange: { min: 20, max: 34, unit: 'tonnes' },
+    requirements: { licenseClass: 'EC', minTowingCapacity: 34000 },
+    baseRentalRate: 250
+  },
+  {
+    code: 'tautliner',
+    name: 'Tautliner / Curtain Side',
+    category: 'enclosed',
+    description: 'Enclosed curtain-side trailer for protected freight',
+    capacityRange: { min: 20, max: 30, unit: 'tonnes' },
+    requirements: { licenseClass: 'EC', minTowingCapacity: 30000 },
+    baseRentalRate: 280
+  },
+  {
+    code: 'refrigerated',
+    name: 'Refrigerated Trailer',
+    category: 'refrigerated',
+    description: 'Temperature-controlled trailer for cold-chain cargo',
+    capacityRange: { min: 18, max: 28, unit: 'tonnes' },
+    requirements: { licenseClass: 'EC', minTowingCapacity: 30000 },
+    baseRentalRate: 450
+  },
+  {
+    code: 'tanker',
+    name: 'Tanker Trailer',
+    category: 'tanker',
+    description: 'Tanker trailer for liquid cargo',
+    capacityRange: { min: 20000, max: 36000, unit: 'liters' },
+    requirements: { licenseClass: 'EC', minTowingCapacity: 36000 },
+    baseRentalRate: 500
+  }
+];
+
+const withFallback = (records, fallback) => records.length ? records : fallback;
+
 // @desc    Get all vehicle makes
 // @route   GET /api/v1/reference/vehicle-makes
 // @access  Public
@@ -24,8 +161,8 @@ exports.getVehicleMakes = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      count: makes.length,
-      data: makes
+      count: withFallback(makes, DEFAULT_VEHICLE_MAKES).length,
+      data: withFallback(makes, DEFAULT_VEHICLE_MAKES)
     });
   } catch (error) {
     console.error('Error fetching vehicle makes:', error);
@@ -87,8 +224,8 @@ exports.getVehicleTypes = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      count: types.length,
-      data: types
+      count: withFallback(types, DEFAULT_VEHICLE_TYPES).length,
+      data: withFallback(types, DEFAULT_VEHICLE_TYPES)
     });
   } catch (error) {
     console.error('Error fetching vehicle types:', error);
@@ -109,7 +246,7 @@ exports.getVehicleTypesGrouped = async (req, res) => {
       .sort({ displayOrder: 1, name: 1 });
 
     // Group by category
-    const grouped = types.reduce((acc, type) => {
+    const grouped = withFallback(types, DEFAULT_VEHICLE_TYPES).reduce((acc, type) => {
       const category = type.category;
       if (!acc[category]) {
         acc[category] = [];
@@ -280,8 +417,8 @@ exports.getTrailerTypes = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      count: trailerTypes.length,
-      data: trailerTypes
+      count: withFallback(trailerTypes, DEFAULT_TRAILER_TYPES).length,
+      data: withFallback(trailerTypes, DEFAULT_TRAILER_TYPES)
     });
   } catch (error) {
     console.error('Error fetching trailer types:', error);
@@ -434,10 +571,10 @@ exports.getAllReferenceData = async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        vehicleMakes,
-        vehicleTypes,
+        vehicleMakes: withFallback(vehicleMakes, DEFAULT_VEHICLE_MAKES),
+        vehicleTypes: withFallback(vehicleTypes, DEFAULT_VEHICLE_TYPES),
         cargoTypes,
-        trailerTypes,
+        trailerTypes: withFallback(trailerTypes, DEFAULT_TRAILER_TYPES),
         insuranceCategories
       }
     });

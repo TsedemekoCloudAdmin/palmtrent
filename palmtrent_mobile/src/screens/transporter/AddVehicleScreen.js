@@ -21,6 +21,126 @@ import { useNavigation } from '@react-navigation/native';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import apiService from '../../services/apiService';
 
+const OBJECT_ID_PATTERN = /^[0-9a-fA-F]{24}$/;
+
+const isObjectId = (value) => OBJECT_ID_PATTERN.test(String(value || ''));
+
+const referenceKey = (item, prefix) => item?._id || item?.id || item?.code || `${prefix}-${item?.name || Math.random()}`;
+
+const DEFAULT_VEHICLE_TYPES = [
+  {
+    code: 'single_cab_bakkie',
+    name: 'Single Cab Bakkie',
+    category: 'bakkie',
+    subcategory: 'single_cab',
+    description: 'Light delivery bakkie for small loads',
+    capacity: { weight: { max: 1, unit: 'tonnes' } },
+    isFallback: true
+  },
+  {
+    code: 'double_cab_bakkie',
+    name: 'Double Cab Bakkie',
+    category: 'bakkie',
+    subcategory: 'double_cab',
+    description: 'Passenger and light cargo bakkie',
+    capacity: { weight: { max: 1.2, unit: 'tonnes' } },
+    isFallback: true
+  },
+  {
+    code: 'panel_van',
+    name: 'Panel Van',
+    category: 'van',
+    subcategory: 'panel_van',
+    description: 'Enclosed van for parcels and light freight',
+    capacity: { weight: { max: 2, unit: 'tonnes' } },
+    isFallback: true
+  },
+  {
+    code: '3ton_truck',
+    name: '3 Tonne Truck',
+    category: 'truck',
+    subcategory: '3ton',
+    description: 'Small rigid truck for local deliveries',
+    capacity: { weight: { max: 3, unit: 'tonnes' } },
+    isFallback: true
+  },
+  {
+    code: '5ton_truck',
+    name: '5 Tonne Truck',
+    category: 'truck',
+    subcategory: '5ton',
+    description: 'Medium rigid truck for commercial freight',
+    capacity: { weight: { max: 5, unit: 'tonnes' } },
+    isFallback: true
+  },
+  {
+    code: '10ton_truck',
+    name: '10 Tonne Truck',
+    category: 'truck',
+    subcategory: '10ton',
+    description: 'Heavy rigid truck for larger loads',
+    capacity: { weight: { max: 10, unit: 'tonnes' } },
+    isFallback: true
+  },
+  {
+    code: 'truck_tractor',
+    name: 'Truck Tractor',
+    category: 'tractor',
+    subcategory: 'horse_only',
+    description: 'Truck tractor/horse for trailer work',
+    capacity: { weight: { max: 34, unit: 'tonnes' } },
+    isFallback: true
+  }
+];
+
+const DEFAULT_VEHICLE_MAKES = [
+  { code: 'hino', name: 'Hino', country: 'Japan', isPopular: true, isFallback: true },
+  { code: 'isuzu', name: 'Isuzu', country: 'Japan', isPopular: true, isFallback: true },
+  { code: 'toyota', name: 'Toyota', country: 'Japan', isPopular: true, isFallback: true },
+  { code: 'nissan', name: 'Nissan', country: 'Japan', isPopular: true, isFallback: true },
+  { code: 'mitsubishi-fuso', name: 'Mitsubishi Fuso', country: 'Japan', isPopular: true, isFallback: true },
+  { code: 'mercedes-benz', name: 'Mercedes-Benz', country: 'Germany', isPopular: true, isFallback: true },
+  { code: 'man', name: 'MAN', country: 'Germany', isPopular: true, isFallback: true },
+  { code: 'scania', name: 'Scania', country: 'Sweden', isPopular: true, isFallback: true },
+  { code: 'volvo', name: 'Volvo', country: 'Sweden', isPopular: true, isFallback: true },
+  { code: 'other', name: 'Other', country: '', isPopular: false, isFallback: true }
+];
+
+const DEFAULT_TRAILER_TYPES = [
+  {
+    code: 'flatbed',
+    name: 'Flatbed Trailer',
+    category: 'flatbed',
+    description: 'Open flatbed trailer for general cargo and oversized loads',
+    capacityRange: { min: 20, max: 34, unit: 'tonnes' },
+    isFallback: true
+  },
+  {
+    code: 'tautliner',
+    name: 'Tautliner / Curtain Side',
+    category: 'enclosed',
+    description: 'Curtain-side trailer for protected freight',
+    capacityRange: { min: 20, max: 30, unit: 'tonnes' },
+    isFallback: true
+  },
+  {
+    code: 'refrigerated',
+    name: 'Refrigerated Trailer',
+    category: 'refrigerated',
+    description: 'Temperature-controlled trailer for cold-chain cargo',
+    capacityRange: { min: 18, max: 28, unit: 'tonnes' },
+    isFallback: true
+  },
+  {
+    code: 'tanker',
+    name: 'Tanker Trailer',
+    category: 'tanker',
+    description: 'Tanker trailer for liquid cargo',
+    capacityRange: { min: 20000, max: 36000, unit: 'liters' },
+    isFallback: true
+  }
+];
+
 const AddVehicleScreen = () => {
   const navigation = useNavigation();
   const [step, setStep] = useState(1);
@@ -131,8 +251,10 @@ const AddVehicleScreen = () => {
 
   // Fetch models when make is selected
   useEffect(() => {
-    if (selectedMake) {
+    if (selectedMake && isObjectId(selectedMake._id)) {
       fetchModelsForMake(selectedMake._id);
+    } else if (selectedMake) {
+      setVehicleModels([]);
     }
   }, [selectedMake]);
 
@@ -141,13 +263,31 @@ const AddVehicleScreen = () => {
     try {
       const response = await apiService.request('/reference/all');
       if (response.success) {
-        setVehicleTypes(response.data.vehicleTypes || []);
-        setVehicleMakes(response.data.vehicleMakes || []);
-        setTrailerTypes(response.data.trailerTypes || []);
+        const referenceData = response.data || {};
+        const nextVehicleTypes = Array.isArray(referenceData.vehicleTypes) && referenceData.vehicleTypes.length
+          ? referenceData.vehicleTypes
+          : DEFAULT_VEHICLE_TYPES;
+        const nextVehicleMakes = Array.isArray(referenceData.vehicleMakes) && referenceData.vehicleMakes.length
+          ? referenceData.vehicleMakes
+          : DEFAULT_VEHICLE_MAKES;
+        const nextTrailerTypes = Array.isArray(referenceData.trailerTypes) && referenceData.trailerTypes.length
+          ? referenceData.trailerTypes
+          : DEFAULT_TRAILER_TYPES;
+
+        setVehicleTypes(nextVehicleTypes);
+        setVehicleMakes(nextVehicleMakes);
+        setTrailerTypes(nextTrailerTypes);
+      } else {
+        setVehicleTypes(DEFAULT_VEHICLE_TYPES);
+        setVehicleMakes(DEFAULT_VEHICLE_MAKES);
+        setTrailerTypes(DEFAULT_TRAILER_TYPES);
       }
     } catch (error) {
       console.error('Failed to fetch reference data:', error);
-      Alert.alert('Error', 'Failed to load vehicle data. Please try again.');
+      setVehicleTypes(DEFAULT_VEHICLE_TYPES);
+      setVehicleMakes(DEFAULT_VEHICLE_MAKES);
+      setTrailerTypes(DEFAULT_TRAILER_TYPES);
+      Alert.alert('Vehicle data loaded', 'We could not reach the reference list, so default vehicle options are being used.');
     } finally {
       setDataLoading(false);
     }
@@ -421,8 +561,7 @@ const AddVehicleScreen = () => {
   );
 
   const renderStep2 = () => {
-    const categoryTypes = groupedVehicleTypes[vehicleData.category] ||
-                          groupedVehicleTypes['van'] || [];
+    const categoryTypes = groupedVehicleTypes[vehicleData.category] || [];
 
     return (
       <ScrollView style={styles.stepContainer}>
@@ -465,7 +604,7 @@ const AddVehicleScreen = () => {
             {categoryTypes.length > 0 ? (
               categoryTypes.map((type) => (
                 <TouchableOpacity
-                  key={type._id}
+                  key={referenceKey(type, 'vehicle-type')}
                   style={[
                     styles.optionCard,
                     selectedVehicleType?._id === type._id && styles.optionCardSelected
@@ -473,7 +612,9 @@ const AddVehicleScreen = () => {
                   onPress={() => {
                     setSelectedVehicleType(type);
                     updateField('subType', type.name);
-                    updateField('vehicleType', type._id);
+                    updateField('vehicleType', isObjectId(type._id) ? type._id : '');
+                    updateField('vehicleTypeName', type.name);
+                    updateField('vehicleTypeCode', type.code || type.subcategory || '');
                     // Set capacity from type
                     if (type.capacity?.weight?.max) {
                       updateField('capacity.weight.value', type.capacity.weight.max.toString());
@@ -497,7 +638,7 @@ const AddVehicleScreen = () => {
               ))
             ) : (
               <Text style={styles.noDataText}>
-                No vehicle types available for this category. Please try again later.
+                No vehicle types are available for this category yet. Go back and choose another category, or refresh the app.
               </Text>
             )}
           </View>
@@ -513,11 +654,12 @@ const AddVehicleScreen = () => {
         {trailerTypes.length > 0 ? (
           trailerTypes.map((trailer) => (
             <TouchableOpacity
-              key={trailer._id}
+              key={referenceKey(trailer, 'trailer-type')}
               style={styles.optionCard}
               onPress={() => {
-                updateField('trailerType', trailer._id);
+                updateField('trailerType', isObjectId(trailer._id) ? trailer._id : trailer.name);
                 updateField('trailerTypeName', trailer.name);
+                updateField('trailerCategory', trailer.category || 'flatbed');
                 setStep(4);
               }}
             >
@@ -536,7 +678,7 @@ const AddVehicleScreen = () => {
             </TouchableOpacity>
           ))
         ) : (
-          <Text style={styles.noDataText}>Loading trailer types...</Text>
+          <Text style={styles.noDataText}>No trailer types are available yet. Please refresh or continue with tractor only.</Text>
         )}
       </View>
     </ScrollView>
@@ -589,7 +731,10 @@ const AddVehicleScreen = () => {
             <TextInput
               style={[styles.input, { marginTop: 8 }]}
               value={vehicleData.model}
-              onChangeText={(value) => updateField('model', value)}
+              onChangeText={(value) => {
+                updateField('model', value);
+                updateField('modelName', value);
+              }}
               placeholder="Enter model name manually"
             />
           )}
@@ -871,7 +1016,7 @@ const AddVehicleScreen = () => {
             </View>
             <FlatList
               data={vehicleMakes}
-              keyExtractor={(item) => item._id}
+              keyExtractor={(item) => referenceKey(item, 'make')}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={[
@@ -882,7 +1027,10 @@ const AddVehicleScreen = () => {
                     setSelectedMake(item);
                     setSelectedModel(null);
                     updateField('make', item.name);
-                    updateField('makeId', item._id);
+                    updateField('makeName', item.name);
+                    updateField('makeId', isObjectId(item._id) ? item._id : '');
+                    updateField('model', '');
+                    updateField('modelName', '');
                     setShowMakeModal(false);
                   }}
                 >
@@ -925,7 +1073,7 @@ const AddVehicleScreen = () => {
             {vehicleModels.length > 0 ? (
               <FlatList
                 data={vehicleModels}
-                keyExtractor={(item) => item._id}
+                keyExtractor={(item) => referenceKey(item, 'model')}
                 renderItem={({ item }) => (
                   <TouchableOpacity
                     style={[
@@ -934,8 +1082,9 @@ const AddVehicleScreen = () => {
                     ]}
                     onPress={() => {
                       setSelectedModel(item);
-                      updateField('model', item.name);
-                      updateField('modelId', item._id);
+                      updateField('model', isObjectId(item._id) ? item._id : item.name);
+                      updateField('modelName', item.name);
+                      updateField('modelId', isObjectId(item._id) ? item._id : '');
                       setShowModelModal(false);
                     }}
                   >

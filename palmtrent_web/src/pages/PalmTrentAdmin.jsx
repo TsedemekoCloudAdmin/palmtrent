@@ -561,6 +561,11 @@ const UsersView = ({ setActiveTab, setJobsUserFilter, verificationMode = false, 
     }
   };
 
+  const closeUserModal = () => {
+    setShowUserModal(false);
+    setSelectedUser(null);
+  };
+
   const updateAuthorityCheck = (index, field, value) => {
     setVerificationForm(prev => ({
       ...prev,
@@ -613,6 +618,7 @@ const UsersView = ({ setActiveTab, setJobsUserFilter, verificationMode = false, 
       } : current);
       await loadUsers();
       await onVerificationChanged?.();
+      closeUserModal();
       setUserMessage(status === 'approved'
         ? 'Documents checked and user approved.'
         : 'Verification decision saved.');
@@ -672,8 +678,7 @@ const UsersView = ({ setActiveTab, setJobsUserFilter, verificationMode = false, 
   const updateSelectedUserStatus = async (status) => {
     try {
       await adminAPI.updateUser(selectedUser.id, { status });
-      setShowUserModal(false);
-      setSelectedUser(null);
+      closeUserModal();
       await loadUsers();
       setUserMessage(`User marked ${status}.`);
     } catch (error) {
@@ -873,11 +878,11 @@ const UsersView = ({ setActiveTab, setJobsUserFilter, verificationMode = false, 
 
       {/* User Details Modal */}
       {showUserModal && selectedUser && (
-        <div className="modal-overlay" onClick={() => setShowUserModal(false)}>
+        <div className="modal-overlay" onClick={closeUserModal}>
           <div className="modal-content user-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>User Details</h2>
-              <button className="modal-close" onClick={() => setShowUserModal(false)}>
+              <button className="modal-close" onClick={closeUserModal}>
                 <XCircle className="icon" />
               </button>
             </div>
@@ -3094,7 +3099,7 @@ const SupportView = () => {
       setMessage(`Ticket ${ticket.ticketReference} marked ${status}.`);
       await loadTickets();
       if (selectedTicket?._id === ticket._id) {
-        setSelectedTicket(prev => prev ? { ...prev, status } : prev);
+        setSelectedTicket(null);
       }
     } catch (error) {
       setMessage(error.message || 'Unable to update ticket.');

@@ -26,6 +26,7 @@ const {
 } = require('../controllers/adminController');
 const monetizationController = require('../controllers/monetizationController');
 const { protect, authorize } = require('../middleware/auth');
+const { seedAll: seedReferenceData } = require('../scripts/seedReferenceData');
 
 // All routes require authentication and admin role
 router.use(protect);
@@ -33,6 +34,24 @@ router.use(authorize('admin'));
 
 // Dashboard
 router.get('/dashboard', getDashboardStats);
+
+// One-off production setup utilities
+router.post('/seed/reference-data', async (req, res) => {
+  try {
+    const summary = await seedReferenceData({ connect: false, exit: false });
+    res.json({
+      success: true,
+      message: 'Reference data seeded successfully',
+      data: summary
+    });
+  } catch (error) {
+    console.error('Reference data seed error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Unable to seed reference data'
+    });
+  }
+});
 
 // Users
 router.get('/users', getUsers);
