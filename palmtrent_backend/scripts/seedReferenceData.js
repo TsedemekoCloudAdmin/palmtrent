@@ -413,6 +413,32 @@ const vehicleTypesData = [
     isActive: true
   },
   {
+    name: 'Timber / Wood Carrier Truck',
+    category: 'truck',
+    subcategory: '30ton',
+    description: 'Purpose-built timber carrier with bolsters, stakes, and load restraints for logs, poles, and sawn timber',
+    capacity: {
+      weight: { min: 10, max: 30, unit: 'tonnes' },
+      volume: { min: 20, max: 45, unit: 'cubic_meters' }
+    },
+    dimensions: { length: 9.5, width: 2.5, height: 3.8 },
+    trailerConfiguration: {
+      hasIntegratedTrailer: false,
+      canAttachTrailer: true,
+      requiresTrailer: false
+    },
+    suitableCargoCategories: ['general', 'bulk'],
+    specialCapabilities: ['timber', 'logging', 'flatbed', 'crane_equipped'],
+    requirements: {
+      licenseClass: 'code_14',
+      specialPermits: ['Forestry/timber transport permit', 'Load restraint inspection'],
+      minExperienceYears: 3
+    },
+    pricing: { baseRatePerKm: 16, minimumCharge: 1200 },
+    displayOrder: 52,
+    isActive: true
+  },
+  {
     name: 'Car Carrier',
     category: 'truck',
     subcategory: '15ton',
@@ -512,6 +538,19 @@ const cargoTypesData = [
     isFragile: false,
     requiresSpecialDocumentation: false,
     baseInsuranceRate: 0.008
+  },
+  {
+    name: 'Timber / Logs',
+    category: 'bulk',
+    description: 'Round logs, poles, beams, and sawn timber bundles',
+    specialRequirements: ['Timber stakes/bolsters', 'Load binders or chains', 'Overhang marker if applicable', 'Forestry route permit where required'],
+    packagingTypes: ['loose_logs', 'bundles', 'strapped_packs'],
+    insuranceCategory: 'general',
+    handlingInstructions: 'Use bolsters/stanchions, distribute logs evenly, secure with chains or rated straps, mark overhangs',
+    moistureSensitivity: 'medium',
+    isFragile: false,
+    requiresSpecialDocumentation: true,
+    baseInsuranceRate: 0.012
   },
   {
     name: 'Machinery',
@@ -908,6 +947,20 @@ const trailerTypesData = [
     baseRentalRate: 250
   },
   {
+    name: 'Timber / Log Carrier Trailer',
+    category: 'specialized',
+    description: 'Stanchion/bolster trailer for round logs, poles, timber packs, and forestry routes',
+    capacityRange: { min: 20, max: 34, unit: 'tonnes' },
+    dimensions: { length: 13.5, width: 2.5, height: 3.8 },
+    specialFeatures: ['Timber bolsters', 'Removable stakes', 'Chain binders', 'Headboard/front grille', 'Off-road suspension option'],
+    requirements: {
+      licenseClass: 'EC',
+      minTowingCapacity: 34000,
+      specialPermits: ['Forestry/timber transport permit', 'Load restraint inspection']
+    },
+    baseRentalRate: 330
+  },
+  {
     name: 'Tautliner / Curtain Side',
     category: 'enclosed',
     description: 'Enclosed trailer with curtain sides for easy loading',
@@ -1218,6 +1271,10 @@ const seedCargoTypes = async () => {
     } else if (cargo.category === 'bulk') {
       addVehicle('Tipper Truck (10-Tonne)');
       addVehicle('Truck Tractor (Horse Only)');
+      if (cargo.name === 'Timber / Logs') {
+        addVehicle('Timber / Wood Carrier Truck');
+        addVehicle('Flatbed Truck (10-Tonne)');
+      }
     } else if (cargo.category === 'hazardous') {
       addVehicle('Tanker Truck');
       addVehicle('Truck Tractor (Horse Only)');
@@ -1258,6 +1315,8 @@ const seedTrailerTypes = async () => {
       suitableCargoTypes = cargoTypes.filter(c => c.category === 'liquid').map(c => c._id);
     } else if (trailer.category === 'specialized' && trailer.name.includes('Livestock')) {
       suitableCargoTypes = cargoTypes.filter(c => c.category === 'live').map(c => c._id);
+    } else if (trailer.category === 'specialized' && /timber|log/i.test(trailer.name)) {
+      suitableCargoTypes = cargoTypes.filter(c => c.name === 'Timber / Logs').map(c => c._id);
     } else if (trailer.category === 'flatbed' || trailer.category === 'enclosed') {
       suitableCargoTypes = cargoTypes.filter(c => ['general', 'bulk'].includes(c.category)).map(c => c._id);
     }

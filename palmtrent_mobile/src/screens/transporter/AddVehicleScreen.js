@@ -497,6 +497,40 @@ const AddVehicleScreen = () => {
     return uploadedPhotos;
   };
 
+  const buildVehiclePayload = () => {
+    const payload = {
+      ...vehicleData,
+      capacity: {
+        ...vehicleData.capacity,
+        weight: {
+          ...vehicleData.capacity.weight,
+          value: Number(vehicleData.capacity.weight.value || 0)
+        }
+      },
+      year: Number(vehicleData.year || 0)
+    };
+
+    ['trailerType', 'makeId', 'modelId'].forEach((field) => {
+      if (payload[field] === '') delete payload[field];
+    });
+
+    if (!payload.trailerType || !isObjectId(payload.trailerType)) {
+      delete payload.trailerType;
+    }
+
+    if (selectedMake) {
+      payload.make = isObjectId(selectedMake._id) ? selectedMake._id : selectedMake.name;
+      payload.makeName = selectedMake.name;
+    }
+
+    if (selectedModel) {
+      payload.model = isObjectId(selectedModel._id) ? selectedModel._id : selectedModel.name;
+      payload.modelName = selectedModel.name;
+    }
+
+    return payload;
+  };
+
   const handleSubmit = async () => {
     if (!validateStep(4)) {
       Alert.alert('Validation Error', 'Please fill in all required fields');
@@ -511,7 +545,7 @@ const AddVehicleScreen = () => {
     setLoading(true);
     try {
       // First create the vehicle
-      const response = await apiService.createVehicle(vehicleData);
+      const response = await apiService.createVehicle(buildVehiclePayload());
 
       if (response.success) {
         const vehicleId = response.data._id || response.data.vehicle?._id;

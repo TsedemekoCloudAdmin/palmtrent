@@ -88,7 +88,7 @@ const vehicleTypeSchema = new mongoose.Schema({
     enum: [
       'refrigerated', 'heated', 'livestock', 'tanker', 'tipper',
       'flatbed', 'curtain_side', 'container', 'car_carrier',
-      'crane_equipped', 'tail_lift', 'dangerous_goods'
+      'crane_equipped', 'tail_lift', 'dangerous_goods', 'timber', 'logging'
     ]
   }],
   // Requirements to operate

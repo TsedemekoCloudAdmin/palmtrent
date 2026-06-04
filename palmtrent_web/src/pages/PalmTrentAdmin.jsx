@@ -3558,6 +3558,8 @@ const SettingsView = () => {
     }
   });
   const [savingPreferences, setSavingPreferences] = useState(false);
+  const [seedingReferenceData, setSeedingReferenceData] = useState(false);
+  const [seedingVehicleModels, setSeedingVehicleModels] = useState(false);
 
   useEffect(() => {
     loadIntegrations();
@@ -3616,6 +3618,36 @@ const SettingsView = () => {
       setIntegrationMessage(error.message || 'Unable to save admin preferences');
     } finally {
       setSavingPreferences(false);
+    }
+  };
+
+  const seedReferenceData = async () => {
+    try {
+      setSeedingReferenceData(true);
+      setIntegrationMessage('');
+      const response = await adminAPI.seedReferenceData();
+      setIntegrationMessage(response.message || 'Reference data seeded successfully');
+    } catch (error) {
+      setIntegrationMessage(error.message || 'Unable to seed reference data');
+    } finally {
+      setSeedingReferenceData(false);
+    }
+  };
+
+  const seedVehicleModels = async () => {
+    try {
+      setSeedingVehicleModels(true);
+      setIntegrationMessage('');
+      const response = await adminAPI.seedVehicleModels();
+      const summary = response.data || {};
+      const detail = summary.modelsSeeded
+        ? ` (${summary.makesProcessed || 0} makes, ${summary.modelsSeeded} models processed)`
+        : '';
+      setIntegrationMessage(`${response.message || 'Vehicle and trailer models seeded successfully'}${detail}`);
+    } catch (error) {
+      setIntegrationMessage(error.message || 'Unable to seed vehicle and trailer models');
+    } finally {
+      setSeedingVehicleModels(false);
     }
   };
 
@@ -3716,6 +3748,13 @@ const SettingsView = () => {
 
       <div className="admin-content">
         <div className="settings-sections">
+          {integrationMessage && (
+            <div className="integration-message">
+              <AlertCircle className="icon" />
+              <span>{integrationMessage}</span>
+            </div>
+          )}
+
           <div className="settings-section">
             <h3>Platform Settings</h3>
             <div className="settings-grid">
@@ -3787,6 +3826,41 @@ const SettingsView = () => {
           <div className="settings-section">
             <div className="settings-section-header">
               <div>
+                <h3>Production Reference Setup</h3>
+                <p>Load vehicle types, cargo recommendations, trailer types, makes, and models used by fleet forms.</p>
+              </div>
+            </div>
+            <div className="setup-action-grid">
+              <div className="setup-action-card">
+                <h4>Core Reference Data</h4>
+                <p>Seeds cargo types, vehicle types, trailer types, payment options, insurance options, cities, and rules.</p>
+                <button
+                  className="btn-secondary"
+                  onClick={seedReferenceData}
+                  disabled={seedingReferenceData}
+                >
+                  <RefreshCw className={`icon ${seedingReferenceData ? 'spinning' : ''}`} />
+                  {seedingReferenceData ? 'Seeding...' : 'Seed Reference Data'}
+                </button>
+              </div>
+              <div className="setup-action-card">
+                <h4>Vehicle & Trailer Models</h4>
+                <p>Seeds truck, bakkie, van, trailer, and wood carrier makes and models for add/update fleet forms.</p>
+                <button
+                  className="btn-secondary"
+                  onClick={seedVehicleModels}
+                  disabled={seedingVehicleModels}
+                >
+                  <RefreshCw className={`icon ${seedingVehicleModels ? 'spinning' : ''}`} />
+                  {seedingVehicleModels ? 'Seeding...' : 'Seed Vehicle Models'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="settings-section">
+            <div className="settings-section-header">
+              <div>
                 <h3>Integration Keys</h3>
                 <p>Manage provider credentials used by the backend services.</p>
               </div>
@@ -3795,13 +3869,6 @@ const SettingsView = () => {
                 Refresh
               </button>
             </div>
-
-            {integrationMessage && (
-              <div className="integration-message">
-                <AlertCircle className="icon" />
-                <span>{integrationMessage}</span>
-              </div>
-            )}
 
             {loadingIntegrations ? (
               <div className="settings-empty">Loading integration settings...</div>

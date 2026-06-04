@@ -30,6 +30,18 @@ const isObjectId = (value) => OBJECT_ID_PATTERN.test(String(value || ''));
 
 const escapeRegex = (value = '') => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const stripEmptyOptionalObjectIds = (vehicleData) => {
+  ['trailerType'].forEach((field) => {
+    if (vehicleData[field] === '' || vehicleData[field] === null) {
+      delete vehicleData[field];
+    }
+  });
+
+  if (vehicleData.insurance?.coverage === '' || vehicleData.insurance?.coverage === null) {
+    delete vehicleData.insurance.coverage;
+  }
+};
+
 const normalizeSubcategory = (value = '') => {
   const normalized = String(value || '')
     .toLowerCase()
@@ -91,6 +103,8 @@ const defaultVehicleCapacity = (category = 'truck', subcategory = '') => {
 };
 
 const resolveVehicleReferences = async (vehicleData) => {
+  stripEmptyOptionalObjectIds(vehicleData);
+
   const requestedCategory = VEHICLE_CATEGORIES.includes(vehicleData.category)
     ? vehicleData.category
     : 'truck';
@@ -389,6 +403,7 @@ exports.updateVehicle = async (req, res) => {
 
     const before = { status: vehicle.status, assignedDriver: vehicle.assignedDriver };
     const payload = { ...req.body };
+    await resolveVehicleReferences(payload);
     syncVehicleRentalFields(payload);
 
     if (wantsVehicleRentalListing(payload)) {

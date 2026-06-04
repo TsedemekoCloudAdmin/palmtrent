@@ -636,6 +636,14 @@ export const adminAPI = {
     body: JSON.stringify(data),
   }),
 
+  seedReferenceData: () => apiFetch('/admin/seed/reference-data', {
+    method: 'POST',
+  }),
+
+  seedVehicleModels: () => apiFetch('/admin/seed/vehicle-models', {
+    method: 'POST',
+  }),
+
   getRentals: (params = {}) => {
     const queryString = new URLSearchParams(params).toString();
     return apiFetch(`/admin/rentals${queryString ? `?${queryString}` : ''}`);

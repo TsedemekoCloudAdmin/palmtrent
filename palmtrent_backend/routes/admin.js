@@ -28,6 +28,7 @@ const monetizationController = require('../controllers/monetizationController');
 const InsuranceProvider = require('../models/InsuranceProvider');
 const { protect, authorize } = require('../middleware/auth');
 const { seedAll: seedReferenceData } = require('../scripts/seedReferenceData');
+const { seedVehicleModels } = require('../scripts/seedVehicleModels');
 
 // All routes require authentication and admin role
 router.use(protect);
@@ -50,6 +51,23 @@ router.post('/seed/reference-data', async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message || 'Unable to seed reference data'
+    });
+  }
+});
+
+router.post('/seed/vehicle-models', async (req, res) => {
+  try {
+    const summary = await seedVehicleModels({ connect: false, exit: false });
+    res.json({
+      success: true,
+      message: 'Vehicle and trailer model data seeded successfully',
+      data: summary
+    });
+  } catch (error) {
+    console.error('Vehicle model seed error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Unable to seed vehicle and trailer model data'
     });
   }
 });
