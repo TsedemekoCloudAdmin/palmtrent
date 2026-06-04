@@ -614,7 +614,7 @@ const AccountTab = ({ currentUser }) => {
             <span>Payment {subscriptionPaymentStatus || 'pending'}</span>
             {canPaySubscription && (
               <button type="button" className="shipper-account-primary" onClick={paySubscription} disabled={payingSubscription}>
-                {payingSubscription ? 'Opening Payment...' : 'Pay Subscription'}
+                {payingSubscription ? 'Opening ClicknPay...' : 'Pay with ClicknPay'}
               </button>
             )}
           </div>
@@ -638,7 +638,7 @@ const NewBookingTab = ({ setActiveNav }) => {
     cargoType: '', cargoWeight: '', cargoDescription: '',
     vehicleType: '', trailerType: '', pickupDate: '', pickupTime: '',
     insurance: false, insuranceValue: '', coverageType: 'standard',
-    paymentMethod: 'openapi_africa'
+    paymentMethod: 'clicknpay'
   });
   const [quote, setQuote] = useState(null);
   const [bookingMessage, setBookingMessage] = useState('');
@@ -1120,10 +1120,17 @@ const NewBookingTab = ({ setActiveNav }) => {
             <div className="payment-section">
               <h3>Payment Method</h3>
               <div className="payment-options">
-                {['openapi_africa', 'card', 'bank_transfer', 'ecocash', 'onemoney'].map(method => (
+                {[
+                  {
+                    method: 'clicknpay',
+                    label: 'ClicknPay Checkout',
+                    description: 'Choose card, bank, EcoCash, OneMoney, or any enabled method on ClicknPay'
+                  }
+                ].map(({ method, label, description }) => (
                   <button key={method} className={`payment-option ${bookingData.paymentMethod === method ? 'selected' : ''}`} onClick={() => handleInputChange('paymentMethod', method)}>
                     <CreditCard className="icon" />
-                    <span>{method === 'openapi_africa' ? 'ClicknPay' : method === 'ecocash' ? 'EcoCash' : method === 'onemoney' ? 'OneMoney' : method === 'card' ? 'Card' : 'Bank Transfer'}</span>
+                    <span>{label}</span>
+                    <small>{description}</small>
                   </button>
                 ))}
               </div>
@@ -1132,7 +1139,7 @@ const NewBookingTab = ({ setActiveNav }) => {
           <div className="step-actions">
             <button className="btn-secondary" onClick={() => setStep(3)}><ChevronLeft className="icon" /> Back</button>
             <button className="btn-primary btn-pay" onClick={submitBooking} disabled={loading}>
-              {loading ? <Loader className="icon spinning" /> : <>Pay ${quote.total} & Confirm</>}
+              {loading ? <Loader className="icon spinning" /> : <>Pay ${quote.total} with ClicknPay</>}
             </button>
           </div>
         </div>
@@ -1157,7 +1164,7 @@ const NewBookingTab = ({ setActiveNav }) => {
                 deliveryAddress: '', deliveryCity: '', deliveryPhone: '',
                 cargoType: '', cargoWeight: '', cargoDescription: '',
                 vehicleType: '', trailerType: '', pickupDate: '', pickupTime: '',
-                insurance: false, insuranceValue: '', coverageType: 'standard', paymentMethod: 'openapi_africa'
+                insurance: false, insuranceValue: '', coverageType: 'standard', paymentMethod: 'clicknpay'
               }); }}>Create Another Booking</button>
             </div>
           </div>

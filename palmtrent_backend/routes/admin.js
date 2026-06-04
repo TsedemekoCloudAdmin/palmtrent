@@ -34,42 +34,88 @@ const { seedVehicleModels } = require('../scripts/seedVehicleModels');
 router.use(protect);
 router.use(authorize('admin'));
 
+const seedJobs = new Map();
+
+const serializeSeedJob = (job) => ({
+  id: job.id,
+  label: job.label,
+  status: job.status,
+  startedAt: job.startedAt,
+  finishedAt: job.finishedAt,
+  result: job.result,
+  error: job.error
+});
+
+const startSeedJob = (id, label, runner) => {
+  const currentJob = seedJobs.get(id);
+  if (currentJob?.status === 'running') {
+    return currentJob;
+  }
+
+  const job = {
+    id,
+    label,
+    status: 'running',
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    result: null,
+    error: null
+  };
+
+  seedJobs.set(id, job);
+
+  Promise.resolve()
+    .then(runner)
+    .then((result) => {
+      job.status = 'completed';
+      job.result = result;
+      job.finishedAt = new Date().toISOString();
+    })
+    .catch((error) => {
+      console.error(`${label} seed error:`, error);
+      job.status = 'failed';
+      job.error = error.message || `Unable to seed ${label.toLowerCase()}`;
+      job.finishedAt = new Date().toISOString();
+    });
+
+  return job;
+};
+
 // Dashboard
 router.get('/dashboard', getDashboardStats);
 
 // One-off production setup utilities
-router.post('/seed/reference-data', async (req, res) => {
-  try {
-    const summary = await seedReferenceData({ connect: false, exit: false });
-    res.json({
-      success: true,
-      message: 'Reference data seeded successfully',
-      data: summary
-    });
-  } catch (error) {
-    console.error('Reference data seed error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Unable to seed reference data'
-    });
-  }
+router.post('/seed/reference-data', (req, res) => {
+  const job = startSeedJob('reference-data', 'Reference data', () => seedReferenceData({ connect: false, exit: false }));
+  res.status(202).json({
+    success: true,
+    message: job.status === 'running' ? 'Reference data seed is running' : 'Reference data seed queued',
+    data: serializeSeedJob(job)
+  });
 });
 
-router.post('/seed/vehicle-models', async (req, res) => {
-  try {
-    const summary = await seedVehicleModels({ connect: false, exit: false });
-    res.json({
-      success: true,
-      message: 'Vehicle and trailer model data seeded successfully',
-      data: summary
-    });
-  } catch (error) {
-    console.error('Vehicle model seed error:', error);
-    res.status(500).json({
+router.post('/seed/vehicle-models', (req, res) => {
+  const job = startSeedJob('vehicle-models', 'Vehicle and trailer model data', () => seedVehicleModels({ connect: false, exit: false }));
+  res.status(202).json({
+    success: true,
+    message: job.status === 'running' ? 'Vehicle and trailer model seed is running' : 'Vehicle and trailer model seed queued',
+    data: serializeSeedJob(job)
+  });
+});
+
+router.get('/seed/jobs/:jobId', (req, res) => {
+  const job = seedJobs.get(req.params.jobId);
+  if (!job) {
+    return res.status(404).json({
       success: false,
-      message: error.message || 'Unable to seed vehicle and trailer model data'
+      message: 'Seed job not found'
     });
   }
+
+  return res.json({
+    success: true,
+    data: serializeSeedJob(job)
+  });
 });
 
 // Users

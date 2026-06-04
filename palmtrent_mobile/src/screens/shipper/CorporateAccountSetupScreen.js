@@ -184,7 +184,7 @@ const CorporateAccountSetupScreen = ({ navigation }) => {
                     subscriptionId: selectedSubscription?._id || selectedSubscription?.id,
                     subscriptionName: selectedSubscription?.plan?.name || selectedPlanData?.name || 'Subscription',
                     amount,
-                    paymentMethod: 'ecocash'
+                    paymentMethod: 'clicknpay'
                   });
                   return;
                 }

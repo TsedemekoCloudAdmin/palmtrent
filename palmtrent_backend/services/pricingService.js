@@ -196,6 +196,10 @@ class PricingService {
     // Map payment method to config
     switch (method) {
       case 'digital':
+      case 'clicknpay':
+      case 'openapiafrica':
+      case 'openapi_africa':
+      case 'card':
       case 'ecocash':
       case 'onemoney':
       case 'bank':
@@ -263,6 +267,10 @@ class PricingService {
     const method = paymentMethod?.toLowerCase().replace(/[_-]/g, '') || 'digital';
     
     const descriptions = {
+      'clicknpay': 'ClicknPay Checkout',
+      'openapiafrica': 'ClicknPay Checkout',
+      'openapi_africa': 'ClicknPay Checkout',
+      'card': 'Card via ClicknPay',
       'ecocash': 'EcoCash',
       'onemoney': 'OneMoney',
       'bank': 'Bank Transfer',

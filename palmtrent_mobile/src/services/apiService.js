@@ -606,7 +606,7 @@ class ApiService {
     });
   }
 
-  async createSubscriptionPayment(subscriptionId, paymentMethod = 'ecocash', customer = {}) {
+  async createSubscriptionPayment(subscriptionId, paymentMethod = 'clicknpay', customer = {}) {
     return this.request(`/public/subscriptions/${subscriptionId}/payment`, {
       method: 'POST',
       body: JSON.stringify({ paymentMethod, customer }),

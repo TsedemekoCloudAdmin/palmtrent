@@ -357,7 +357,7 @@ const bookingSchema = new mongoose.Schema({
   payment: {
     method: {
       type: String,
-      enum: ['digital', 'ecocash', 'onemoney', 'bank_transfer', 'cashViaAgent', 'cash_agent', 'cashOnPickup', 'cash_on_pickup', 'cashOnDelivery', 'cash_on_delivery', 'corporate'],
+      enum: ['digital', 'openapi_africa', 'clicknpay', 'ecocash', 'onemoney', 'card', 'bank_transfer', 'cashViaAgent', 'cash_agent', 'cashOnPickup', 'cash_on_pickup', 'cashOnDelivery', 'cash_on_delivery', 'corporate'],
       default: ''
     },
     status: {

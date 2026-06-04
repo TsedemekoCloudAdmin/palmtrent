@@ -36,7 +36,7 @@ const BookingConfirmationScreen = ({ onNavigate, bookingData, onExit }) => {
       // Handle payment confirmation based on payment method
       const method = bookingData.paymentMethod;
 
-      if (method === 'ecocash' || method === 'card' || method === 'eft') {
+      if (['clicknpay', 'openapi_africa', 'digital', 'ecocash', 'onemoney', 'card', 'eft'].includes(method)) {
         // Digital payment methods - confirmation already handled by payment gateway
         // Just verify the booking was created successfully
         if (bookingData._id) {

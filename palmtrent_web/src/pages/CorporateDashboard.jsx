@@ -1219,7 +1219,7 @@ const BillingTab = () => {
             <span className="billing-value">{subscriptionPaymentStatus || 'pending'}</span>
             {canPaySubscription && (
               <button className="btn-primary billing-card-action" onClick={paySubscription} disabled={payingSubscription}>
-                {payingSubscription ? 'Opening...' : 'Pay Subscription'}
+                {payingSubscription ? 'Opening ClicknPay...' : 'Pay with ClicknPay'}
               </button>
             )}
           </div>

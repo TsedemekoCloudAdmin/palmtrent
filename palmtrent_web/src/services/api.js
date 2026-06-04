@@ -638,10 +638,16 @@ export const adminAPI = {
 
   seedReferenceData: () => apiFetch('/admin/seed/reference-data', {
     method: 'POST',
+    timeoutMs: 60000,
   }),
 
   seedVehicleModels: () => apiFetch('/admin/seed/vehicle-models', {
     method: 'POST',
+    timeoutMs: 60000,
+  }),
+
+  getSeedJob: (jobId) => apiFetch(`/admin/seed/jobs/${jobId}`, {
+    timeoutMs: 60000,
   }),
 
   getRentals: (params = {}) => {

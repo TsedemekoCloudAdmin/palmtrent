@@ -902,7 +902,7 @@ const TrailerOwnerDashboard = () => {
                   </dl>
                   {Number(subscription.amount || subscription.plan?.price || 0) > 0 && !['paid', 'not_required'].includes(subscription.payment?.status) && (
                     <button className="fleet-primary" onClick={paySubscription} disabled={payingSubscription}>
-                      {payingSubscription ? 'Opening Payment...' : 'Pay Subscription'}
+                      {payingSubscription ? 'Opening ClicknPay...' : 'Pay with ClicknPay'}
                     </button>
                   )}
                 </div>

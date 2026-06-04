@@ -115,7 +115,7 @@ const DEFAULT_PLANS = [
 
 function normalizePaymentMethod(method) {
   const value = String(method || 'digital').toLowerCase();
-  if (['ecocash', 'onemoney', 'card', 'bank_transfer', 'clicknpay'].includes(value)) return 'digital';
+  if (['ecocash', 'onemoney', 'card', 'bank_transfer', 'clicknpay', 'openapi_africa'].includes(value)) return 'digital';
   return value;
 }
 

@@ -3621,12 +3621,42 @@ const SettingsView = () => {
     }
   };
 
+  const waitForSeedJob = async (jobId, successMessageBuilder) => {
+    let attempts = 0;
+    const maxAttempts = 120;
+
+    while (attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      attempts += 1;
+
+      const response = await adminAPI.getSeedJob(jobId);
+      const job = response.data || {};
+
+      if (job.status === 'completed') {
+        setIntegrationMessage(successMessageBuilder(job.result || {}));
+        return;
+      }
+
+      if (job.status === 'failed') {
+        throw new Error(job.error || 'Seed job failed');
+      }
+
+      setIntegrationMessage(`${job.label || 'Seed'} is still running...`);
+    }
+
+    throw new Error('Seed is still running. Please wait a minute and refresh Settings to check again.');
+  };
+
   const seedReferenceData = async () => {
     try {
       setSeedingReferenceData(true);
       setIntegrationMessage('');
       const response = await adminAPI.seedReferenceData();
-      setIntegrationMessage(response.message || 'Reference data seeded successfully');
+      const job = response.data || {};
+      setIntegrationMessage(response.message || 'Reference data seed started');
+      await waitForSeedJob(job.id || 'reference-data', (summary) => (
+        `Reference data seeded successfully (${summary.vehicleTypes || 0} vehicle types, ${summary.vehicleMakes || 0} makes, ${summary.cargoTypes || 0} cargo types, ${summary.trailerTypes || 0} trailer types)`
+      ));
     } catch (error) {
       setIntegrationMessage(error.message || 'Unable to seed reference data');
     } finally {
@@ -3639,11 +3669,11 @@ const SettingsView = () => {
       setSeedingVehicleModels(true);
       setIntegrationMessage('');
       const response = await adminAPI.seedVehicleModels();
-      const summary = response.data || {};
-      const detail = summary.modelsSeeded
-        ? ` (${summary.makesProcessed || 0} makes, ${summary.modelsSeeded} models processed)`
-        : '';
-      setIntegrationMessage(`${response.message || 'Vehicle and trailer models seeded successfully'}${detail}`);
+      const job = response.data || {};
+      setIntegrationMessage(response.message || 'Vehicle and trailer model seed started');
+      await waitForSeedJob(job.id || 'vehicle-models', (summary) => (
+        `Vehicle and trailer models seeded successfully (${summary.makesProcessed || 0} makes, ${summary.modelsSeeded || 0} models processed)`
+      ));
     } catch (error) {
       setIntegrationMessage(error.message || 'Unable to seed vehicle and trailer models');
     } finally {

@@ -70,7 +70,7 @@ const SubscriptionOnboardingScreen = ({ navigation }) => {
             subscriptionId: selectedSubscription?._id || selectedSubscription?.id,
             subscriptionName: selectedSubscription?.plan?.name || plan?.name || 'Subscription',
             amount,
-            paymentMethod: 'ecocash'
+            paymentMethod: 'clicknpay'
           });
           return;
         }

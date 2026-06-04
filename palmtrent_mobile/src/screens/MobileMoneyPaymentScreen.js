@@ -39,7 +39,7 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
   const subscriptionName = routeParams.subscriptionName || bookingData?.subscriptionName || 'Subscription';
   const amount = routeParams.amount || bookingData?.amount || bookingData?.pricing?.totals?.total;
   const amountValue = Number(amount || 0);
-  const paymentMethod = routeParams.paymentMethod || bookingData?.paymentMethod || 'ecocash';
+  const paymentMethod = routeParams.paymentMethod || bookingData?.paymentMethod || 'clicknpay';
   const existingPaymentReference = routeParams.paymentReference || bookingData?.paymentReference;
 
   const navigateTo = (screen, params = {}) => {
@@ -71,8 +71,41 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
 
   const isEcoCash = paymentMethod === 'ecocash';
   const isOneMoney = paymentMethod === 'onemoney';
+  const isProviderSpecificMobileMoney = isEcoCash || isOneMoney;
 
   const providerConfig = {
+    clicknpay: {
+      name: 'ClicknPay',
+      color: '#0C2D48',
+      prefixes: [],
+      placeholder: '0771234567',
+      icon: 'credit-card',
+      subtext: 'Hosted checkout'
+    },
+    openapi_africa: {
+      name: 'ClicknPay',
+      color: '#0C2D48',
+      prefixes: [],
+      placeholder: '0771234567',
+      icon: 'credit-card',
+      subtext: 'Hosted checkout'
+    },
+    digital: {
+      name: 'ClicknPay',
+      color: '#0C2D48',
+      prefixes: [],
+      placeholder: '0771234567',
+      icon: 'credit-card',
+      subtext: 'Hosted checkout'
+    },
+    card: {
+      name: 'ClicknPay',
+      color: '#0C2D48',
+      prefixes: [],
+      placeholder: '0771234567',
+      icon: 'credit-card',
+      subtext: 'Hosted checkout'
+    },
     ecocash: {
       name: 'EcoCash',
       color: '#00A651',
@@ -89,7 +122,7 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
     }
   };
 
-  const provider = providerConfig[paymentMethod] || providerConfig.ecocash;
+  const provider = providerConfig[paymentMethod] || providerConfig.clicknpay;
   const backTarget = paymentContext === 'subscription' ? 'main-tabs' : 'booking-review';
 
   useEffect(() => {
@@ -124,11 +157,11 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
 
   const validatePhoneNumber = () => {
     if (!phoneNumber.trim()) {
-      return { valid: false, error: 'Phone number is required' };
+      return { valid: false, error: 'Phone number is required for payment contact and receipt updates' };
     }
 
     const cleaned = phoneNumber.replace(/[\s-]/g, '');
-    const isValidPrefix = provider.prefixes.some(prefix => cleaned.startsWith(prefix));
+    const isValidPrefix = !provider.prefixes.length || provider.prefixes.some(prefix => cleaned.startsWith(prefix));
 
     if (!isValidPrefix) {
       return {
@@ -137,8 +170,8 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
       };
     }
 
-    if (cleaned.length !== 10) {
-      return { valid: false, error: 'Phone number must be 10 digits' };
+    if (cleaned.length < 9 || cleaned.length > 15) {
+      return { valid: false, error: 'Please enter a valid phone number' };
     }
 
     return { valid: true };
@@ -243,7 +276,7 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
   };
 
   const getDefaultInstructions = () => {
-    return `Complete the ${provider.name} checkout in ClicknPay, then keep this screen open while confirmation is verified.`;
+    return 'Choose your preferred payment method on ClicknPay, complete checkout, then keep this screen open while confirmation is verified.';
   };
 
   const startCountdown = () => {
@@ -345,10 +378,10 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
   const renderPollingState = () => (
     <View style={styles.pollingContainer}>
       <Animated.View style={[styles.pollingIcon, { transform: [{ scale: pulseAnim }] }]}>
-        <MaterialIcons name="phone-android" size={60} color={provider.color} />
+        <MaterialIcons name={provider.icon} size={60} color={provider.color} />
       </Animated.View>
 
-      <Text style={styles.pollingTitle}>Waiting for {provider.name} Payment</Text>
+      <Text style={styles.pollingTitle}>Waiting for ClicknPay Payment</Text>
 
       <View style={styles.countdownContainer}>
         <MaterialIcons name="timer" size={24} color="#6b7280" />
@@ -372,7 +405,7 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
           <View style={[styles.stepNumber, { backgroundColor: provider.color }]}>
             <Text style={styles.stepNumberText}>2</Text>
           </View>
-          <Text style={styles.stepText}>Approve any {provider.name} provider prompt</Text>
+          <Text style={styles.stepText}>Choose and approve your preferred method inside ClicknPay</Text>
         </View>
         <View style={styles.step}>
           <View style={[styles.stepNumber, { backgroundColor: provider.color }]}>
@@ -395,7 +428,7 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
       </View>
       <Text style={styles.successTitle}>Payment Successful!</Text>
       <Text style={styles.successText}>
-        Your {provider.name} payment of USD ${amountValue.toFixed(2)} has been confirmed.
+        Your ClicknPay payment of USD ${amountValue.toFixed(2)} has been confirmed.
       </Text>
       <Text style={styles.successSubtext}>
         {paymentContext === 'subscription'
@@ -419,7 +452,7 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
             <MaterialIcons name={provider.icon} size={32} color={provider.color} />
             <View>
               <Text style={[styles.providerName, { color: provider.color }]}>{provider.name}</Text>
-              <Text style={styles.providerSubtext}>Mobile Money Payment</Text>
+              <Text style={styles.providerSubtext}>{provider.subtext || 'Mobile money payment'}</Text>
             </View>
           </View>
 
@@ -445,7 +478,9 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
 
           {/* Phone Number Input */}
           <View style={styles.inputSection}>
-            <Text style={styles.sectionTitle}>Your {provider.name} Number</Text>
+            <Text style={styles.sectionTitle}>
+              {isProviderSpecificMobileMoney ? `Your ${provider.name} Number` : 'Payment Contact Number'}
+            </Text>
             <View style={styles.phoneInputContainer}>
               <View style={styles.countryCode}>
                 <Text style={styles.countryCodeText}>+263</Text>
@@ -461,7 +496,9 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
               />
             </View>
             <Text style={styles.helperText}>
-              Enter the phone number registered with {provider.name}
+              {isProviderSpecificMobileMoney
+                ? `Enter the phone number registered with ${provider.name}`
+                : 'ClicknPay will let you choose the available payment method during checkout'}
             </Text>
           </View>
 
@@ -509,9 +546,9 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
             <ActivityIndicator size="small" color="white" />
           ) : (
             <>
-              <MaterialIcons name="phone-android" size={20} color="white" />
+              <MaterialIcons name={provider.icon} size={20} color="white" />
               <Text style={styles.payButtonText}>
-                Pay with {provider.name}
+                Pay with ClicknPay
               </Text>
             </>
           )}
@@ -550,10 +587,10 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
         </TouchableOpacity>
         <View style={styles.headerContent}>
           <Text style={styles.headerTitle}>
-            {paymentContext === 'subscription' ? 'Subscription Payment' : `${provider.name} Payment`}
+            {paymentContext === 'subscription' ? 'Subscription Payment' : 'ClicknPay Payment'}
           </Text>
           <Text style={styles.headerSubtitle}>
-            {paymentContext === 'subscription' ? 'Pay to activate your subscription' : 'Secure mobile money payment'}
+            {paymentContext === 'subscription' ? 'Pay to activate your subscription' : 'Choose your payment method in ClicknPay'}
           </Text>
         </View>
       </View>

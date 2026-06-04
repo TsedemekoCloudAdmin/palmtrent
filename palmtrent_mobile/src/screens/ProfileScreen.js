@@ -294,7 +294,7 @@ const ProfileScreen = ({ navigation }) => {
             subscriptionId: selectedSubscription?._id || selectedSubscription?.id,
             subscriptionName: selectedSubscription?.plan?.name || plan?.name || 'Subscription',
             amount,
-            paymentMethod: 'ecocash'
+            paymentMethod: 'clicknpay'
           });
           return;
         }
@@ -330,7 +330,7 @@ const ProfileScreen = ({ navigation }) => {
       subscriptionId: subscription?._id || subscription?.id,
       subscriptionName: subscription?.plan?.name || 'Subscription',
       amount,
-      paymentMethod: subscription?.payment?.method || 'ecocash',
+      paymentMethod: subscription?.payment?.method || 'clicknpay',
       paymentReference: reusableReference
     });
   };
@@ -691,7 +691,7 @@ const ProfileScreen = ({ navigation }) => {
                   >
                     <MaterialIcons name="payment" size={18} color="white" />
                     <Text style={styles.subscriptionPayButtonText}>
-                      {subscriptionLoading ? 'Opening...' : 'Pay Subscription'}
+                      {subscriptionLoading ? 'Opening...' : 'Pay with ClicknPay'}
                     </Text>
                   </TouchableOpacity>
                 )}

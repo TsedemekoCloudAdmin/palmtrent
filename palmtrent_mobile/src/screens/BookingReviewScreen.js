@@ -18,9 +18,9 @@ import useAuth from '../hook/useAuth';
 
 const paymentMethods = [
   {
-    id: 'ecocash',
-    name: "EcoCash",
-    description: "Instant confirmation • 12% fee",
+    id: 'clicknpay',
+    name: "ClicknPay Checkout",
+    description: "Choose card, bank, EcoCash, OneMoney, or other enabled ClicknPay methods",
     recommended: true,
     requiresGateway: true
   },
@@ -33,10 +33,10 @@ const paymentMethods = [
   },
   {
     id: 'bank_transfer',
-    name: "Pay via Card/EFT",
-    description: "Pay using your bank • 12% fee",
+    name: "Bank Transfer",
+    description: "Manual bank transfer • confirm before matching",
     recommended: false,
-    requiresGateway: true
+    requiresGateway: false
   },
   {
     id: 'cash_on_pickup',
@@ -182,10 +182,8 @@ const handleConfirmBooking = async () => {
     // Determine next steps based on payment method
     if (selectedPaymentMethod === 'cash_agent') {
       onNavigate('agent-payment', nextBookingData);
-    } else if (selectedPaymentMethod === 'ecocash' || selectedPaymentMethod === 'onemoney') {
+    } else if (['clicknpay', 'digital', 'openapi_africa', 'ecocash', 'onemoney', 'card'].includes(selectedPaymentMethod)) {
       onNavigate('mobile-money-payment', nextBookingData);
-    } else if (selectedPaymentMethod === 'bank_transfer') {
-      onNavigate('card-payment', nextBookingData);
     } else {
       // For cash methods, payment is already pending - go to confirmation
       onNavigate('booking-confirmation', {
