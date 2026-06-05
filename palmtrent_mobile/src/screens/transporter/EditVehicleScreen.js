@@ -10,11 +10,34 @@ import {
   StatusBar,
   TextInput,
   Alert,
-  Switch
+  Switch,
+  Modal,
+  FlatList
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import apiService from '../../services/apiService';
+
+const isObjectId = (value) => /^[0-9a-f]{24}$/i.test(String(value || ''));
+const getRecordId = (record) => String(record?._id || record?.id || record?.value || '');
+const getRecordLabel = (record) => record?.name || record?.label || record?.displayName || '';
+const referenceKey = (item, prefix) => getRecordId(item) || `${prefix}-${getRecordLabel(item) || Math.random()}`;
+
+const referenceFromVehicleValue = (value, name) => {
+  if (value && typeof value === 'object') {
+    return {
+      ...value,
+      _id: getRecordId(value) || undefined,
+      name: getRecordLabel(value) || name || ''
+    };
+  }
+
+  if (!value && !name) return null;
+  return {
+    _id: isObjectId(value) ? value : undefined,
+    name: name || String(value || '')
+  };
+};
 
 const EditVehicleScreen = () => {
   const navigation = useNavigation();
@@ -22,6 +45,12 @@ const EditVehicleScreen = () => {
   const { vehicleId } = route.params;
 
   const [loading, setLoading] = useState(false);
+  const [vehicleMakes, setVehicleMakes] = useState([]);
+  const [vehicleModels, setVehicleModels] = useState([]);
+  const [showMakeModal, setShowMakeModal] = useState(false);
+  const [showModelModal, setShowModelModal] = useState(false);
+  const [selectedMake, setSelectedMake] = useState(null);
+  const [selectedModel, setSelectedModel] = useState(null);
   const [vehicleData, setVehicleData] = useState({
     // Basic Information
     category: '',
@@ -98,21 +127,57 @@ const EditVehicleScreen = () => {
 
   const statusOptions = [
     { value: 'available', label: 'Available', color: '#16a34a' },
-    { value: 'in_use', label: 'In Use', color: '#0C2D48' },
+    { value: 'in_use', label: 'In Use / Rented', color: '#0C2D48' },
     { value: 'maintenance', label: 'Maintenance', color: '#dc2626' },
-    { value: 'rented', label: 'Rented Out', color: '#7c3aed' },
     { value: 'inactive', label: 'Inactive', color: '#6b7280' }
   ];
 
   useEffect(() => {
     loadVehicleData();
+    loadVehicleMakes();
   }, [vehicleId]);
+
+  useEffect(() => {
+    if (selectedMake && isObjectId(selectedMake._id)) {
+      fetchModelsForMake(selectedMake._id);
+    } else {
+      setVehicleModels([]);
+    }
+  }, [selectedMake?._id]);
 
   const loadVehicleData = async () => {
     try {
       const response = await apiService.getVehicle(vehicleId);
       if (response.success) {
-        setVehicleData(response.data);
+        const record = response.data || {};
+        setVehicleData(prev => ({
+          ...prev,
+          ...record,
+          capacity: {
+            ...prev.capacity,
+            ...(record.capacity || {}),
+            weight: {
+              ...prev.capacity?.weight,
+              ...(record.capacity?.weight || {}),
+              unit: record.capacity?.weight?.unit || 'tonnes'
+            }
+          },
+          specifications: {
+            ...prev.specifications,
+            ...(record.specifications || {})
+          },
+          features: {
+            ...prev.features,
+            ...(record.features || {})
+          },
+          pricing: {
+            ...prev.pricing,
+            ...(record.pricing || record.rentalSettings || {})
+          },
+          specialFeatures: record.specialFeatures || []
+        }));
+        setSelectedMake(referenceFromVehicleValue(record.make, record.makeName));
+        setSelectedModel(referenceFromVehicleValue(record.model, record.modelName));
       } else {
         Alert.alert('Error', 'Failed to load vehicle data');
         navigation.goBack();
@@ -124,14 +189,55 @@ const EditVehicleScreen = () => {
     }
   };
 
+  const loadVehicleMakes = async () => {
+    try {
+      const response = await apiService.request('/reference/vehicle-makes');
+      setVehicleMakes(response.data || []);
+    } catch (error) {
+      console.error('Load vehicle makes error:', error);
+      setVehicleMakes([]);
+    }
+  };
+
+  const fetchModelsForMake = async (makeId) => {
+    try {
+      const response = await apiService.request(`/reference/vehicle-makes/${makeId}/models`);
+      setVehicleModels(response.data || []);
+    } catch (error) {
+      console.error('Load vehicle models error:', error);
+      setVehicleModels([]);
+    }
+  };
+
   const updateField = (path, value) => {
     setVehicleData(prev => {
       const keys = path.split('.');
       const lastKey = keys.pop();
-      const lastObj = keys.reduce((obj, key) => obj[key] || {}, prev);
+      const next = { ...prev };
+      const lastObj = keys.reduce((obj, key) => {
+        obj[key] = { ...(obj[key] || {}) };
+        return obj[key];
+      }, next);
       lastObj[lastKey] = value;
-      return { ...prev };
+      return next;
     });
+  };
+
+  const selectMake = (make) => {
+    setSelectedMake(make);
+    setSelectedModel(null);
+    updateField('make', isObjectId(make?._id) ? make._id : make?.name || '');
+    updateField('makeName', make?.name || '');
+    updateField('model', '');
+    updateField('modelName', '');
+    setShowMakeModal(false);
+  };
+
+  const selectModel = (model) => {
+    setSelectedModel(model);
+    updateField('model', isObjectId(model?._id) ? model._id : model?.name || '');
+    updateField('modelName', model?.name || '');
+    setShowModelModal(false);
   };
 
   const toggleFeature = (feature) => {
@@ -144,13 +250,15 @@ const EditVehicleScreen = () => {
   };
 
   const validateForm = () => {
-    const required = ['registrationNumber', 'make', 'model', 'year', 'capacity.weight.value'];
+    const required = ['registrationNumber', 'year', 'capacity.weight.value'];
     for (let field of required) {
       const value = field.split('.').reduce((obj, key) => obj?.[key], vehicleData);
       if (!value) {
         return `Please fill in ${field.replace(/([A-Z])/g, ' $1').toLowerCase().replace('registration number', 'registration number').replace('weight value', 'capacity')}`;
       }
     }
+    if (!selectedMake && !vehicleData.make) return 'Please select a make';
+    if (!selectedModel && !vehicleData.model) return 'Please select a model';
     return null;
   };
 
@@ -163,7 +271,23 @@ const EditVehicleScreen = () => {
 
     setLoading(true);
     try {
-      const response = await apiService.updateVehicle(vehicleId, vehicleData);
+      const payload = {
+        ...vehicleData,
+        make: selectedMake ? (isObjectId(selectedMake._id) ? selectedMake._id : selectedMake.name) : vehicleData.make,
+        makeName: selectedMake?.name || vehicleData.makeName || '',
+        model: selectedModel ? (isObjectId(selectedModel._id) ? selectedModel._id : selectedModel.name) : vehicleData.model,
+        modelName: selectedModel?.name || vehicleData.modelName || '',
+        year: Number(vehicleData.year) || vehicleData.year,
+        capacity: {
+          ...(vehicleData.capacity || {}),
+          weight: {
+            ...(vehicleData.capacity?.weight || {}),
+            value: Number(vehicleData.capacity?.weight?.value) || 0,
+            unit: 'tonnes'
+          }
+        }
+      };
+      const response = await apiService.updateVehicle(vehicleId, payload);
       
       if (response.success) {
         Alert.alert('Vehicle saved', response.message || 'Vehicle updated successfully', [
@@ -262,21 +386,25 @@ const EditVehicleScreen = () => {
           <View style={styles.row}>
             <View style={[styles.inputGroup, styles.flex]}>
               <Text style={styles.label}>Make *</Text>
-              <TextInput
-                style={styles.input}
-                value={vehicleData.make}
-                onChangeText={(value) => updateField('make', value)}
-                placeholder="Toyota"
-              />
+              <TouchableOpacity style={styles.selectInput} onPress={() => setShowMakeModal(true)}>
+                <Text style={selectedMake ? styles.selectInputText : styles.selectInputPlaceholder}>
+                  {selectedMake?.name || vehicleData.makeName || 'Select make'}
+                </Text>
+                <MaterialIcons name="keyboard-arrow-down" size={22} color="#6b7280" />
+              </TouchableOpacity>
             </View>
             <View style={[styles.inputGroup, styles.flex]}>
               <Text style={styles.label}>Model *</Text>
-              <TextInput
-                style={styles.input}
-                value={vehicleData.model}
-                onChangeText={(value) => updateField('model', value)}
-                placeholder="Hilux"
-              />
+              <TouchableOpacity
+                style={[styles.selectInput, !selectedMake && styles.selectInputDisabled]}
+                onPress={() => selectedMake && setShowModelModal(true)}
+                disabled={!selectedMake}
+              >
+                <Text style={selectedModel ? styles.selectInputText : styles.selectInputPlaceholder}>
+                  {selectedModel?.name || vehicleData.modelName || (selectedMake ? 'Select model' : 'Select make first')}
+                </Text>
+                <MaterialIcons name="keyboard-arrow-down" size={22} color="#6b7280" />
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -514,6 +642,55 @@ const EditVehicleScreen = () => {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      <Modal visible={showMakeModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowMakeModal(false)}>
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Select Vehicle Make</Text>
+            <TouchableOpacity onPress={() => setShowMakeModal(false)}>
+              <MaterialIcons name="close" size={24} color="#374151" />
+            </TouchableOpacity>
+          </View>
+          <FlatList
+            data={vehicleMakes}
+            keyExtractor={(item) => referenceKey(item, 'make')}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={[styles.modalItem, selectedMake?._id === item._id && styles.modalItemSelected]}
+                onPress={() => selectMake(item)}
+              >
+                <Text style={styles.modalItemText}>{item.name}</Text>
+                {!!item.country && <Text style={styles.modalItemSubtext}>{item.country}</Text>}
+              </TouchableOpacity>
+            )}
+            ListEmptyComponent={<Text style={styles.emptyModalText}>No vehicle makes available. Seed vehicle reference data from the admin portal.</Text>}
+          />
+        </SafeAreaView>
+      </Modal>
+
+      <Modal visible={showModelModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowModelModal(false)}>
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Select Model</Text>
+            <TouchableOpacity onPress={() => setShowModelModal(false)}>
+              <MaterialIcons name="close" size={24} color="#374151" />
+            </TouchableOpacity>
+          </View>
+          <FlatList
+            data={vehicleModels}
+            keyExtractor={(item) => referenceKey(item, 'model')}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={[styles.modalItem, selectedModel?._id === item._id && styles.modalItemSelected]}
+                onPress={() => selectModel(item)}
+              >
+                <Text style={styles.modalItemText}>{item.name}</Text>
+              </TouchableOpacity>
+            )}
+            ListEmptyComponent={<Text style={styles.emptyModalText}>No models are available for {selectedMake?.name || 'this make'}.</Text>}
+          />
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -627,6 +804,76 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
+  },
+  selectInput: {
+    minHeight: 48,
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  selectInputDisabled: {
+    backgroundColor: '#f3f4f6',
+    opacity: 0.75,
+  },
+  selectInputText: {
+    flex: 1,
+    color: '#111827',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  selectInputPlaceholder: {
+    flex: 1,
+    color: '#6b7280',
+    fontSize: 16,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#f9fafb',
+  },
+  modalHeader: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    backgroundColor: 'white',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  modalItem: {
+    padding: 16,
+    backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eef2f7',
+  },
+  modalItemSelected: {
+    backgroundColor: '#e8f4fb',
+  },
+  modalItemText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  modalItemSubtext: {
+    marginTop: 2,
+    fontSize: 13,
+    color: '#6b7280',
+  },
+  emptyModalText: {
+    padding: 20,
+    color: '#6b7280',
+    fontSize: 15,
+    lineHeight: 22,
   },
   textArea: {
     height: 80,

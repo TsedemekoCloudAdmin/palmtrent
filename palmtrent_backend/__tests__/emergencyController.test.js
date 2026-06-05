@@ -3,6 +3,10 @@ jest.mock('../models/Emergency', () => ({
   findById: jest.fn()
 }));
 
+jest.mock('../models/EmergencyResponder', () => ({
+  find: jest.fn()
+}));
+
 jest.mock('../models/User', () => ({
   findById: jest.fn()
 }));
@@ -24,6 +28,7 @@ jest.mock('../utils/sendSMS', () => ({
 }));
 
 const Emergency = require('../models/Emergency');
+const EmergencyResponder = require('../models/EmergencyResponder');
 const User = require('../models/User');
 const Booking = require('../models/Booking');
 const notificationService = require('../services/notificationService');
@@ -77,6 +82,10 @@ describe('emergencyController notifications', () => {
 
     User.findById.mockResolvedValue(user);
     Emergency.create.mockResolvedValue(emergency);
+    EmergencyResponder.find.mockReturnValue({
+      populate: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockResolvedValue([])
+    });
     Booking.findById.mockReturnValue(populated({
       shipper: user,
       transporter: { _id: { toString: () => 'transporter-1' } }

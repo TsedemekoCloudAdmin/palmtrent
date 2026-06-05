@@ -4,6 +4,21 @@ import NetInfo from '@react-native-community/netinfo';
 
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://palmtrent-api.onrender.com/api/v1';
 
+export const normalizeZimbabwePhone = (phone = '') => {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('263') && digits.length === 12) return `+${digits}`;
+  if (digits.startsWith('0') && digits.length === 10) return `+263${digits.slice(1)}`;
+  if (digits.length === 9) return `+263${digits}`;
+  if (String(phone).trim().startsWith('+263') && digits.length === 12) return `+${digits}`;
+  return String(phone || '').trim();
+};
+
+export const localZimbabwePhone = (phone = '') => {
+  const normalized = normalizeZimbabwePhone(phone);
+  return normalized.startsWith('+263') ? normalized.slice(4) : String(phone || '').replace(/\D/g, '').slice(-9);
+};
+
 class ApiService {
   constructor() {
     this.baseURL = API_BASE_URL;
@@ -421,21 +436,21 @@ class ApiService {
   async sendVerificationCode(phone) {
     return this.request('/verification/send-code', {
       method: 'POST',
-      body: JSON.stringify({ phone: `+263${phone}` }),
+      body: JSON.stringify({ phone: normalizeZimbabwePhone(phone) }),
     });
   }
 
   async verifyCode(phone, code) {
     return this.request('/verification/verify', {
       method: 'POST',
-      body: JSON.stringify({ phone: `+263${phone}`, code }),
+      body: JSON.stringify({ phone: normalizeZimbabwePhone(phone), code }),
     });
   }
 
   async resendVerificationCode(phone) {
     return this.request('/verification/resend-code', {
       method: 'POST',
-      body: JSON.stringify({ phone: `+263${phone}` }),
+      body: JSON.stringify({ phone: normalizeZimbabwePhone(phone) }),
     });
   }
 

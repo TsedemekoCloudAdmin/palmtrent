@@ -5,6 +5,11 @@ const Subscription = require('../models/Subscription');
 const Emergency = require('../models/Emergency');
 const Payout = require('../models/Payout');
 const escrowService = require('./escrowService');
+const {
+  assertPaymentTransition,
+  isTerminalPaymentStatus,
+  PAYMENT_STATUSES
+} = require('./paymentStateMachine');
 
 class PaymentService {
   
@@ -151,7 +156,7 @@ class PaymentService {
         return this.confirmPayment(paymentReference, { metadata });
       }
 
-      if (payment.status === 'confirmed') {
+      if (isTerminalPaymentStatus(payment.status)) {
         payment.metadata = {
           ...(payment.metadata || {}),
           ignoredStatusUpdate: {
@@ -164,11 +169,12 @@ class PaymentService {
         return payment;
       }
 
+      assertPaymentTransition(payment.status, status);
       payment.status = status;
       
-      if (status === 'confirmed') {
+      if (status === PAYMENT_STATUSES.CONFIRMED) {
         payment.confirmedAt = new Date();
-      } else if (status === 'failed') {
+      } else if (status === PAYMENT_STATUSES.FAILED) {
         payment.failedAt = new Date();
       }
 

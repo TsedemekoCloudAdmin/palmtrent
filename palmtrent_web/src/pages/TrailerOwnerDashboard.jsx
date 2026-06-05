@@ -192,6 +192,7 @@ const TrailerOwnerDashboard = () => {
   const [payingSubscription, setPayingSubscription] = useState(false);
   const [showAddFleetDialog, setShowAddFleetDialog] = useState(false);
   const [showDriverDialog, setShowDriverDialog] = useState(false);
+  const [showStaffDialog, setShowStaffDialog] = useState(false);
   const [editingDriverId, setEditingDriverId] = useState('');
   const [showWalkInDialog, setShowWalkInDialog] = useState(false);
   const [walkInForm, setWalkInForm] = useState(emptyWalkInRentalForm);
@@ -464,6 +465,7 @@ const TrailerOwnerDashboard = () => {
         phone: normalizeZimbabwePhone(staffForm.phone)
       });
       setStaffForm(emptyStaffForm);
+      setShowStaffDialog(false);
       setMessage('Staff user added');
       await loadData();
     } catch (error) {
@@ -597,7 +599,9 @@ const TrailerOwnerDashboard = () => {
       } else {
         await fleetAPI.updateStatus(asset._id, status);
       }
-      setMessage(`${asset.registrationNumber} moved to ${status}`);
+      setMessage(status === 'available'
+        ? `${assetRegistration(asset)} is open for bookings.`
+        : `${assetRegistration(asset)} moved to ${status}.`);
       await loadData();
     } catch (error) {
       setMessage(error.message || 'Could not update status');
@@ -955,7 +959,7 @@ const TrailerOwnerDashboard = () => {
                       <span>{asset.operatingAreas?.[0]?.city || 'No city'}</span>
                     </div>
                     <div className="asset-actions">
-                      <button onClick={() => updateStatus(asset, 'available')}><CheckCircle className="icon" /> Available</button>
+                      <button onClick={() => updateStatus(asset, 'available')}><CheckCircle className="icon" /> Open For Bookings</button>
                       <button onClick={() => updateStatus(asset, 'maintenance')}><Wrench className="icon" /> Maintenance</button>
                     </div>
                   </article>
@@ -1287,40 +1291,17 @@ const TrailerOwnerDashboard = () => {
         )}
 
         {activeTab === 'staff' && (
-          <div className="fleet-account-grid">
-            <section className="fleet-panel">
-              <div className="panel-title">
-                <h2>Add Rental Staff</h2>
-                <Users className="icon" />
-              </div>
-              <form className="fleet-form" onSubmit={saveStaffUser}>
-                <label>Full Name
-                  <input value={staffForm.fullName} onChange={(e) => updateStaffForm('fullName', e.target.value)} required />
-                </label>
-                <label>Email
-                  <input type="email" value={staffForm.email} onChange={(e) => updateStaffForm('email', e.target.value)} required />
-                </label>
-                <label>Mobile Number
-                  <input value={staffForm.phone} onChange={(e) => updateStaffForm('phone', e.target.value)} required />
-                </label>
-                <label>Password
-                  <input type="password" value={staffForm.password} onChange={(e) => updateStaffForm('password', e.target.value)} minLength={8} required />
-                </label>
-                <label>Role
-                  <select value={staffForm.role} onChange={(e) => updateStaffForm('role', e.target.value)}>
-                    <option value="agent">Agent</option>
-                    <option value="manager">Manager</option>
-                    <option value="viewer">Viewer</option>
-                  </select>
-                </label>
-                <button className="fleet-primary" disabled={loading}>Add Staff User</button>
-              </form>
-            </section>
-
+          <>
             <section className="fleet-panel wide">
               <div className="panel-title">
                 <h2>Company Staff</h2>
-                <span>{staffUsers.length} users</span>
+                <div className="panel-title-actions">
+                  <span>{staffUsers.length} users</span>
+                  <button className="fleet-primary" type="button" onClick={() => setShowStaffDialog(true)}>
+                    <Plus className="icon" />
+                    Add Staff
+                  </button>
+                </div>
               </div>
               <div className="asset-list">
                 {staffUsers.map(staff => (
@@ -1339,7 +1320,57 @@ const TrailerOwnerDashboard = () => {
                 {!staffUsers.length && <div className="empty-state">No rental staff users yet.</div>}
               </div>
             </section>
-          </div>
+            {showStaffDialog && (
+              <div className="fleet-dialog-backdrop" role="presentation" onMouseDown={() => setShowStaffDialog(false)}>
+                <section
+                  className="fleet-dialog"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="staff-dialog-title"
+                  onMouseDown={(event) => event.stopPropagation()}
+                >
+                  <div className="fleet-dialog-header">
+                    <div>
+                      <h2 id="staff-dialog-title">Add Rental Staff</h2>
+                      <p>Create a staff account for assistants who manage rentals, walk-ins, fleet records, or handovers.</p>
+                    </div>
+                    <button className="dialog-close" type="button" aria-label="Close staff dialog" onClick={() => setShowStaffDialog(false)}>
+                      <X className="icon" />
+                    </button>
+                  </div>
+                  <form className="fleet-form" onSubmit={saveStaffUser}>
+                    <label>Full Name
+                      <input value={staffForm.fullName} onChange={(e) => updateStaffForm('fullName', e.target.value)} required />
+                    </label>
+                    <div className="form-row">
+                      <label>Email
+                        <input type="email" value={staffForm.email} onChange={(e) => updateStaffForm('email', e.target.value)} required />
+                      </label>
+                      <label>Mobile Number
+                        <input value={staffForm.phone} onChange={(e) => updateStaffForm('phone', e.target.value)} placeholder="+263..." required />
+                      </label>
+                    </div>
+                    <div className="form-row">
+                      <label>Temporary Password
+                        <input type="password" value={staffForm.password} onChange={(e) => updateStaffForm('password', e.target.value)} minLength={8} required />
+                      </label>
+                      <label>Role
+                        <select value={staffForm.role} onChange={(e) => updateStaffForm('role', e.target.value)}>
+                          <option value="agent">Agent</option>
+                          <option value="manager">Manager</option>
+                          <option value="viewer">Viewer</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div className="dialog-actions">
+                      <button className="fleet-secondary" type="button" onClick={() => setShowStaffDialog(false)}>Cancel</button>
+                      <button className="fleet-primary" disabled={loading}>{loading ? 'Adding...' : 'Add Staff User'}</button>
+                    </div>
+                  </form>
+                </section>
+              </div>
+            )}
+          </>
         )}
 
         {activeTab === 'account' && (

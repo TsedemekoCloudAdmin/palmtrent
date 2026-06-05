@@ -457,6 +457,15 @@ exports.updateVehicle = async (req, res) => {
     await resolveVehicleReferences(payload);
     syncVehicleRentalFields(payload);
 
+    if (payload.status) {
+      const statusOpensBookings = payload.status === 'available';
+      payload.availability = {
+        ...(payload.availability || {}),
+        isAvailable: statusOpensBookings,
+        lastUpdated: new Date()
+      };
+    }
+
     if (wantsVehicleRentalListing(payload)) {
       await assertRentalOwnerCanList(getRentalOwnerScopeId(req.user));
     }
@@ -649,7 +658,10 @@ exports.getAvailableForRental = async (req, res) => {
     const query = {
       'pricing.availableForRental': true,
       status: 'available',
-      'availability.isAvailable': true,
+      $or: [
+        { 'availability.isAvailable': true },
+        { 'availability.isAvailable': { $exists: false } }
+      ],
       'verification.status': 'approved',
       owner: { $in: await getUsableRentalOwnerIds() }
     };

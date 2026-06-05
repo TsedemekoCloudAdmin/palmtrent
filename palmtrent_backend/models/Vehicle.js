@@ -201,6 +201,12 @@ const vehicleSchema = new mongoose.Schema({
     enum: ['available', 'in_use', 'maintenance', 'inactive'],
     default: 'available'
   },
+
+  availability: {
+    isAvailable: { type: Boolean, default: true },
+    lastUpdated: Date,
+    notes: String
+  },
   
   // Owner Information
   owner: {

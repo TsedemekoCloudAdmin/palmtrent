@@ -1,7 +1,6 @@
 const User = require('../models/User');
 const Booking = require('../models/Booking');
 const Vehicle = require('../models/Vehicle');
-const Trailer = require('../models/Trailer');
 const Payment = require('../models/Payment');
 const Rental = require('../models/Rental');
 const Rating = require('../models/Rating');
@@ -13,40 +12,12 @@ const AdminPreference = require('../models/AdminPreference');
 const { recordAudit } = require('../services/auditService');
 const paymentService = require('../services/paymentService');
 const rentalPaymentService = require('../services/rentalPaymentService');
+const rentalOperationsService = require('../services/rentalOperationsService');
 const {
   listIntegrationSettings,
   updateIntegrationSetting,
   testIntegrationSetting
 } = require('../services/integrationSettingsService');
-
-async function populateAdminRental(rentalOrId) {
-  const rentalId = rentalOrId?._id || rentalOrId;
-  return Rental.findById(rentalId)
-    .populate('owner', 'fullName email phone')
-    .populate('renter', 'fullName email phone')
-    .populate('trailer', 'registrationNumber assetName assetType')
-    .populate({
-      path: 'vehicle',
-      select: 'registrationNumber make model vehicleType',
-      populate: [
-        { path: 'make', select: 'name' },
-        { path: 'model', select: 'name' },
-        { path: 'vehicleType', select: 'name category' }
-      ]
-    })
-    .populate('operation.assignedDriver', 'fullName phone licenseNumber licenseClass')
-    .populate('linkedShipment.booking', 'bookingReference status');
-}
-
-async function releaseRentalAsset(rental) {
-  if (['trailer', 'tractor_unit', 'truck', 'full_rig'].includes(rental.itemType) && rental.trailer) {
-    await Trailer.findByIdAndUpdate(rental.trailer, { status: 'available', currentRental: null });
-    return;
-  }
-  if (rental.vehicle) {
-    await Vehicle.findByIdAndUpdate(rental.vehicle, { status: 'available' });
-  }
-}
 
 function normalizeAuthorityCheck(check = {}, adminId) {
   const result = ['passed', 'failed', 'inconclusive'].includes(check.result) ? check.result : 'inconclusive';
@@ -1039,21 +1010,7 @@ exports.confirmRentalPayment = async (req, res) => {
     const rental = await Rental.findById(req.params.id);
     if (!rental) return res.status(404).json({ success: false, message: 'Rental not found' });
 
-    const paymentReference = req.body.paymentReference || rental.payment?.paymentReference;
-    let result;
-    if (paymentReference) {
-      result = await rentalPaymentService.confirmRentalPayment(paymentReference, {
-        confirmedBy: req.user._id,
-        source: 'admin_rental_operations',
-        note: req.body.note
-      });
-    } else {
-      result = (await rentalPaymentService.recordCashRentalPayment(rental._id, {
-        confirmedBy: req.user._id,
-        source: 'admin_rental_operations',
-        note: req.body.note || 'Admin confirmed rental payment'
-      })).rental;
-    }
+    const result = await rentalOperationsService.confirmRentalPayment(rental._id, req.body, req.user._id);
 
     await recordAudit({
       actor: req.user,
@@ -1064,10 +1021,10 @@ exports.confirmRentalPayment = async (req, res) => {
       req
     });
 
-    res.json({ success: true, data: await populateAdminRental(result), message: 'Rental payment confirmed' });
+    res.json({ success: true, data: await rentalOperationsService.populateAdminRental(result), message: 'Rental payment confirmed' });
   } catch (error) {
     console.error('Confirm rental payment error:', error);
-    res.status(500).json({ success: false, message: error.message || 'Failed to confirm rental payment' });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Failed to confirm rental payment' });
   }
 };
 
@@ -1075,26 +1032,7 @@ exports.cancelRental = async (req, res) => {
   try {
     const rental = await Rental.findById(req.params.id);
     if (!rental) return res.status(404).json({ success: false, message: 'Rental not found' });
-    if (['completed', 'cancelled'].includes(rental.status)) {
-      return res.status(409).json({ success: false, message: 'Rental is already closed' });
-    }
-
-    rental.status = 'cancelled';
-    rental.cancellation = {
-      cancelled: true,
-      cancelledBy: req.user._id,
-      cancelledAt: new Date(),
-      reason: req.body.reason || 'Cancelled by platform administrator',
-      refundAmount: Number(req.body.refundAmount || 0),
-      cancellationFee: Number(req.body.cancellationFee || 0)
-    };
-    rental.statusHistory.push({
-      status: 'cancelled',
-      changedBy: req.user._id,
-      notes: rental.cancellation.reason
-    });
-    await rental.save();
-    await releaseRentalAsset(rental);
+    const cancelled = await rentalOperationsService.cancelRental(rental._id, req.body, req.user._id);
 
     await recordAudit({
       actor: req.user,
@@ -1105,10 +1043,10 @@ exports.cancelRental = async (req, res) => {
       req
     });
 
-    res.json({ success: true, data: await populateAdminRental(rental), message: 'Rental cancelled' });
+    res.json({ success: true, data: await rentalOperationsService.populateAdminRental(cancelled), message: 'Rental cancelled' });
   } catch (error) {
     console.error('Cancel rental error:', error);
-    res.status(500).json({ success: false, message: 'Failed to cancel rental' });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Failed to cancel rental' });
   }
 };
 
@@ -1116,41 +1054,7 @@ exports.extendRental = async (req, res) => {
   try {
     const rental = await Rental.findById(req.params.id);
     if (!rental) return res.status(404).json({ success: false, message: 'Rental not found' });
-    if (!['confirmed', 'active', 'overdue'].includes(rental.status)) {
-      return res.status(409).json({ success: false, message: 'Only confirmed or active rentals can be extended' });
-    }
-
-    const newEndDate = new Date(req.body.endDate);
-    if (Number.isNaN(newEndDate.getTime()) || newEndDate <= new Date(rental.rentalPeriod.endDate)) {
-      return res.status(400).json({ success: false, message: 'New end date must be after the current end date' });
-    }
-
-    const additionalCost = Number(req.body.additionalCost || 0);
-    rental.extensions.push({
-      requestedBy: req.user._id,
-      requestedAt: new Date(),
-      originalEndDate: rental.rentalPeriod.endDate,
-      newEndDate,
-      status: 'approved',
-      additionalCost,
-      reason: req.body.reason || 'Extended by platform administrator'
-    });
-    rental.rentalPeriod.endDate = newEndDate;
-    if (additionalCost > 0) {
-      rental.pricing.additionalCharges.push({
-        description: 'Rental extension',
-        amount: additionalCost,
-        reason: req.body.reason || 'Extension approved by platform administrator'
-      });
-      rental.pricing.total = Number(rental.pricing.total || 0) + additionalCost;
-      rental.payment.balance = Math.max(0, Number(rental.pricing.total || 0) - Number(rental.payment.totalPaid || 0));
-    }
-    rental.statusHistory.push({
-      status: rental.status,
-      changedBy: req.user._id,
-      notes: `Rental extended to ${newEndDate.toISOString().slice(0, 10)}`
-    });
-    await rental.save();
+    const extended = await rentalOperationsService.extendRental(rental._id, req.body, req.user._id);
 
     await recordAudit({
       actor: req.user,
@@ -1161,10 +1065,10 @@ exports.extendRental = async (req, res) => {
       req
     });
 
-    res.json({ success: true, data: await populateAdminRental(rental), message: 'Rental extended' });
+    res.json({ success: true, data: await rentalOperationsService.populateAdminRental(extended), message: 'Rental extended' });
   } catch (error) {
     console.error('Extend rental error:', error);
-    res.status(500).json({ success: false, message: 'Failed to extend rental' });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Failed to extend rental' });
   }
 };
 
@@ -1172,19 +1076,7 @@ exports.markRentalDisputed = async (req, res) => {
   try {
     const rental = await Rental.findById(req.params.id);
     if (!rental) return res.status(404).json({ success: false, message: 'Rental not found' });
-    if (['cancelled', 'completed'].includes(rental.status)) {
-      return res.status(409).json({ success: false, message: 'Closed rentals cannot be marked disputed' });
-    }
-
-    rental.status = 'disputed';
-    rental.settlement = { ...(rental.settlement || {}), status: 'disputed' };
-    rental.internalNotes = [rental.internalNotes, req.body.reason || 'Marked disputed by administrator'].filter(Boolean).join('\n');
-    rental.statusHistory.push({
-      status: 'disputed',
-      changedBy: req.user._id,
-      notes: req.body.reason || 'Marked disputed by administrator'
-    });
-    await rental.save();
+    const disputed = await rentalOperationsService.markRentalDisputed(rental._id, req.body, req.user._id);
 
     await recordAudit({
       actor: req.user,
@@ -1195,10 +1087,10 @@ exports.markRentalDisputed = async (req, res) => {
       req
     });
 
-    res.json({ success: true, data: await populateAdminRental(rental), message: 'Rental marked disputed' });
+    res.json({ success: true, data: await rentalOperationsService.populateAdminRental(disputed), message: 'Rental marked disputed' });
   } catch (error) {
     console.error('Mark rental disputed error:', error);
-    res.status(500).json({ success: false, message: 'Failed to mark rental disputed' });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Failed to mark rental disputed' });
   }
 };
 
@@ -1206,11 +1098,7 @@ exports.settleRental = async (req, res) => {
   try {
     const rental = await Rental.findById(req.params.id);
     if (!rental) return res.status(404).json({ success: false, message: 'Rental not found' });
-    if (!['completed', 'disputed'].includes(rental.status)) {
-      return res.status(409).json({ success: false, message: 'Only completed or disputed rentals can be settled' });
-    }
-
-    const settled = await rentalPaymentService.settleRental(rental);
+    const settled = await rentalOperationsService.settleRental(rental._id);
     await recordAudit({
       actor: req.user,
       action: 'rental.settled',
@@ -1220,10 +1108,10 @@ exports.settleRental = async (req, res) => {
       req
     });
 
-    res.json({ success: true, data: await populateAdminRental(settled), message: 'Rental settlement updated' });
+    res.json({ success: true, data: await rentalOperationsService.populateAdminRental(settled), message: 'Rental settlement updated' });
   } catch (error) {
     console.error('Settle rental error:', error);
-    res.status(500).json({ success: false, message: error.message || 'Failed to settle rental' });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Failed to settle rental' });
   }
 };
 

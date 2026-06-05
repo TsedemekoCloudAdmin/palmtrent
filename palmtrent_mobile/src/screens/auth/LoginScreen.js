@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../../hook/useAuth';
+import { localZimbabwePhone, normalizeZimbabwePhone } from '../../services/apiService';
 
 const LoginScreen = ({ navigation }) => {
   const { signIn, isLoading } = useAuth();
@@ -26,14 +27,15 @@ const LoginScreen = ({ navigation }) => {
       return;
     }
 
-    if (phone.length !== 9) {
+    const localPhone = localZimbabwePhone(phone);
+    if (localPhone.length !== 9) {
       Alert.alert('Error', 'Please enter a valid 9-digit phone number');
       return;
     }
 
     try {
       const credentials = {
-        phone: `+263${phone}`,
+        phone: normalizeZimbabwePhone(localPhone),
         password
       };
 
@@ -43,7 +45,7 @@ const LoginScreen = ({ navigation }) => {
     }
   };
 
-  const isFormValid = phone.length === 9 && password.length >= 8;
+  const isFormValid = localZimbabwePhone(phone).length === 9 && password.length >= 8;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -72,7 +74,7 @@ const LoginScreen = ({ navigation }) => {
                 <TextInput
                   style={styles.phoneInput}
                   value={phone}
-                  onChangeText={setPhone}
+                  onChangeText={(value) => setPhone(localZimbabwePhone(value))}
                   placeholder="77 123 4567"
                   keyboardType="phone-pad"
                   maxLength={9}

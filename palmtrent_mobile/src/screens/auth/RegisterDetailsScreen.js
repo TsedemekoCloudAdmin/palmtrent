@@ -15,11 +15,12 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import useAuth from '../../hook/useAuth';
 import { POST_REGISTRATION_SUBSCRIPTION_KEY } from '../SubscriptionOnboardingScreen';
+import { localZimbabwePhone, normalizeZimbabwePhone } from '../../services/apiService';
 
 const RegisterDetailsScreen = ({ navigation, route }) => {
   const { signUp, isLoading } = useAuth();
   const userType = route.params?.userType || 'shipper';
-  const phone = route.params?.phone || '';
+  const phone = localZimbabwePhone(route.params?.phone || '');
   
   const [formData, setFormData] = useState({
     fullName: '',
@@ -90,7 +91,7 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
       const userData = {
         fullName: formData.fullName.trim(),
         email: formData.email.toLowerCase(),
-        phone: `+263${formData.phone}`,
+        phone: normalizeZimbabwePhone(formData.phone),
         password: formData.password,
         userType: userType
       };

@@ -74,6 +74,7 @@ test('register bypasses phone verification when SMS delivery is disabled for tes
     phone: '+263771234567',
     password: 'password123',
     userType: 'shipper',
+    roles: ['shipper'],
     isPhoneVerified: true
   });
   expect(res.status).toHaveBeenCalledWith(201);

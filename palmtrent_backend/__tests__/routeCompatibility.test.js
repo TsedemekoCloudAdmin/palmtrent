@@ -68,6 +68,7 @@ jest.mock('../controllers/paymentController', () => ({
   verifyAgentPayment: jest.fn(),
   handleEcocashAgentWebhook: jest.fn(),
   testAgentWebhook: jest.fn(),
+  reconcileEcocashAgentPayments: jest.fn(),
   getEscrowStatus: jest.fn(),
   confirmDeliveryForEscrow: jest.fn(),
   raiseEscrowDispute: jest.fn(),

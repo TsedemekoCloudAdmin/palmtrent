@@ -7,6 +7,7 @@ const Rental = require('../models/Rental');
 const Subscription = require('../models/Subscription');
 const Emergency = require('../models/Emergency');
 const paymentService = require('../services/paymentService');
+const paymentOperationsService = require('../services/paymentOperationsService');
 const escrowService = require('../services/escrowService');
 const openApiAfricaService = require('../services/openApiAfricaService');
 const ecocashOpenApiService = require('../services/ecocashOpenApiService');
@@ -35,8 +36,6 @@ const loadPaymentWithAccessContext = (paymentReference) => {
     .populate({ path: 'subscription', populate: { path: 'plan user' } });
 };
 
-const getCurrentUserId = (user) => user?._id || user?.id;
-
 const normalizeEcocashPhone = (value) => {
   return ecocashOpenApiService.normalizeMsisdn
     ? ecocashOpenApiService.normalizeMsisdn(value)
@@ -46,89 +45,13 @@ const normalizeEcocashPhone = (value) => {
 // List payments visible to the current user.
 exports.getPayments = async (req, res) => {
   try {
-    const {
-      page = 1,
-      limit = 20,
-      status,
-      paymentMethod,
-      gateway
-    } = req.query;
-
-    const currentPage = Math.max(parseInt(page, 10) || 1, 1);
-    const pageSize = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
-    const query = {};
-
-    if (status) query.status = status;
-    if (paymentMethod) query.paymentMethod = paymentMethod;
-    if (gateway) query.gateway = gateway;
-
-    if (!isAdmin(req.user)) {
-      const userId = getCurrentUserId(req.user);
-      const canQuerySubscriptions = /^[a-f\d]{24}$/i.test(String(userId || ''));
-
-      const [bookings, rentals, subscriptions, emergencies] = await Promise.all([
-        Booking.find({
-          $or: [
-            { user: userId },
-            { shipper: userId },
-            { transporter: userId }
-          ]
-        }).select('_id'),
-        Rental.find({
-          $or: [
-            { owner: userId },
-            { renter: userId }
-          ]
-        }).select('_id'),
-        canQuerySubscriptions
-          ? Subscription.find({ user: userId }).select('_id')
-          : Promise.resolve([]),
-        Emergency.find({
-          $or: [
-            { triggeredBy: userId },
-            { 'response.responders.user': userId }
-          ]
-        }).select('_id')
-      ]);
-
-      query.$or = [
-        { booking: { $in: bookings.map(item => item._id) } },
-        { rental: { $in: rentals.map(item => item._id) } }
-      ];
-      if (subscriptions.length) {
-        query.$or.push({ subscription: { $in: subscriptions.map(item => item._id) } });
-      }
-      if (emergencies.length) {
-        query.$or.push({ emergency: { $in: emergencies.map(item => item._id) } });
-      }
-    }
-
-    const [payments, total] = await Promise.all([
-      Payment.find(query)
-        .populate('booking', 'bookingId bookingReference status route')
-        .populate('rental', 'rentalReference status itemType')
-        .populate('emergency', 'emergencyType status billing')
-        .populate({ path: 'subscription', select: 'status amount currency payment plan', populate: { path: 'plan', select: 'name code audience billingCycle' } })
-        .sort({ createdAt: -1 })
-        .skip((currentPage - 1) * pageSize)
-        .limit(pageSize)
-        .lean(),
-      Payment.countDocuments(query)
-    ]);
+    const result = await paymentOperationsService.listVisiblePayments(req.user, req.query);
 
     res.json({
       success: true,
-      count: payments.length,
-      data: payments.map(payment => ({
-        ...payment,
-        method: payment.paymentMethod
-      })),
-      pagination: {
-        page: currentPage,
-        limit: pageSize,
-        total,
-        pages: Math.ceil(total / pageSize)
-      }
+      count: result.count,
+      data: result.data,
+      pagination: result.pagination
     });
   } catch (error) {
     console.error('Error listing payments:', error);

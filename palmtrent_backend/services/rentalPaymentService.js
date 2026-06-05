@@ -3,6 +3,7 @@ const Rental = require('../models/Rental');
 const openApiAfricaService = require('./openApiAfricaService');
 const monetizationService = require('./monetizationService');
 const notificationService = require('./notificationService');
+const { canConfirmRentalPayment, assertRentalTransition } = require('./paymentStateMachine');
 
 async function calculateSettlement(rental) {
   return monetizationService.calculateRentalSettlement(rental);
@@ -194,7 +195,13 @@ async function recordCashRentalPayment(rentalId, metadata = {}) {
     await payment.save();
   }
 
-  rental.status = metadata.status || (['pending', 'approved', 'payment_pending'].includes(rental.status) ? 'confirmed' : rental.status);
+  if (canConfirmRentalPayment(rental)) {
+    assertRentalTransition(rental.status, 'confirmed');
+    rental.status = metadata.status || 'confirmed';
+  } else if (metadata.status && metadata.status !== rental.status) {
+    assertRentalTransition(rental.status, metadata.status);
+    rental.status = metadata.status;
+  }
   rental.payment.gatewayPayment = payment._id;
   rental.payment.paymentReference = payment.paymentReference;
   rental.payment.gateway = 'cash';

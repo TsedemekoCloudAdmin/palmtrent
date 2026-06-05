@@ -12,7 +12,7 @@ import {
   ActivityIndicator
 } from 'react-native';
 import { useApi } from '../../hook/useApi';
-import apiService from '../../services/apiService';
+import apiService, { localZimbabwePhone } from '../../services/apiService';
 
 const PhoneVerifyScreen = ({ navigation, route }) => {
   const [phone, setPhone] = useState('');
@@ -49,13 +49,15 @@ const PhoneVerifyScreen = ({ navigation, route }) => {
   }, [step, timer]);
 
   const handlePhoneSubmit = async () => {
-    if (phone.length < 9) {
+    const localPhone = localZimbabwePhone(phone);
+    if (localPhone.length !== 9) {
       Alert.alert('Error', 'Please enter a valid 9-digit phone number');
       return;
     }
 
     try {
-      await sendCode(phone);
+      await sendCode(localPhone);
+      setPhone(localPhone);
       setStep('code');
       setTimer(59);
     } catch (error) {
@@ -80,11 +82,12 @@ const PhoneVerifyScreen = ({ navigation, route }) => {
     }
 
     try {
-      await verifyCode({ phone, code: verificationCode });
+      const localPhone = localZimbabwePhone(phone);
+      await verifyCode({ phone: localPhone, code: verificationCode });
       
       navigation.navigate('RegisterDetails', { 
         userType: userType,
-        phone: phone
+        phone: localPhone
       });
     } catch (error) {
       Alert.alert('Error', error.message || 'Invalid verification code. Please try again.');
@@ -93,7 +96,7 @@ const PhoneVerifyScreen = ({ navigation, route }) => {
 
   const handleResendCode = async () => {
     try {
-      await resendCode(phone);
+      await resendCode(localZimbabwePhone(phone));
       setTimer(59);
       Alert.alert('Success', 'Verification code sent successfully');
     } catch (error) {
@@ -129,7 +132,7 @@ const PhoneVerifyScreen = ({ navigation, route }) => {
                 <TextInput
                   style={styles.phoneInput}
                   value={phone}
-                  onChangeText={setPhone}
+                  onChangeText={(value) => setPhone(localZimbabwePhone(value))}
                   placeholder="77 123 4567"
                   keyboardType="phone-pad"
                   maxLength={9}
@@ -142,9 +145,9 @@ const PhoneVerifyScreen = ({ navigation, route }) => {
             </View>
 
             <TouchableOpacity
-              style={[styles.button, (phone.length < 9 || sendLoading) && styles.buttonDisabled]}
+              style={[styles.button, (localZimbabwePhone(phone).length !== 9 || sendLoading) && styles.buttonDisabled]}
               onPress={handlePhoneSubmit}
-              disabled={phone.length < 9 || sendLoading}
+              disabled={localZimbabwePhone(phone).length !== 9 || sendLoading}
             >
               {sendLoading ? (
                 <ActivityIndicator color="white" />

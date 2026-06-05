@@ -7,12 +7,14 @@ const escrowService = require('../services/escrowService');
 const shipmentMaintenanceService = require('../services/shipmentMaintenanceService');
 const corporateReportService = require('../services/corporateReportService');
 const ecocashOpenApiService = require('../services/ecocashOpenApiService');
+const paymentReconciliationService = require('../services/paymentReconciliationService');
+const { runJobSet } = require('../services/jobRunnerService');
 
 const requestedTasks = process.argv
   .slice(2)
   .map(task => task.trim().toLowerCase())
   .filter(Boolean);
-const tasks = new Set(requestedTasks.length > 0 ? requestedTasks : ['escrow', 'payouts', 'documents', 'shipments', 'corporate-reports', 'ecocash-agent']);
+const defaultTasks = ['escrow', 'payouts', 'documents', 'shipments', 'corporate-reports', 'payments', 'ecocash-agent'];
 
 const runMaintenanceJobs = async () => {
   if (!process.env.MONGODB_URI) {
@@ -21,29 +23,23 @@ const runMaintenanceJobs = async () => {
 
   await connectDB();
 
-  const results = {};
-  if (tasks.has('escrow')) {
-    results.escrow = await escrowService.processScheduledReleases();
-  }
-  if (tasks.has('payouts')) {
-    results.payouts = await escrowService.backfillReleasedEscrowPayouts();
-  }
-  if (tasks.has('documents')) {
-    results.documents = await documentExpiryService.checkAllDocuments();
-  }
-  if (tasks.has('shipments')) {
-    results.shipments = await shipmentMaintenanceService.backfillShipmentBookingLinks();
-  }
-  if (tasks.has('corporate-reports')) {
-    results.corporateReports = await corporateReportService.processDueSchedules();
-  }
-  if (tasks.has('ecocash-agent')) {
-    results.ecocashAgent = await ecocashOpenApiService.reconcilePendingCashAgentPayments();
-  }
+  const jobMap = {
+    escrow: () => escrowService.processScheduledReleases(),
+    payouts: () => escrowService.backfillReleasedEscrowPayouts(),
+    documents: () => documentExpiryService.checkAllDocuments(),
+    shipments: () => shipmentMaintenanceService.backfillShipmentBookingLinks(),
+    'corporate-reports': () => corporateReportService.processDueSchedules(),
+    payments: () => paymentReconciliationService.reconcileAllPendingPayments(),
+    'openapi-payments': () => paymentReconciliationService.reconcilePendingOpenApiPayments(),
+    'ecocash-agent': () => ecocashOpenApiService.reconcilePendingCashAgentPayments()
+  };
+
+  const taskList = requestedTasks.length > 0 ? requestedTasks : defaultTasks;
+  const results = await runJobSet(jobMap, taskList, { continueOnError: true });
 
   console.log(JSON.stringify({
     success: true,
-    tasks: [...tasks],
+    tasks: taskList,
     results
   }, null, 2));
 };

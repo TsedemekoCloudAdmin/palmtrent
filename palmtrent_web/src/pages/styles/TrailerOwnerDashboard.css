@@ -217,7 +217,8 @@
   font-size: 1.1rem;
 }
 
-.panel-actions {
+.panel-actions,
+.panel-title-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -225,7 +226,8 @@
   flex-wrap: wrap;
 }
 
-.panel-actions .fleet-primary {
+.panel-actions .fleet-primary,
+.panel-title-actions .fleet-primary {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
@@ -611,13 +613,15 @@
   }
 
   .panel-title,
-  .panel-actions {
+  .panel-actions,
+  .panel-title-actions {
     align-items: stretch;
     flex-direction: column;
   }
 
   .panel-actions select,
-  .panel-actions button {
+  .panel-actions button,
+  .panel-title-actions button {
     width: 100%;
   }
 

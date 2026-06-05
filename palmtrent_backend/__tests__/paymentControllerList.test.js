@@ -11,6 +11,14 @@ jest.mock('../models/Payment', () => ({
   countDocuments: jest.fn()
 }));
 
+jest.mock('../models/Subscription', () => ({
+  find: jest.fn()
+}));
+
+jest.mock('../models/Emergency', () => ({
+  find: jest.fn()
+}));
+
 jest.mock('../services/paymentService', () => ({}));
 jest.mock('../services/escrowService', () => ({}));
 jest.mock('../services/openApiAfricaService', () => ({}));
@@ -22,6 +30,8 @@ jest.mock('../services/integrationSettingsService', () => ({
 const Booking = require('../models/Booking');
 const Rental = require('../models/Rental');
 const Payment = require('../models/Payment');
+const Subscription = require('../models/Subscription');
+const Emergency = require('../models/Emergency');
 const { getPayments } = require('../controllers/paymentController');
 
 const createRes = () => ({
@@ -50,6 +60,12 @@ test('getPayments scopes non-admin users to their bookings and rentals', async (
   });
   Rental.find.mockReturnValue({
     select: jest.fn().mockResolvedValue([{ _id: 'rental-1' }])
+  });
+  Subscription.find.mockReturnValue({
+    select: jest.fn().mockResolvedValue([])
+  });
+  Emergency.find.mockReturnValue({
+    select: jest.fn().mockResolvedValue([])
   });
   Payment.find.mockReturnValue(createPaymentFindChain([
     {

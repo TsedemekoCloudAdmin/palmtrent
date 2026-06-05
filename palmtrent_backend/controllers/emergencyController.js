@@ -8,144 +8,28 @@ const Payment = require('../models/Payment');
 const Subscription = require('../models/Subscription');
 const Escrow = require('../models/Escrow');
 const notificationService = require('../services/notificationService');
-const { getIntegrationConfig } = require('../services/integrationSettingsService');
 const paymentService = require('../services/paymentService');
-const monetizationService = require('../services/monetizationService');
-const { getCommissionRule } = monetizationService;
+const emergencySettlementService = require('../services/emergencySettlementService');
+const {
+  DEFAULT_EMERGENCY_CONFIG,
+  numberSetting,
+  getEmergencyOperationalConfig,
+  getEmergencyContacts,
+  normalizeLocation,
+  hasUsableCoordinates,
+  createPaymentReference
+} = require('../services/emergencyConfigService');
+const {
+  calculateRoadsideAssistanceCharge,
+  calculateRoadsideProviderFees,
+  buildRoadsideQuote
+} = require('../services/roadsideQuoteService');
 const { sendSMS } = require('../utils/sendSMS');
 const axios = require('axios');
-
-const DEFAULT_EMERGENCY_CONFIG = {
-  supportPhone: '+263 77 123 4567',
-  dispatchTimeoutMs: 10000,
-  responderRadiusMeters: 50000,
-  responderBroadcastLimit: 10,
-  towAssistanceFee: 75,
-  towBaseFee: 75,
-  towPerKmFee: 2,
-  mechanicAssistanceFee: 35,
-  mechanicBaseFee: 35
-};
-
-const BASE_EMERGENCY_CONTACTS = {
-  police: '+263 995',
-  ambulance: '+263 994',
-  fire: '+263 993'
-};
 
 const ROADSIDE_TYPES = new Set(['breakdown']);
 const EXTERNAL_MEDICAL_TYPES = new Set(['accident', 'medical']);
 const ADMIN_ONLY_TYPES = new Set(['hijacking', 'theft', 'harassment', 'road_block', 'weather', 'other']);
-
-function numberSetting(value, fallback) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-async function getEmergencyOperationalConfig() {
-  const config = await getIntegrationConfig('emergencyDispatch');
-  return {
-    ...config,
-    supportPhone: config.supportPhone || DEFAULT_EMERGENCY_CONFIG.supportPhone,
-    dispatchTimeoutMs: numberSetting(config.dispatchTimeoutMs || config.timeoutMs, DEFAULT_EMERGENCY_CONFIG.dispatchTimeoutMs),
-    responderRadiusMeters: numberSetting(config.responderRadiusMeters, DEFAULT_EMERGENCY_CONFIG.responderRadiusMeters),
-    responderBroadcastLimit: numberSetting(config.responderBroadcastLimit, DEFAULT_EMERGENCY_CONFIG.responderBroadcastLimit),
-    towAssistanceFee: numberSetting(config.towAssistanceFee, DEFAULT_EMERGENCY_CONFIG.towAssistanceFee),
-    towBaseFee: numberSetting(config.towBaseFee || config.towAssistanceFee, DEFAULT_EMERGENCY_CONFIG.towBaseFee),
-    towPerKmFee: numberSetting(config.towPerKmFee, DEFAULT_EMERGENCY_CONFIG.towPerKmFee),
-    mechanicAssistanceFee: numberSetting(config.mechanicAssistanceFee, DEFAULT_EMERGENCY_CONFIG.mechanicAssistanceFee),
-    mechanicBaseFee: numberSetting(config.mechanicBaseFee || config.mechanicAssistanceFee, DEFAULT_EMERGENCY_CONFIG.mechanicBaseFee)
-  };
-}
-
-function getEmergencyContacts(config = {}) {
-  return {
-    ...BASE_EMERGENCY_CONTACTS,
-    support: config.supportPhone || DEFAULT_EMERGENCY_CONFIG.supportPhone
-  };
-}
-
-async function settleCompletedRoadsideAssistance(emergency, responseItem, responder, actorId) {
-  const amount = Number(emergency.billing?.amount || responseItem.quote?.total || 0);
-  const providerEarnings = Number(emergency.billing?.providerEarnings || Math.max(0, amount - Number(emergency.billing?.platformFee || 0)));
-  const platformFee = Number(emergency.billing?.platformFee || Math.max(0, amount - providerEarnings));
-
-  if (amount > 0 && !['paid', 'waived'].includes(emergency.billing?.paymentStatus)) {
-    const error = new Error('SOS assistance must be paid or waived before it can be completed.');
-    error.statusCode = 402;
-    throw error;
-  }
-
-  if (platformFee > 0) {
-    await monetizationService.recordLedgerEntryOnce(
-      { sourceType: 'emergency', sourceId: emergency._id, category: 'commission', status: 'posted' },
-      {
-        sourceType: 'emergency',
-        sourceId: emergency._id,
-        user: responder.user,
-        direction: 'credit',
-        category: 'commission',
-        amount: platformFee,
-        currency: emergency.billing?.currency || responseItem.quote?.currency || 'USD',
-        status: 'posted',
-        metadata: {
-          emergencyType: emergency.emergencyType,
-          responder: responder._id,
-          quoteReference: responseItem.quote?.quoteReference,
-          paymentReference: emergency.billing?.paymentReference,
-          paymentSource: emergency.billing?.paymentSource || 'separate_payment'
-        }
-      }
-    );
-  }
-
-  if (providerEarnings > 0) {
-    const payout = await monetizationService.createPayoutOnce(
-      { sourceType: 'emergency', sourceId: emergency._id, recipient: responder.user },
-      {
-        recipient: responder.user,
-        sourceType: 'emergency',
-        sourceId: emergency._id,
-        amount: providerEarnings,
-        currency: emergency.billing?.currency || responseItem.quote?.currency || 'USD',
-        method: 'openapi_africa',
-        status: 'pending',
-        metadata: {
-          emergencyType: emergency.emergencyType,
-          responder: responder._id,
-          quoteReference: responseItem.quote?.quoteReference,
-          paymentReference: emergency.billing?.paymentReference,
-          completedBy: actorId
-        }
-      }
-    );
-
-    await monetizationService.recordLedgerEntryOnce(
-      { sourceType: 'payout', sourceId: payout._id, category: 'payout', status: 'posted' },
-      {
-        sourceType: 'payout',
-        sourceId: payout._id,
-        user: responder.user,
-        direction: 'debit',
-        category: 'payout',
-        amount: payout.amount,
-        currency: payout.currency,
-        status: 'posted',
-        metadata: {
-          sourceType: 'emergency',
-          emergency: emergency._id,
-          responder: responder._id
-        }
-      }
-    );
-  }
-
-  emergency.billing = {
-    ...(emergency.billing || {}),
-    settlementStatus: providerEarnings > 0 ? 'payout_pending' : 'settled',
-    settledAt: new Date()
-  };
-}
 
 async function resolveEmergencyOperationalContext(user, bookingId, shipmentId) {
   let shipment = shipmentId
@@ -191,47 +75,6 @@ async function resolveEmergencyOperationalContext(user, bookingId, shipmentId) {
   return { booking, shipment, driverProfile, transporter: transporter || driverOwner, shipper };
 }
 
-function normalizeLocation(location = {}) {
-  if (Array.isArray(location.coordinates) && location.coordinates.length === 2) {
-    return {
-      type: 'Point',
-      coordinates: location.coordinates.map(Number),
-      address: location.address,
-      city: location.city,
-      country: location.country || 'Zimbabwe'
-    };
-  }
-
-  if (location.longitude !== undefined && location.latitude !== undefined) {
-    return {
-      type: 'Point',
-      coordinates: [Number(location.longitude), Number(location.latitude)],
-      address: location.address,
-      city: location.city,
-      country: location.country || 'Zimbabwe'
-    };
-  }
-
-  return {
-    type: 'Point',
-    coordinates: [0, 0],
-    address: location.address || 'Location not available',
-    city: location.city,
-    country: location.country || 'Zimbabwe'
-  };
-}
-
-function hasUsableCoordinates(location = {}) {
-  const coords = location.coordinates || [];
-  return coords.length === 2 && (Number(coords[0]) !== 0 || Number(coords[1]) !== 0);
-}
-
-function createPaymentReference(prefix = 'SOS') {
-  const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 8).toUpperCase();
-  return `${prefix}-${timestamp}-${random}`;
-}
-
 async function hasActiveRoadsideSubscription(userId) {
   const now = new Date();
   return Boolean(await Subscription.exists({
@@ -265,134 +108,13 @@ async function getSubscribedRoadsideUserIds(userIds = []) {
   return new Set(subscriptions.map(subscription => String(subscription.user)));
 }
 
-async function calculateRoadsideAssistanceCharge(emergency, responder, paymentMethod = 'digital', config = {}) {
-  const serviceTypes = responder?.serviceTypes || [];
-  const isTow = serviceTypes.includes('tow_truck') || serviceTypes.includes('accident_recovery');
-  const towFee = numberSetting(config.towBaseFee || config.towAssistanceFee, DEFAULT_EMERGENCY_CONFIG.towBaseFee);
-  const mechanicFee = numberSetting(config.mechanicBaseFee || config.mechanicAssistanceFee, DEFAULT_EMERGENCY_CONFIG.mechanicBaseFee);
-  const amount = Number((isTow ? towFee : mechanicFee).toFixed(2));
-  const fees = await calculateRoadsideProviderFees(amount, paymentMethod);
-
-  return {
-    amount,
-    currency: 'USD',
-    ...fees,
-    notes: 'Roadside assistance is billed as a separate SOS charge and does not reduce the original booking or freight allocation unless the transporter chooses freight allocation.'
-  };
-}
-
-async function calculateRoadsideProviderFees(amount, paymentMethod = 'digital') {
-  const rule = await getCommissionRule({
-    target: 'roadside_assistance',
-    audience: 'roadside_provider',
-    paymentMethod
-  });
-  const rate = Number(rule?.platformFeeRate || 0.15);
-  const minimumFee = Number(rule?.minimumFee || 0);
-  const platformFee = Math.min(amount, Math.max(minimumFee, amount * rate));
-  const providerEarnings = Math.max(0, amount - platformFee);
-
-  return {
-    platformFee: Number(platformFee.toFixed(2)),
-    providerEarnings: Number(providerEarnings.toFixed(2))
-  };
-}
-
-function toMoney(value) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? Number(parsed.toFixed(2)) : 0;
-}
-
-function getResponderServiceType(responder, requestedServiceType) {
-  const allowed = ['tow_truck', 'mechanic', 'battery', 'fuel', 'tyre', 'lockout', 'accident_recovery', 'other'];
-  if (allowed.includes(requestedServiceType)) return requestedServiceType;
-  const serviceTypes = responder?.serviceTypes || [];
-  return serviceTypes.includes('tow_truck') || serviceTypes.includes('accident_recovery')
-    ? 'tow_truck'
-    : (serviceTypes[0] || 'mechanic');
-}
-
-function getCoordinatePair(value = {}) {
-  if (Array.isArray(value.coordinates) && value.coordinates.length === 2) {
-    const coords = value.coordinates.map(Number);
-    if (coords.every(Number.isFinite)) return coords;
-  }
-  if (value.longitude !== undefined && value.latitude !== undefined) {
-    const coords = [Number(value.longitude), Number(value.latitude)];
-    if (coords.every(Number.isFinite)) return coords;
-  }
-  return null;
-}
-
-function calculateDistanceKm(fromCoords, toCoords) {
-  if (!fromCoords || !toCoords) return 0;
-  const [lon1, lat1] = fromCoords.map(Number);
-  const [lon2, lat2] = toCoords.map(Number);
-  if (![lon1, lat1, lon2, lat2].every(Number.isFinite)) return 0;
-
-  const radiusKm = 6371;
-  const toRadians = degrees => degrees * Math.PI / 180;
-  const dLat = toRadians(lat2 - lat1);
-  const dLon = toRadians(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) *
-    Math.sin(dLon / 2) ** 2;
-  return Number((radiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))).toFixed(2));
-}
-
-async function buildRoadsideQuote(emergency, responder, payload = {}, config = {}) {
-  const serviceType = getResponderServiceType(responder, payload.serviceType);
-  const isTow = ['tow_truck', 'accident_recovery'].includes(serviceType);
-  const pricingMode = payload.pricingMode === 'custom' ? 'custom' : 'base';
-  const destination = payload.destination || {};
-  const destinationCoords = getCoordinatePair(destination);
-  const emergencyCoords = getCoordinatePair(emergency.location);
-  const distanceKm = Number(payload.distanceKm || calculateDistanceKm(emergencyCoords, destinationCoords) || 0);
-  const safeDistanceKm = Number.isFinite(distanceKm) && distanceKm > 0 ? Number(distanceKm.toFixed(2)) : 0;
-  const towBaseFee = numberSetting(config.towBaseFee || config.towAssistanceFee, DEFAULT_EMERGENCY_CONFIG.towBaseFee);
-  const towPerKmFee = numberSetting(config.towPerKmFee, DEFAULT_EMERGENCY_CONFIG.towPerKmFee);
-  const mechanicBaseFee = numberSetting(config.mechanicBaseFee || config.mechanicAssistanceFee, DEFAULT_EMERGENCY_CONFIG.mechanicBaseFee);
-  const baseFee = isTow ? towBaseFee : mechanicBaseFee;
-  const distanceFee = isTow ? Number((safeDistanceKm * towPerKmFee).toFixed(2)) : 0;
-  const calloutFee = toMoney(payload.calloutFee);
-  const labourFee = toMoney(payload.labourFee);
-  const partsEstimate = toMoney(payload.partsEstimate);
-  const towingFee = isTow ? Number((baseFee + distanceFee).toFixed(2)) : 0;
-  const baseTotal = isTow ? towingFee : baseFee;
-  const customTotal = toMoney(payload.total || payload.amount);
-  const total = pricingMode === 'custom'
-    ? Math.max(baseTotal, customTotal || Number((baseTotal + calloutFee + labourFee + partsEstimate).toFixed(2)))
-    : Number(baseTotal.toFixed(2));
-
-  if (isTow && safeDistanceKm <= 0) {
-    throw new Error('A towing quote must include the distance in kilometres or destination coordinates.');
-  }
-
-  const fees = await calculateRoadsideProviderFees(total, 'digital');
-  return {
-    quote: {
-      quoteReference: createPaymentReference('SOS-QTE'),
-      serviceType,
-      pricingMode,
-      destination: {
-        address: destination.address,
-        coordinates: destinationCoords || undefined
-      },
-      distanceKm: safeDistanceKm,
-      baseFee: Number(baseFee.toFixed(2)),
-      distanceFee,
-      calloutFee,
-      labourFee,
-      partsEstimate,
-      towingFee,
-      total,
-      currency: 'USD',
-      notes: payload.notes,
-      submittedAt: new Date()
-    },
-    fees
-  };
+function ensureEmergencyRuntimeFields(emergency) {
+  if (!Array.isArray(emergency.timeline)) emergency.timeline = [];
+  if (!Array.isArray(emergency.notifications)) emergency.notifications = [];
+  if (!Array.isArray(emergency.emergencyContactsNotified)) emergency.emergencyContactsNotified = [];
+  if (!emergency.response || typeof emergency.response !== 'object') emergency.response = {};
+  if (!Array.isArray(emergency.response.responders)) emergency.response.responders = [];
+  return emergency;
 }
 
 /**
@@ -446,6 +168,7 @@ exports.triggerSOS = async (req, res) => {
       voiceNote,
       priority: severity === 'critical' ? 1 : (severity === 'high' ? 2 : 3)
     });
+    ensureEmergencyRuntimeFields(emergency);
 
     // Send immediate notifications
     const notificationPromises = [];
@@ -530,7 +253,7 @@ exports.triggerSOS = async (req, res) => {
         location: emergency.location,
         routing: {
           roadsideBroadcast: ROADSIDE_TYPES.has(emergency.emergencyType),
-          externalDispatch: emergency.response.externalDispatch?.status || 'not_required',
+          externalDispatch: emergency.response?.externalDispatch?.status || 'not_required',
           adminVisible: true
         }
       }
@@ -1026,7 +749,7 @@ exports.respondToEmergency = async (req, res) => {
           message: 'Responder must accept and arrive before completing assistance.'
         });
       }
-      await settleCompletedRoadsideAssistance(emergency, responseItem, responder, req.user.id);
+      await emergencySettlementService.settleCompletedRoadsideAssistance(emergency, responseItem, responder, req.user.id);
       responseItem.status = 'completed';
       responder.availability.status = 'available';
       responder.availability.isAvailable = true;

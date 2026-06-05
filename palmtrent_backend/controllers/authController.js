@@ -182,9 +182,18 @@ const register = async (req, res) => {
 const login = async (req, res) => {
   try {
     const { email, phone, password } = req.body;
-    const loginQuery = phone
-      ? { phone }
-      : { email: String(email || '').toLowerCase() };
+    const normalizedPhone = normalizeZimbabwePhone(phone);
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const loginQuery = normalizedPhone
+      ? { phone: normalizedPhone }
+      : { email: normalizedEmail };
+
+    if (!loginQuery.phone && !loginQuery.email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Enter your email or mobile number to sign in.'
+      });
+    }
 
     // Find user and include password for comparison
     const user = await User.findOne(loginQuery).select('+password');
