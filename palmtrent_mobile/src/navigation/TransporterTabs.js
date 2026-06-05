@@ -11,6 +11,7 @@ import ProfileScreen from '../screens/ProfileScreen';
 import TrackingScreen from '../screens/TrackingScreen';
 import PendingJobsScreen from '../screens/transporter/PendingJobsScreen';
 import FleetDashboardScreen from '../screens/transporter/FleetDashboardScreen';
+import DriverMarketplaceScreen from '../screens/transporter/DriverMarketplaceScreen';
 
 const Tab = createBottomTabNavigator();
 const EmergencyTabScreen = () => null;
@@ -74,6 +75,16 @@ const TransporterTabs = () => {
         }}
       />
       
+      <Tab.Screen 
+        name="Drivers" 
+        component={DriverMarketplaceScreen}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <MaterialIcons name="person-search" size={size} color={color} />
+          ),
+          title: 'Drivers',
+        }}
+      />
       <Tab.Screen 
         name="Profile" 
         component={ProfileScreen}

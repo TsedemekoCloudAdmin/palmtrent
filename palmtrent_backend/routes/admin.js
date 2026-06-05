@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const {
   getDashboardStats,
+  createUser,
   getUsers,
   getUserById,
   updateUser,
@@ -120,6 +121,7 @@ router.get('/seed/jobs/:jobId', (req, res) => {
 
 // Users
 router.get('/users', getUsers);
+router.post('/users', createUser);
 router.get('/users/:id', getUserById);
 router.put('/users/:id', updateUser);
 router.put('/users/:id/verify', verifyUser);

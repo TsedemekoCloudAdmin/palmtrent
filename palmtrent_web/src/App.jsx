@@ -20,8 +20,11 @@ const getRoleHomePath = (user) => {
     case 'corporate':
       return '/corp';
     case 'trailer_owner':
+    case 'rental_owner':
       return '/fleet';
     case 'transporter':
+      return '/fleet';
+    case 'driver':
       return '/fleet';
     case 'shipper':
     default:

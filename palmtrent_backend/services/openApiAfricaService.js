@@ -43,6 +43,9 @@ class OpenApiAfricaService {
         ? `Palmtrent subscription ${payment.subscription.plan?.name || payment.paymentReference}`
         : `Palmtrent freight booking ${payment.booking?.bookingReference || payment.paymentReference}`,
       multiplePayments: config.multiplePayments,
+      amount,
+      totalAmount: amount,
+      orderType: 'DYNAMIC',
       orderYpe: 'DYNAMIC',
       productsList: [{
         description: payment.subscription ? 'Palmtrent subscription payment' : 'Palmtrent freight booking payment',
@@ -99,6 +102,9 @@ class OpenApiAfricaService {
       customerPhoneNumber: customer.phone || payment.customer?.phone || '',
       description: `Palmtrent payment ${referenceLabel}`,
       multiplePayments: config.multiplePayments,
+      amount,
+      totalAmount: amount,
+      orderType: 'DYNAMIC',
       orderYpe: 'DYNAMIC',
       productsList: [{
         description: payment.subscription

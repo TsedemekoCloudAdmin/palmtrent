@@ -264,6 +264,29 @@ class ApiService {
     return this.request(`/drivers/${id}`);
   }
 
+  async searchMarketplaceDrivers(params = '') {
+    const query = typeof params === 'string' ? params : new URLSearchParams(params).toString();
+    return this.request(`/drivers/marketplace${query ? `?${query}` : ''}`);
+  }
+
+  async getMyDriverProfile() {
+    return this.request('/drivers/me');
+  }
+
+  async updateMyDriverProfile(data) {
+    return this.request('/drivers/me', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateMyDriverAvailability(data) {
+    return this.request('/drivers/me/availability', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
   async createDriver(data) {
     return this.request('/drivers', {
       method: 'POST',
@@ -588,7 +611,10 @@ class ApiService {
       ...response,
       data: plans.filter(plan => {
         if (plan.audience === audience) return true;
-        return audience === 'transporter' && plan.audience === 'trailer_owner';
+        if (audience === 'transporter' && plan.audience === 'trailer_owner') return true;
+        if (audience === 'rental_owner' && ['rental_owner', 'trailer_owner'].includes(plan.audience)) return true;
+        if (audience === 'trailer_owner' && ['trailer_owner', 'rental_owner'].includes(plan.audience)) return true;
+        return false;
       })
     };
   }
@@ -850,6 +876,17 @@ class ApiService {
     return this.request('/trailer-owner/trailers');
   }
 
+  async getRentalStaff() {
+    return this.request('/trailer-owner/staff');
+  }
+
+  async createRentalStaff(staffData) {
+    return this.request('/trailer-owner/staff', {
+      method: 'POST',
+      body: JSON.stringify(staffData),
+    });
+  }
+
   // Assignment methods
 async assignDriverToVehicle(vehicleId, driverId) {
   return this.request(`/vehicles/${vehicleId}/assign-driver`, {
@@ -873,12 +910,66 @@ async updateVehicleStatus(vehicleId, status) {
   });
 }
 
-async updateDriverStatus(driverId, status) {
-  return this.request(`/drivers/${driverId}/status`, {
-    method: 'PUT',
-    body: JSON.stringify({ status }),
-  });
-}
+  async updateDriverStatus(driverId, status) {
+    return this.request(`/drivers/${driverId}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    });
+  }
+
+  async getResponderProfile() {
+    return this.request('/emergency/responders/me');
+  }
+
+  async updateResponderProfile(data) {
+    return this.request('/emergency/responders/me', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateResponderAvailability(data) {
+    return this.request('/emergency/responders/me/availability', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getResponderRequests() {
+    return this.request('/emergency/responders/requests');
+  }
+
+  async getEmergencyDecisions() {
+    return this.request('/emergency/decisions');
+  }
+
+  async respondToEmergency(emergencyId, action, notes = '', quote = null) {
+    return this.request(`/emergency/${emergencyId}/respond`, {
+      method: 'PUT',
+      body: JSON.stringify({ action, notes, ...(quote ? { quote } : {}) }),
+    });
+  }
+
+  async acceptEmergencyQuote(emergencyId, responderId) {
+    return this.request(`/emergency/${emergencyId}/quotes/${responderId}/accept`, {
+      method: 'PUT',
+      body: JSON.stringify({}),
+    });
+  }
+
+  async rejectEmergencyQuote(emergencyId, responderId, reason = '') {
+    return this.request(`/emergency/${emergencyId}/quotes/${responderId}/reject`, {
+      method: 'PUT',
+      body: JSON.stringify({ reason }),
+    });
+  }
+
+  async createEmergencyPayment(emergencyId, paymentMethod = 'clicknpay', customer = {}, options = {}) {
+    return this.request(`/emergency/${emergencyId}/payment`, {
+      method: 'POST',
+      body: JSON.stringify({ paymentMethod, customer, ...options }),
+    });
+  }
 
 // Rating endpoints
 async submitRating(bookingId, ratingData) {
@@ -1087,6 +1178,13 @@ async getRentalDetails(rentalId) {
 
 async createRentalRequest(rentalData) {
   return this.request('/rentals/request', {
+    method: 'POST',
+    body: JSON.stringify(rentalData),
+  });
+}
+
+async createWalkInRental(rentalData) {
+  return this.request('/rentals/walk-in', {
     method: 'POST',
     body: JSON.stringify(rentalData),
   });

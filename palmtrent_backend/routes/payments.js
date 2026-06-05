@@ -13,6 +13,7 @@ const {
   verifyAgentPayment,
   handleEcocashAgentWebhook,
   testAgentWebhook,
+  reconcileEcocashAgentPayments,
   // Escrow endpoints
   getEscrowStatus,
   confirmDeliveryForEscrow,
@@ -39,6 +40,7 @@ router.post('/resulturl', handlePaynowWebhook);
 // EcoCash Agent webhook - called by EcoCash when cash is deposited
 router.post('/ecocash-agent/webhook', handleEcocashAgentWebhook);
 router.get('/ecocash-agent/webhook', testAgentWebhook); // Health check
+router.post('/ecocash-agent/reconcile', reconcileEcocashAgentPayments); // Internal scheduler hook
 
 // All other routes require authentication
 router.use(protect);
@@ -58,6 +60,7 @@ router.post('/confirm-cash', confirmCashPayment);
 // EcoCash Agent payment routes
 router.post('/initiate-agent', initiateAgentPayment);
 router.post('/verify-agent', verifyAgentPayment);
+router.post('/ecocash-agent/reconcile-admin', reconcileEcocashAgentPayments);
 
 // Check payment status
 router.get('/status/:paymentReference', checkPaymentStatus);

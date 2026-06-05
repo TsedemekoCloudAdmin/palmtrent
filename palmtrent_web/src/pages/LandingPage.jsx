@@ -19,11 +19,13 @@ const FALLBACK_STATS = {
 const getTrackingAddress = (point) => point?.address || point?.city || point?.name || 'N/A';
 
 const isPlanCompatibleWithUser = (planAudience, userType) => (
-  planAudience === userType || (planAudience === 'trailer_owner' && userType === 'transporter')
+  planAudience === userType ||
+  (planAudience === 'trailer_owner' && ['transporter', 'rental_owner'].includes(userType)) ||
+  (planAudience === 'rental_owner' && ['trailer_owner', 'rental_owner'].includes(userType))
 );
 
 const getSignupTypeForPlan = (plan) => (
-  plan?.audience === 'trailer_owner' ? 'transporter' : plan?.audience
+  plan?.audience === 'trailer_owner' ? 'rental_owner' : plan?.audience
 );
 
 const getRoleHomePath = (user) => {
@@ -33,7 +35,9 @@ const getRoleHomePath = (user) => {
     case 'corporate':
       return '/corp';
     case 'trailer_owner':
+    case 'rental_owner':
     case 'transporter':
+    case 'driver':
       return '/fleet';
     case 'shipper':
     default:
@@ -241,9 +245,10 @@ const LandingPage = () => {
       throw new Error(response.message || 'Account created, but sign-in did not complete. Please try signing in.');
     }
 
-    if (selectedPlanCode) {
+    const registrationPlanCode = selectedPlanCode || (registerForm.userType === 'driver' ? 'driver_annual' : '');
+    if (registrationPlanCode) {
       try {
-        const subscription = await publicAPI.createSubscription(selectedPlanCode);
+        const subscription = await publicAPI.createSubscription(registrationPlanCode);
         setSubscriptionMessage(subscription.message || 'Subscription selected. Complete payment to activate access.');
         const redirected = await startSubscriptionPayment(subscription.data);
         if (redirected) return;
@@ -582,7 +587,7 @@ const LandingPage = () => {
                   onChange={() => handleHeroUserTypeChange('shipper')}
                 />
                 <Package className="icon" />
-                <span>I Need Transport</span>
+                <span>Book transport</span>
               </label>
               <label className={`toggle-option ${userType === 'transporter' ? 'active' : ''}`}>
                 <input
@@ -593,7 +598,40 @@ const LandingPage = () => {
                   onChange={() => handleHeroUserTypeChange('transporter')}
                 />
                 <Truck className="icon" />
-                <span>I Own a Truck</span>
+                <span>Move goods / rent vehicles</span>
+              </label>
+              <label className={`toggle-option ${userType === 'rental_owner' ? 'active' : ''}`}>
+                <input
+                  type="radio"
+                  name="heroUserType"
+                  value="rental_owner"
+                  checked={userType === 'rental_owner'}
+                  onChange={() => handleHeroUserTypeChange('rental_owner')}
+                />
+                <Building className="icon" />
+                <span>Vehicle rental owner</span>
+              </label>
+              <label className={`toggle-option ${userType === 'trailer_owner' ? 'active' : ''}`}>
+                <input
+                  type="radio"
+                  name="heroUserType"
+                  value="trailer_owner"
+                  checked={userType === 'trailer_owner'}
+                  onChange={() => handleHeroUserTypeChange('trailer_owner')}
+                />
+                <Truck className="icon" />
+                <span>Trailer rental owner</span>
+              </label>
+              <label className={`toggle-option ${userType === 'driver' ? 'active' : ''}`}>
+                <input
+                  type="radio"
+                  name="heroUserType"
+                  value="driver"
+                  checked={userType === 'driver'}
+                  onChange={() => handleHeroUserTypeChange('driver')}
+                />
+                <User className="icon" />
+                <span>Driver looking for work</span>
               </label>
             </div>
 
@@ -969,7 +1007,7 @@ const LandingPage = () => {
                 >
                   <Package className="icon" />
                   <span>Shipper</span>
-                  <small>I need transport</small>
+                  <small>Book transport and track deliveries</small>
                 </button>
                 <button
                   type="button"
@@ -978,7 +1016,34 @@ const LandingPage = () => {
                 >
                   <Truck className="icon" />
                   <span>Transporter</span>
-                  <small>I have a truck</small>
+                  <small>Carry goods and rent out vehicles</small>
+                </button>
+                <button
+                  type="button"
+                  className={`type-option ${registerForm.userType === 'rental_owner' ? 'active' : ''}`}
+                  onClick={() => setRegisterForm(prev => ({ ...prev, userType: 'rental_owner' }))}
+                >
+                  <Building className="icon" />
+                  <span>Rental Owner</span>
+                  <small>Rent cars, bakkies, vans, trailers, or other vehicles</small>
+                </button>
+                <button
+                  type="button"
+                  className={`type-option ${registerForm.userType === 'trailer_owner' ? 'active' : ''}`}
+                  onClick={() => setRegisterForm(prev => ({ ...prev, userType: 'trailer_owner' }))}
+                >
+                  <Truck className="icon" />
+                  <span>Trailer Owner</span>
+                  <small>Rent trailers, tractor units, trucks, and full rigs</small>
+                </button>
+                <button
+                  type="button"
+                  className={`type-option ${registerForm.userType === 'driver' ? 'active' : ''}`}
+                  onClick={() => setRegisterForm(prev => ({ ...prev, userType: 'driver' }))}
+                >
+                  <User className="icon" />
+                  <span>Driver</span>
+                  <small>Create a work profile and set availability</small>
                 </button>
                 <button
                   type="button"

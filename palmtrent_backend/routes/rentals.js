@@ -4,6 +4,7 @@ const {
   getAvailableRentals,
   getRentalDetails,
   createRentalRequest,
+  createWalkInRental,
   getMyRentals,
   getMyListings,
   getActiveRentals,
@@ -29,6 +30,7 @@ router.use(protect);
 
 // Rental requests
 router.post('/request', createRentalRequest);
+router.post('/walk-in', createWalkInRental);
 router.get('/my-rentals', getMyRentals);
 router.get('/my-listings', getMyListings);
 router.get('/active', getActiveRentals);

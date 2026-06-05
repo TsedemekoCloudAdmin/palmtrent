@@ -1,12 +1,15 @@
 // controllers/paymentController.js
+const { randomUUID } = require('crypto');
 const { Paynow } = require("paynow");
 const Booking = require('../models/Booking');
 const Payment = require('../models/Payment');
 const Rental = require('../models/Rental');
 const Subscription = require('../models/Subscription');
+const Emergency = require('../models/Emergency');
 const paymentService = require('../services/paymentService');
 const escrowService = require('../services/escrowService');
 const openApiAfricaService = require('../services/openApiAfricaService');
+const ecocashOpenApiService = require('../services/ecocashOpenApiService');
 const payoutService = require('../services/payoutService');
 const { getIntegrationConfig } = require('../services/integrationSettingsService');
 const {
@@ -28,10 +31,17 @@ const loadPaymentWithAccessContext = (paymentReference) => {
   return Payment.findOne({ paymentReference })
     .populate('booking')
     .populate('rental')
+    .populate('emergency')
     .populate({ path: 'subscription', populate: { path: 'plan user' } });
 };
 
 const getCurrentUserId = (user) => user?._id || user?.id;
+
+const normalizeEcocashPhone = (value) => {
+  return ecocashOpenApiService.normalizeMsisdn
+    ? ecocashOpenApiService.normalizeMsisdn(value)
+    : String(value || '').replace(/[^\d]/g, '').replace(/^0/, '263');
+};
 
 // List payments visible to the current user.
 exports.getPayments = async (req, res) => {
@@ -56,7 +66,7 @@ exports.getPayments = async (req, res) => {
       const userId = getCurrentUserId(req.user);
       const canQuerySubscriptions = /^[a-f\d]{24}$/i.test(String(userId || ''));
 
-      const [bookings, rentals, subscriptions] = await Promise.all([
+      const [bookings, rentals, subscriptions, emergencies] = await Promise.all([
         Booking.find({
           $or: [
             { user: userId },
@@ -72,7 +82,13 @@ exports.getPayments = async (req, res) => {
         }).select('_id'),
         canQuerySubscriptions
           ? Subscription.find({ user: userId }).select('_id')
-          : Promise.resolve([])
+          : Promise.resolve([]),
+        Emergency.find({
+          $or: [
+            { triggeredBy: userId },
+            { 'response.responders.user': userId }
+          ]
+        }).select('_id')
       ]);
 
       query.$or = [
@@ -82,12 +98,16 @@ exports.getPayments = async (req, res) => {
       if (subscriptions.length) {
         query.$or.push({ subscription: { $in: subscriptions.map(item => item._id) } });
       }
+      if (emergencies.length) {
+        query.$or.push({ emergency: { $in: emergencies.map(item => item._id) } });
+      }
     }
 
     const [payments, total] = await Promise.all([
       Payment.find(query)
         .populate('booking', 'bookingId bookingReference status route')
         .populate('rental', 'rentalReference status itemType')
+        .populate('emergency', 'emergencyType status billing')
         .populate({ path: 'subscription', select: 'status amount currency payment plan', populate: { path: 'plan', select: 'name code audience billingCycle' } })
         .sort({ createdAt: -1 })
         .skip((currentPage - 1) * pageSize)
@@ -214,6 +234,15 @@ const initiatePayment = async (req, res) => {
     payment.status = 'initiated';
     payment.initiatedAt = new Date();
     await payment.save();
+    if (payment.emergency) {
+      await Emergency.findByIdAndUpdate(payment.emergency._id || payment.emergency, {
+        $set: {
+          'billing.payment': payment._id,
+          'billing.paymentReference': payment.paymentReference,
+          'billing.paymentStatus': 'initiated'
+        }
+      });
+    }
 
     if (payment.gateway === 'openapi_africa') {
       const result = await openApiAfricaService.createOrder(paymentReference, customer);
@@ -394,6 +423,27 @@ exports.checkPaymentStatus = async (req, res) => {
       }
     }
 
+    const ecocashConfigured = await ecocashOpenApiService.isConfigured();
+    if (
+      payment.paymentMethod === 'cash_agent' &&
+      ['initiated', 'processing', 'pending'].includes(payment.status) &&
+      ecocashConfigured
+    ) {
+      try {
+        await ecocashOpenApiService.refreshCashAgentPayment(payment);
+      } catch (pollError) {
+        console.error('EcoCash agent lookup error:', pollError.message || pollError);
+        payment.metadata = {
+          ...(payment.metadata || {}),
+          ecocashLookupLastError: {
+            message: pollError.message || 'EcoCash lookup failed',
+            checkedAt: new Date()
+          }
+        };
+        await payment.save();
+      }
+    }
+
     // Get updated payment
     const updatedPayment = await loadPaymentWithAccessContext(paymentReference);
 
@@ -405,7 +455,16 @@ exports.checkPaymentStatus = async (req, res) => {
         amount: updatedPayment.amount,
         paymentMethod: updatedPayment.paymentMethod,
         confirmedAt: updatedPayment.confirmedAt,
-        expiresAt: updatedPayment.expiresAt
+        expiresAt: updatedPayment.expiresAt,
+        lookup: updatedPayment.metadata?.ecocashLookup
+          ? {
+              provider: 'ecocash',
+              sourceReference: updatedPayment.metadata.ecocashLookup.sourceReference,
+              lastStatus: updatedPayment.metadata.ecocashLookupStatus?.status,
+              lastCheckedAt: updatedPayment.metadata.ecocashLookupStatus?.checkedAt,
+              lastError: updatedPayment.metadata.ecocashLookupLastError?.message
+            }
+          : undefined
       }
     });
 
@@ -555,19 +614,28 @@ exports.initiateAgentPayment = async (req, res) => {
 
     const payment = await paymentService.createPayment(bookingId, amount, 'cash_agent', customer);
 
-    // Generate a shorter, agent-friendly reference (6 digits)
+    // Generate a shorter, agent-friendly reference plus the UUID EcoCash requires for C2B lookup.
     const agentCode = generateAgentCode();
+    const ecocashSourceReference = randomUUID();
+    const ecocashSourceMobileNumber = normalizeEcocashPhone(customer.phone || booking.contact?.phone || booking.shipperPhone);
 
     // Update payment with agent code
     payment.metadata = {
       ...payment.metadata,
       agentCode,
-      agentCodeGeneratedAt: new Date()
+      agentCodeGeneratedAt: new Date(),
+      ecocashLookup: {
+        sourceReference: ecocashSourceReference,
+        sourceMobileNumber: ecocashSourceMobileNumber,
+        mode: process.env.ECOCASH_OPENAPI_MODE || process.env.ECOCASH_MODE || 'sandbox'
+      }
     };
     await payment.save();
 
     // Calculate expiry time (24 hours)
     const expiresAt = new Date(payment.expiresAt);
+
+    const ecocashConfig = await ecocashOpenApiService.getConfig();
 
     res.status(201).json({
       success: true,
@@ -575,6 +643,7 @@ exports.initiateAgentPayment = async (req, res) => {
         paymentId: payment._id,
         paymentReference: payment.paymentReference,
         agentCode, // Short code for agent payments
+        ecocashSourceReference,
         amount: payment.amount,
         currency: payment.currency,
         expiresAt,
@@ -583,11 +652,12 @@ exports.initiateAgentPayment = async (req, res) => {
           steps: [
             'Visit any EcoCash Agent near you',
             `Quote reference: ${agentCode}`,
+            `If the agent asks for the EcoCash source reference, use: ${ecocashSourceReference}`,
             `Pay USD $${payment.amount.toFixed(2)}`,
             'Keep your receipt',
             'Payment will be confirmed automatically'
           ],
-          merchantCode: process.env.ECOCASH_MERCHANT_CODE || 'PALMTRENT',
+          merchantCode: ecocashConfig.merchantCode || 'PALMTRENT',
           supportPhone: process.env.SUPPORT_PHONE || '+263 77 123 4567',
           validUntil: expiresAt.toISOString(),
           note: 'Please ensure you quote the exact reference number to the agent'
@@ -614,24 +684,34 @@ function generateAgentCode() {
 // NEW: Verify agent payment by code (for admin/agent confirmation)
 exports.verifyAgentPayment = async (req, res) => {
   try {
-    const { agentCode, confirmedAmount } = req.body;
+    const {
+      agentCode,
+      paymentReference,
+      ecocashReference,
+      confirmedAmount,
+      verifyWithEcocash = false,
+      manualOverride = false
+    } = req.body;
 
     if (!isAdmin(req.user)) {
       return notAuthorized(res, 'Only an admin can manually verify agent payments');
     }
 
-    if (!agentCode) {
+    if (!agentCode && !paymentReference) {
       return res.status(400).json({
         success: false,
-        message: 'Agent code is required'
+        message: 'Agent code or payment reference is required'
       });
     }
 
     // Find payment by agent code
     const payment = await Payment.findOne({
-      'metadata.agentCode': agentCode,
+      $or: [
+        ...(agentCode ? [{ 'metadata.agentCode': agentCode }] : []),
+        ...(paymentReference ? [{ paymentReference }] : [])
+      ],
       paymentMethod: 'cash_agent',
-      status: { $in: ['pending', 'initiated'] }
+      status: { $in: ['pending', 'initiated', 'processing'] }
     }).populate('booking');
 
     if (!payment) {
@@ -649,6 +729,48 @@ exports.verifyAgentPayment = async (req, res) => {
       });
     }
 
+    if (verifyWithEcocash) {
+      if (!(await ecocashOpenApiService.isConfigured())) {
+        return res.status(400).json({
+          success: false,
+          message: 'EcoCash Open API is not configured. Add the EcoCash Open API key in Admin Settings.'
+        });
+      }
+
+      const lookup = await ecocashOpenApiService.refreshCashAgentPayment(payment, {
+        expectedEcocashReference: ecocashReference
+      });
+      const refreshedPayment = await Payment.findById(payment._id).populate('booking');
+      const providerReference = lookup?.data?.ecocashReference;
+      const referenceMatches = lookup.referenceMatches !== false;
+
+      return res.json({
+        success: refreshedPayment.status === 'confirmed' && referenceMatches,
+        data: {
+          paymentReference: refreshedPayment.paymentReference,
+          agentCode: refreshedPayment.metadata?.agentCode,
+          amount: refreshedPayment.amount,
+          status: refreshedPayment.status,
+          bookingReference: refreshedPayment.booking?.bookingReference,
+          ecocashReference: providerReference,
+          referenceMatches,
+          lookup
+        },
+        message: refreshedPayment.status === 'confirmed' && referenceMatches
+          ? 'Payment verified with EcoCash and confirmed successfully'
+          : refreshedPayment.status === 'confirmed' && !referenceMatches
+            ? 'EcoCash lookup confirmed a payment, but the EcoCash reference does not match the supplied reference'
+          : 'EcoCash lookup completed but the payment is not confirmed yet'
+      });
+    }
+
+    if (ecocashReference && !manualOverride) {
+      return res.status(400).json({
+        success: false,
+        message: 'EcoCash reference fallback needs manualOverride=true after admin verifies the receipt in EcoCash.'
+      });
+    }
+
     // Verify amount if provided
     if (confirmedAmount && Math.abs(confirmedAmount - payment.amount) > 0.01) {
       return res.status(400).json({
@@ -660,10 +782,14 @@ exports.verifyAgentPayment = async (req, res) => {
     // Confirm the payment
     await paymentService.confirmPayment(payment.paymentReference, {
       gateway: 'cash_agent',
+      gatewayReference: ecocashReference,
       metadata: {
         confirmedBy: req.user?.id || 'agent',
         confirmedAt: new Date(),
-        confirmedAmount: confirmedAmount || payment.amount
+        confirmedAmount: confirmedAmount || payment.amount,
+        ecocashReference,
+        verificationMode: ecocashReference ? 'manual_ecocash_reference' : 'manual_agent_code',
+        manualOverride: Boolean(manualOverride)
       }
     });
 
@@ -672,6 +798,7 @@ exports.verifyAgentPayment = async (req, res) => {
       data: {
         paymentReference: payment.paymentReference,
         agentCode: payment.metadata.agentCode,
+        ecocashReference,
         amount: payment.amount,
         status: 'confirmed',
         bookingReference: payment.booking?.bookingReference
@@ -694,21 +821,38 @@ exports.handleEcocashAgentWebhook = async (req, res) => {
   try {
     const {
       reference,        // Our agent code (e.g., PT123456)
+      clientReference,  // Official EcoCash callback field for our UUID source reference
+      sourceReference,  // Alternate EcoCash source reference field
       merchantCode,     // EcoCash merchant code
       amount,           // Amount deposited
       transactionId,    // EcoCash transaction ID
+      ecocashReference, // Official EcoCash transaction reference
+      transactionOperationStatus,
       phoneNumber,      // Customer phone (optional)
+      customerMsisdn,
       timestamp,        // Transaction timestamp
       signature         // HMAC signature for verification
     } = req.body;
+    const callbackReference = clientReference || sourceReference || reference;
+    const callbackStatus = transactionOperationStatus || req.body.status;
+    const callbackTransactionId = ecocashReference || transactionId;
 
     console.log('EcoCash Agent Webhook received:', {
-      reference,
+      reference: callbackReference,
       merchantCode,
       amount,
-      transactionId,
+      transactionId: callbackTransactionId,
+      status: callbackStatus,
       timestamp
     });
+
+    if (!callbackReference && !callbackTransactionId) {
+      return res.status(200).json({
+        success: false,
+        message: 'No usable payment reference supplied',
+        acknowledged: true
+      });
+    }
 
     // Step 1: Verify webhook signature whenever an EcoCash secret is configured.
     if (process.env.ECOCASH_WEBHOOK_SECRET) {
@@ -720,7 +864,7 @@ exports.handleEcocashAgentWebhook = async (req, res) => {
         });
       }
       const crypto = require('crypto');
-      const payload = `${reference}${amount}${transactionId}${timestamp}`;
+      const payload = `${callbackReference}${amount || ''}${callbackTransactionId || ''}${timestamp || ''}`;
       const expectedSignature = crypto
         .createHmac('sha256', process.env.ECOCASH_WEBHOOK_SECRET)
         .update(payload)
@@ -738,19 +882,90 @@ exports.handleEcocashAgentWebhook = async (req, res) => {
     // Step 2: Find payment by agent code
     const payment = await Payment.findOne({
       $or: [
-        { 'metadata.agentCode': reference },
-        { paymentReference: reference }
+        ...(callbackReference ? [
+          { 'metadata.agentCode': callbackReference },
+          { 'metadata.ecocashLookup.sourceReference': callbackReference },
+          { paymentReference: callbackReference }
+        ] : []),
+        ...(callbackTransactionId ? [
+          { gatewayReference: callbackTransactionId },
+          { 'metadata.ecocashReference': callbackTransactionId },
+          { 'metadata.ecocashTransactionId': callbackTransactionId },
+          { 'metadata.ecocashLookupStatus.ecocashReference': callbackTransactionId }
+        ] : [])
       ],
       paymentMethod: 'cash_agent',
-      status: { $in: ['pending', 'initiated'] }
+      status: { $in: ['pending', 'initiated', 'processing', 'confirmed'] }
     }).populate('booking');
 
     if (!payment) {
-      console.log('Payment not found for reference:', reference);
+      console.log('Payment not found for reference:', callbackReference);
       // Return 200 to acknowledge receipt (avoid retries for unknown references)
       return res.status(200).json({
         success: false,
         message: 'Payment not found',
+        acknowledged: true
+      });
+    }
+
+    const mappedCallbackStatus = ecocashOpenApiService.normalizeStatus
+      ? ecocashOpenApiService.normalizeStatus(callbackStatus)
+      : String(callbackStatus || '').toUpperCase() === 'SUCCESS' ? 'confirmed' : 'processing';
+
+    if (callbackStatus && ['failed', 'cancelled'].includes(mappedCallbackStatus)) {
+      await paymentService.updatePaymentStatus(payment.paymentReference, mappedCallbackStatus, {
+        ecocashCallback: req.body,
+        ecocashReference: callbackTransactionId
+      });
+      return res.status(200).json({
+        success: true,
+        message: `Payment marked ${mappedCallbackStatus} from EcoCash callback`,
+        acknowledged: true
+      });
+    }
+
+    if (callbackStatus && mappedCallbackStatus !== 'confirmed') {
+      await paymentService.updatePaymentStatus(payment.paymentReference, 'processing', {
+        ecocashCallback: req.body,
+        ecocashReference: callbackTransactionId
+      });
+      return res.status(200).json({
+        success: true,
+        message: 'EcoCash callback received. Payment is still processing.',
+        acknowledged: true
+      });
+    }
+
+    if (!amount && mappedCallbackStatus === 'confirmed' && (await ecocashOpenApiService.isConfigured())) {
+      const lookup = await ecocashOpenApiService.refreshCashAgentPayment(payment);
+      return res.status(200).json({
+        success: lookup.status === 'confirmed',
+        message: lookup.status === 'confirmed'
+          ? 'Payment confirmed successfully'
+          : 'Payment callback received; lookup did not confirm payment yet',
+        acknowledged: true,
+        data: {
+          paymentReference: payment.paymentReference,
+          agentCode: payment.metadata?.agentCode,
+          status: lookup.status,
+          lookup
+        }
+      });
+    }
+
+    if (!amount) {
+      payment.metadata = {
+        ...(payment.metadata || {}),
+        ecocashCallback: req.body,
+        ecocashLookupLastError: {
+          message: 'EcoCash callback did not include amount; lookup is required before confirmation.',
+          checkedAt: new Date()
+        }
+      };
+      await payment.save();
+      return res.status(200).json({
+        success: false,
+        message: 'Callback received. Payment remains pending until EcoCash lookup verifies amount.',
         acknowledged: true
       });
     }
@@ -778,13 +993,15 @@ exports.handleEcocashAgentWebhook = async (req, res) => {
     // Step 5: Confirm the payment
     await paymentService.confirmPayment(payment.paymentReference, {
       gateway: 'ecocash_agent',
-      gatewayReference: transactionId,
+      gatewayReference: callbackTransactionId,
       metadata: {
         confirmedBy: 'webhook',
         confirmedAt: new Date(),
-        ecocashTransactionId: transactionId,
-        customerPhone: phoneNumber,
+        ecocashTransactionId: callbackTransactionId,
+        ecocashReference: callbackTransactionId,
+        customerPhone: phoneNumber || customerMsisdn,
         webhookTimestamp: timestamp,
+        webhookStatus: callbackStatus,
         confirmedAmount: parseFloat(amount)
       }
     });
@@ -792,7 +1009,7 @@ exports.handleEcocashAgentWebhook = async (req, res) => {
     console.log('Payment confirmed via webhook:', {
       paymentReference: payment.paymentReference,
       agentCode: payment.metadata.agentCode,
-      transactionId
+      transactionId: callbackTransactionId
     });
 
     // Step 6: Send notification to user (push + real-time socket)
@@ -857,12 +1074,46 @@ exports.handleEcocashAgentWebhook = async (req, res) => {
 
 // NEW: Webhook health check / test endpoint
 exports.testAgentWebhook = async (req, res) => {
+  const ecocashConfig = await ecocashOpenApiService.getConfig();
   res.json({
     success: true,
     message: 'EcoCash agent webhook endpoint is active',
-    merchantCode: process.env.ECOCASH_MERCHANT_CODE || 'PALMTRENT',
+    merchantCode: ecocashConfig.merchantCode || 'PALMTRENT',
     timestamp: new Date().toISOString()
   });
+};
+
+exports.reconcileEcocashAgentPayments = async (req, res) => {
+  try {
+    const internalKey = req.headers['x-internal-key'];
+    const isInternalCall = Boolean(
+      process.env.INTERNAL_JOB_KEY &&
+      internalKey &&
+      internalKey === process.env.INTERNAL_JOB_KEY
+    );
+
+    if (!isInternalCall && !isAdmin(req.user)) {
+      return notAuthorized(res, 'Admin or internal job access required');
+    }
+
+    const result = await ecocashOpenApiService.reconcilePendingCashAgentPayments({
+      limit: req.body?.limit || req.query?.limit,
+      minIntervalMs: req.body?.minIntervalMs || req.query?.minIntervalMs,
+      delayMs: req.body?.delayMs || req.query?.delayMs
+    });
+
+    res.json({
+      success: true,
+      data: result,
+      message: `EcoCash reconciliation completed. Checked ${result.checked} pending payment(s), confirmed ${result.confirmed}.`
+    });
+  } catch (error) {
+    console.error('EcoCash reconciliation error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'EcoCash reconciliation failed'
+    });
+  }
 };
 
 // ============ ESCROW ENDPOINTS ============

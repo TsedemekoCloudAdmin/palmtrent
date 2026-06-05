@@ -28,6 +28,30 @@ const rentalSchema = new mongoose.Schema({
     required: true
   },
 
+  channel: {
+    type: String,
+    enum: ['online', 'walk_in', 'staff_assisted'],
+    default: 'online'
+  },
+
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+
+  renterSnapshot: {
+    fullName: String,
+    email: String,
+    phone: String,
+    nationalId: String,
+    licenseNumber: String,
+    licenseExpiry: Date,
+    address: String,
+    emergencyContactName: String,
+    emergencyContactPhone: String,
+    notes: String
+  },
+
   // Reference to vehicle (if itemType is 'vehicle')
   vehicle: {
     type: mongoose.Schema.Types.ObjectId,
@@ -97,7 +121,16 @@ const rentalSchema = new mongoose.Schema({
     },
     photos: [String],
     signature: String,
-    completedBy: String
+    completedBy: String,
+    conditionChecklist: [{
+      item: String,
+      status: {
+        type: String,
+        enum: ['ok', 'issue', 'not_applicable'],
+        default: 'ok'
+      },
+      notes: String
+    }]
   },
   
   return: {
@@ -119,6 +152,15 @@ const rentalSchema = new mongoose.Schema({
     photos: [String],
     signature: String,
     completedBy: String,
+    conditionChecklist: [{
+      item: String,
+      status: {
+        type: String,
+        enum: ['ok', 'issue', 'not_applicable'],
+        default: 'ok'
+      },
+      notes: String
+    }],
     damages: [{
       description: String,
       severity: {

@@ -70,6 +70,17 @@ const DEFAULT_RULES = [
     platformFeeRate: 0.10,
     minimumFee: 2,
     priority: 100
+  },
+  {
+    code: 'roadside_assistance_default',
+    name: 'Roadside assistance default',
+    target: 'roadside_assistance',
+    audience: 'roadside_provider',
+    paymentMethod: 'digital',
+    platformFeeRate: 0.15,
+    minimumFee: 2,
+    priority: 100,
+    notes: 'Applied to SOS towing/mechanic assistance payments. Provider receives the remaining amount as payout.'
   }
 ];
 
@@ -101,6 +112,33 @@ const DEFAULT_PLANS = [
     billingCycle: 'monthly',
     features: ['List fleet assets', 'Rental operations', 'Settlement dashboard'],
     limits: { vehicles: 0, drivers: 0, monthlyBookings: 0, fleetAssets: 15, corporateSeats: 0, apiAccess: false, priorityMatching: false }
+  },
+  {
+    code: 'rental_owner_starter',
+    name: 'Rental Owner Starter',
+    audience: 'rental_owner',
+    price: 29,
+    billingCycle: 'monthly',
+    features: ['List small vehicle rentals', 'Manage rental staff', 'Compare booking requests', 'Rental settlement dashboard'],
+    limits: { vehicles: 10, drivers: 0, monthlyBookings: 0, fleetAssets: 10, corporateSeats: 3, apiAccess: false, priorityMatching: false }
+  },
+  {
+    code: 'driver_annual',
+    name: 'Driver Annual',
+    audience: 'driver',
+    price: 20,
+    billingCycle: 'annual',
+    features: ['Driver marketplace profile', 'Looking for work visibility', 'Availability calendar', 'Direct contact from fleet owners'],
+    limits: { vehicles: 0, drivers: 1, monthlyBookings: 0, fleetAssets: 0, corporateSeats: 0, apiAccess: false, priorityMatching: false }
+  },
+  {
+    code: 'roadside_provider_monthly',
+    name: 'Roadside Provider Monthly',
+    audience: 'roadside_provider',
+    price: 15,
+    billingCycle: 'monthly',
+    features: ['Receive nearby SOS breakdown requests', 'Tow/mechanic provider profile', 'Live availability controls', 'Roadside assistance payout tracking'],
+    limits: { vehicles: 3, drivers: 3, monthlyBookings: 0, fleetAssets: 0, corporateSeats: 0, apiAccess: false, priorityMatching: true }
   },
   {
     code: 'corporate_enterprise',

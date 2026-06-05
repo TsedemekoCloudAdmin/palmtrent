@@ -6,6 +6,35 @@ const driverSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    index: true
+  },
+  profileType: {
+    type: String,
+    enum: ['managed', 'marketplace'],
+    default: 'managed',
+    index: true
+  },
+  marketplace: {
+    visible: { type: Boolean, default: false, index: true },
+    lookingForWork: { type: Boolean, default: false, index: true },
+    preferredWorkTypes: [{
+      type: String,
+      enum: ['local', 'cross_border', 'long_distance', 'hazardous', 'refrigerated', 'heavy_haulage', 'small_vehicle', 'chauffeur']
+    }],
+    preferredLocations: [String],
+    expectedRate: {
+      amount: Number,
+      currency: { type: String, default: 'USD' },
+      period: { type: String, enum: ['daily', 'weekly', 'monthly', 'trip'], default: 'daily' }
+    },
+    availableImmediately: { type: Boolean, default: true },
+    headline: String,
+    bio: String,
+    lastAvailabilityUpdate: Date
+  },
   
   // Personal Information
   fullName: {
@@ -28,16 +57,13 @@ const driverSchema = new mongoose.Schema({
   
   // License Information
   licenseNumber: {
-    type: String,
-    required: true
+    type: String
   },
   licenseClass: {
-    type: String,
-    required: true
+    type: String
   },
   licenseExpiry: {
-    type: Date,
-    required: true
+    type: Date
   },
   licenseIssuingAuthority: String,
   
@@ -48,7 +74,7 @@ const driverSchema = new mongoose.Schema({
   },
   specialization: [{
     type: String,
-    enum: ['local', 'cross_border', 'hazardous', 'refrigerated', 'heavy_haulage']
+    enum: ['local', 'cross_border', 'long_distance', 'hazardous', 'refrigerated', 'heavy_haulage', 'small_vehicle', 'chauffeur']
   }],
   
   // Employment Details
@@ -144,6 +170,8 @@ const driverSchema = new mongoose.Schema({
 
 // Indexes
 driverSchema.index({ owner: 1, status: 1 });
+driverSchema.index({ profileType: 1, status: 1, 'availability.isAvailable': 1 });
+driverSchema.index({ 'marketplace.visible': 1, 'marketplace.lookingForWork': 1 });
 driverSchema.index({ licenseNumber: 1 });
 driverSchema.index({ status: 1 });
 driverSchema.index({ currentLocation: '2dsphere' });

@@ -13,6 +13,7 @@ import {
   ActivityIndicator
 } from 'react-native';
 import * as Location from 'expo-location';
+import { useNavigation } from '@react-navigation/native';
 import apiService from '../../services/apiService';
 
 const EMERGENCY_CONTACTS = {
@@ -39,9 +40,11 @@ const SOSButton = ({
   size = 'normal', // 'small', 'normal', 'large'
   showLabel = true
 }) => {
+  const navigation = useNavigation();
   const [showModal, setShowModal] = useState(false);
   const [isTriggering, setIsTriggering] = useState(false);
   const [emergencyActive, setEmergencyActive] = useState(null);
+  const [decisionOnly, setDecisionOnly] = useState(false);
   const [selectedType, setSelectedType] = useState(null);
   const [currentLocation, setCurrentLocation] = useState(null);
 
@@ -69,6 +72,47 @@ const SOSButton = ({
       pulse.start();
       return () => pulse.stop();
     }
+  }, [emergencyActive]);
+
+  useEffect(() => {
+    const emergencyId = emergencyActive?.emergencyId || emergencyActive?._id;
+    if (!emergencyId) return undefined;
+
+    const pollStatus = async () => {
+      try {
+        const response = await apiService.request(`/emergency/${emergencyId}`);
+        if (response.success && response.data) {
+          setEmergencyActive({ ...response.data, emergencyId });
+        }
+      } catch (error) {
+        console.log('SOS status poll error:', error.message);
+      }
+    };
+
+    pollStatus();
+    const interval = setInterval(pollStatus, 10000);
+    return () => clearInterval(interval);
+  }, [emergencyActive?.emergencyId, emergencyActive?._id]);
+
+  useEffect(() => {
+    if (emergencyActive) return undefined;
+
+    const pollDecisions = async () => {
+      try {
+        const response = await apiService.getEmergencyDecisions();
+        const decision = response.data?.[0];
+        if (decision) {
+          setDecisionOnly(true);
+          setEmergencyActive({ ...decision, emergencyId: decision._id });
+        }
+      } catch (error) {
+        console.log('SOS decision poll error:', error.message);
+      }
+    };
+
+    pollDecisions();
+    const interval = setInterval(pollDecisions, 15000);
+    return () => clearInterval(interval);
   }, [emergencyActive]);
 
   // Get current location
@@ -197,6 +241,7 @@ const SOSButton = ({
       });
 
       if (response.success) {
+        setDecisionOnly(false);
         setEmergencyActive(response.data);
         setShowModal(false);
         Vibration.vibrate([0, 500]);
@@ -256,6 +301,60 @@ const SOSButton = ({
     );
   };
 
+  const openEmergencyPayment = () => {
+    const emergencyId = emergencyActive?.emergencyId || emergencyActive?._id;
+    if (!emergencyId) return;
+
+    navigation.navigate('MobileMoneyPayment', {
+      paymentContext: 'emergency',
+      emergencyId,
+      emergencyTitle: `${emergencyActive.emergencyType || 'SOS'} assistance`,
+      amount: Number(emergencyActive.billing?.amount || 0),
+      paymentMethod: 'clicknpay',
+      paymentReference: emergencyActive.billing?.paymentReference
+    });
+  };
+
+  const canPayEmergency = Boolean(
+    emergencyActive?.billing?.amount > 0 &&
+    ['pending', 'initiated', 'processing', 'failed'].includes(emergencyActive?.billing?.paymentStatus)
+  );
+  const pendingQuote = (emergencyActive?.response?.responders || []).find(entry =>
+    entry.status === 'quote_submitted' && entry.quote?.total
+  );
+
+  const approveQuote = async () => {
+    const emergencyId = emergencyActive?.emergencyId || emergencyActive?._id;
+    const responderId = pendingQuote?.responder || pendingQuote?.user;
+    if (!emergencyId || !responderId) return;
+
+    try {
+      const response = await apiService.acceptEmergencyQuote(emergencyId, responderId);
+      if (!response.success) throw new Error(response.message || 'Unable to approve quote.');
+      setDecisionOnly(false);
+      setEmergencyActive({ ...response.data, emergencyId });
+      Alert.alert('Quote approved', 'The provider can now accept dispatch. You can pay the assistance charge when ready.');
+    } catch (error) {
+      Alert.alert('Approval failed', error.message || 'Unable to approve quote.');
+    }
+  };
+
+  const rejectQuote = async () => {
+    const emergencyId = emergencyActive?.emergencyId || emergencyActive?._id;
+    const responderId = pendingQuote?.responder || pendingQuote?.user;
+    if (!emergencyId || !responderId) return;
+
+    try {
+      const response = await apiService.rejectEmergencyQuote(emergencyId, responderId, 'Quote rejected from mobile app.');
+      if (!response.success) throw new Error(response.message || 'Unable to reject quote.');
+      setDecisionOnly(false);
+      setEmergencyActive(null);
+      Alert.alert('Quote rejected', 'The provider can submit a revised quote if the request is still active.');
+    } catch (error) {
+      Alert.alert('Rejection failed', error.message || 'Unable to reject quote.');
+    }
+  };
+
   // Button sizes
   const buttonSizes = {
     small: { width: 50, height: 50, fontSize: 12 },
@@ -284,21 +383,46 @@ const SOSButton = ({
               backgroundColor: emergencyActive ? '#FF3B30' : '#FF4444'
             }
           ]}
-          onPress={emergencyActive ? cancelEmergency : handleSOSPress}
+          onPress={emergencyActive ? (decisionOnly ? undefined : cancelEmergency) : handleSOSPress}
           onLongPress={handleLongPressStart}
           onPressOut={handleLongPressEnd}
           delayLongPress={300}
           activeOpacity={0.8}
         >
           <Text style={[styles.sosText, { fontSize: buttonSize.fontSize }]}>
-            {emergencyActive ? 'ACTIVE' : 'SOS'}
+            {emergencyActive ? (decisionOnly ? 'QUOTE' : 'ACTIVE') : 'SOS'}
           </Text>
         </TouchableOpacity>
         {showLabel && !emergencyActive && (
           <Text style={styles.helpText}>Hold for 2s</Text>
         )}
         {emergencyActive && (
-          <Text style={styles.activeText}>Tap to cancel</Text>
+          <>
+            <Text style={styles.activeText}>{decisionOnly ? 'Decision needed' : 'Tap to cancel'}</Text>
+            {pendingQuote && (
+              <View style={styles.quoteApprovalCard}>
+                <Text style={styles.quoteApprovalTitle}>Roadside quote</Text>
+                <Text style={styles.quoteApprovalAmount}>USD {Number(pendingQuote.quote?.total || 0).toFixed(2)}</Text>
+                <Text style={styles.quoteApprovalMeta}>
+                  {pendingQuote.quote?.serviceType?.replace(/_/g, ' ') || 'Roadside assistance'}
+                  {pendingQuote.quote?.distanceKm ? ` - ${Number(pendingQuote.quote.distanceKm).toFixed(1)} km` : ''}
+                </Text>
+                <View style={styles.quoteApprovalActions}>
+                  <TouchableOpacity style={styles.rejectQuoteButton} onPress={rejectQuote}>
+                    <Text style={styles.rejectQuoteText}>Reject</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.approveQuoteButton} onPress={approveQuote}>
+                    <Text style={styles.approveQuoteText}>Approve</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+            {canPayEmergency && (
+              <TouchableOpacity style={styles.payAssistanceButton} onPress={openEmergencyPayment}>
+                <Text style={styles.payAssistanceText}>Pay assistance</Text>
+              </TouchableOpacity>
+            )}
+          </>
         )}
       </Animated.View>
 
@@ -423,6 +547,82 @@ const styles = StyleSheet.create({
     color: '#FF4444',
     marginTop: 4,
     fontWeight: 'bold'
+  },
+  payAssistanceButton: {
+    marginTop: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: '#0C2D48',
+    borderWidth: 1,
+    borderColor: '#F37021'
+  },
+  payAssistanceText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800'
+  },
+  quoteApprovalCard: {
+    width: 230,
+    marginTop: 8,
+    padding: 10,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#F37021',
+    shadowColor: '#000000',
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 4
+  },
+  quoteApprovalTitle: {
+    color: '#0C2D48',
+    fontSize: 12,
+    fontWeight: '800'
+  },
+  quoteApprovalAmount: {
+    color: '#0C2D48',
+    fontSize: 18,
+    fontWeight: '900',
+    marginTop: 2
+  },
+  quoteApprovalMeta: {
+    color: '#475569',
+    fontSize: 11,
+    marginTop: 2,
+    textTransform: 'capitalize'
+  },
+  quoteApprovalActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 9
+  },
+  rejectQuoteButton: {
+    flex: 1,
+    minHeight: 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  rejectQuoteText: {
+    color: '#334155',
+    fontSize: 11,
+    fontWeight: '800'
+  },
+  approveQuoteButton: {
+    flex: 1,
+    minHeight: 34,
+    borderRadius: 10,
+    backgroundColor: '#F37021',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  approveQuoteText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800'
   },
   modalOverlay: {
     flex: 1,

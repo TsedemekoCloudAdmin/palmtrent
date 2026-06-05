@@ -15,11 +15,13 @@ const {
   getVehicleComplianceIssues
 } = require('../services/flowControlService');
 const { finalizeUploadedFile } = require('../services/uploadFinalizationService');
+const { canAccessRentalOwnerResource, getRentalOwnerScopeId } = require('../services/resourceAccessService');
 
 const RENTAL_SUBSCRIPTION_NOTICE = 'Vehicle saved, but rental marketplace listing is disabled until you activate a paid owner subscription.';
 const OBJECT_ID_PATTERN = /^[0-9a-fA-F]{24}$/;
-const VEHICLE_CATEGORIES = ['bakkie', 'truck', 'tractor', 'van'];
+const VEHICLE_CATEGORIES = ['car', 'suv', 'bakkie', 'truck', 'tractor', 'van'];
 const VEHICLE_SUBCATEGORIES = [
+  'hatchback', 'sedan', 'crossover', 'compact_suv', 'midsize_suv', 'mpv', 'minibus',
   'single_cab', 'double_cab', 'panel_van', 'delivery_van',
   '3ton', '5ton', '7ton', '10ton', '15ton', '20ton', '30ton',
   'horse_only', 'with_trailer', 'cargo_van', 'sprinter'
@@ -51,6 +53,15 @@ const normalizeSubcategory = (value = '') => {
   const aliases = {
     single_cab_bakkie: 'single_cab',
     double_cab_bakkie: 'double_cab',
+    compact_car: 'hatchback',
+    small_car: 'hatchback',
+    family_car: 'sedan',
+    saloon: 'sedan',
+    suv: 'midsize_suv',
+    compact_suv: 'compact_suv',
+    midsize_suv: 'midsize_suv',
+    people_carrier: 'mpv',
+    minibus_van: 'minibus',
     panel_van: 'panel_van',
     delivery_van: 'delivery_van',
     cargo_van: 'cargo_van',
@@ -67,6 +78,8 @@ const normalizeSubcategory = (value = '') => {
 };
 
 const categoryLabel = (category = 'truck') => ({
+  car: 'Car',
+  suv: 'SUV',
   bakkie: 'Bakkie',
   van: 'Van',
   truck: 'Truck',
@@ -74,6 +87,8 @@ const categoryLabel = (category = 'truck') => ({
 }[category] || 'Truck');
 
 const defaultLicenseClass = (category = 'truck') => ({
+  car: 'code_8',
+  suv: 'code_8',
   bakkie: 'code_8',
   van: 'code_8',
   truck: 'code_10',
@@ -82,6 +97,13 @@ const defaultLicenseClass = (category = 'truck') => ({
 
 const defaultVehicleCapacity = (category = 'truck', subcategory = '') => {
   const maxBySubcategory = {
+    hatchback: 0.45,
+    sedan: 0.55,
+    crossover: 0.65,
+    compact_suv: 0.7,
+    midsize_suv: 0.85,
+    mpv: 0.8,
+    minibus: 1.2,
     single_cab: 1,
     double_cab: 1.2,
     panel_van: 2,
@@ -98,7 +120,12 @@ const defaultVehicleCapacity = (category = 'truck', subcategory = '') => {
     horse_only: 34,
     with_trailer: 34
   };
-  const max = maxBySubcategory[subcategory] || (category === 'tractor' ? 34 : category === 'bakkie' ? 1 : 5);
+  const max = maxBySubcategory[subcategory] || (
+    category === 'tractor' ? 34 :
+      category === 'car' ? 0.5 :
+        category === 'suv' ? 0.8 :
+          category === 'bakkie' ? 1 : 5
+  );
   return { weight: { min: 0, max, unit: 'tonnes' } };
 };
 
@@ -234,12 +261,33 @@ function syncVehicleRentalFields(payload) {
   }
 }
 
+const vehicleReferencePopulate = [
+  { path: 'make', select: 'name country' },
+  { path: 'model', select: 'name yearStart yearEnd' },
+  { path: 'vehicleType', select: 'name code category subcategory capacity' },
+  { path: 'trailerType', select: 'name code category capacityRange' }
+];
+
+function vehicleDisplayObject(vehicle) {
+  const object = vehicle?.toObject ? vehicle.toObject() : vehicle;
+  if (!object) return object;
+
+  return {
+    ...object,
+    makeName: object.make?.name || object.makeName || object.make,
+    modelName: object.model?.name || object.modelName || object.model,
+    vehicleTypeName: object.vehicleType?.name || object.vehicleTypeName || object.vehicleType,
+    trailerTypeName: object.trailerType?.name || object.trailerTypeName || object.trailerType
+  };
+}
+
 // Get all vehicles for a transporter
 exports.getVehicles = async (req, res) => {
   try {
     const { page = 1, limit = 10, status, type, availableForRental } = req.query;
     
-    const query = { owner: req.user._id };
+    const ownerScopeId = getRentalOwnerScopeId(req.user);
+    const query = { owner: ownerScopeId };
     
     if (status) query.status = status;
     if (type) query.vehicleType = type;
@@ -248,16 +296,17 @@ exports.getVehicles = async (req, res) => {
     }
 
     const vehicles = await Vehicle.find(query)
+      .populate(vehicleReferencePopulate)
       .populate('assignedDriver', 'fullName phone')
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);
 
     const total = await Vehicle.countDocuments(query);
-    const subscriptionIssues = await getRentalOwnerSubscriptionIssues(req.user._id);
+    const subscriptionIssues = await getRentalOwnerSubscriptionIssues(ownerScopeId);
     const rentalListingsBlocked = subscriptionIssues.length
       ? await Vehicle.countDocuments({
-          owner: req.user._id,
+          owner: ownerScopeId,
           $or: [
             { 'pricing.availableForRental': true },
             { 'rentalSettings.availableForRental': true }
@@ -267,7 +316,7 @@ exports.getVehicles = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: vehicles,
+      data: vehicles.map(vehicleDisplayObject),
       rentalMarketplaceNotice: rentalListingsBlocked > 0
         ? `${rentalListingsBlocked} vehicle rental listing${rentalListingsBlocked === 1 ? ' is' : 's are'} hidden from the marketplace until you activate a paid owner subscription.`
         : undefined,
@@ -291,6 +340,7 @@ exports.getVehicles = async (req, res) => {
 exports.getVehicle = async (req, res) => {
   try {
     const vehicle = await Vehicle.findById(req.params.id)
+      .populate(vehicleReferencePopulate)
       .populate('assignedDriver')
       .populate('rentalHistory.rental')
       .populate('rentalHistory.renter', 'fullName phone');
@@ -303,7 +353,7 @@ exports.getVehicle = async (req, res) => {
     }
 
     // Check ownership
-    if (vehicle.owner.toString() !== req.user._id.toString()) {
+    if (!canAccessRentalOwnerResource(req.user, vehicle.owner)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied'
@@ -312,7 +362,7 @@ exports.getVehicle = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: vehicle
+      data: vehicleDisplayObject(vehicle)
     });
   } catch (error) {
     console.error('Get vehicle error:', error);
@@ -328,14 +378,14 @@ exports.createVehicle = async (req, res) => {
   try {
     const vehicleData = {
       ...req.body,
-      owner: req.user._id
+      owner: getRentalOwnerScopeId(req.user)
     };
     await resolveVehicleReferences(vehicleData);
     syncVehicleRentalFields(vehicleData);
 
     let message = 'Vehicle added successfully';
     if (wantsVehicleRentalListing(vehicleData)) {
-      const subscriptionIssues = await getRentalOwnerSubscriptionIssues(req.user._id);
+      const subscriptionIssues = await getRentalOwnerSubscriptionIssues(getRentalOwnerScopeId(req.user));
       if (subscriptionIssues.length) {
         disableVehicleRentalListing(vehicleData);
         message = RENTAL_SUBSCRIPTION_NOTICE;
@@ -344,10 +394,11 @@ exports.createVehicle = async (req, res) => {
 
     const vehicle = new Vehicle(vehicleData);
     await vehicle.save();
+    const populatedVehicle = await Vehicle.findById(vehicle._id).populate(vehicleReferencePopulate);
 
     res.status(201).json({
       success: true,
-      data: vehicle,
+      data: vehicleDisplayObject(populatedVehicle),
       message
     });
   } catch (error) {
@@ -380,7 +431,7 @@ exports.updateVehicle = async (req, res) => {
     }
 
     // Check ownership
-    if (vehicle.owner.toString() !== req.user._id.toString()) {
+    if (!canAccessRentalOwnerResource(req.user, vehicle.owner)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied'
@@ -407,14 +458,14 @@ exports.updateVehicle = async (req, res) => {
     syncVehicleRentalFields(payload);
 
     if (wantsVehicleRentalListing(payload)) {
-      await assertRentalOwnerCanList(req.user._id);
+      await assertRentalOwnerCanList(getRentalOwnerScopeId(req.user));
     }
 
     vehicle = await Vehicle.findByIdAndUpdate(
       req.params.id,
       payload,
       { new: true, runValidators: true }
-    );
+    ).populate(vehicleReferencePopulate);
 
     await recordAudit({
       actor: req.user,
@@ -429,7 +480,7 @@ exports.updateVehicle = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: vehicle,
+      data: vehicleDisplayObject(vehicle),
       message: 'Vehicle updated successfully'
     });
   } catch (error) {
@@ -455,7 +506,7 @@ exports.deleteVehicle = async (req, res) => {
     }
 
     // Check ownership
-    if (vehicle.owner.toString() !== req.user._id.toString()) {
+    if (!canAccessRentalOwnerResource(req.user, vehicle.owner)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied'
@@ -506,8 +557,16 @@ exports.assignDriver = async (req, res) => {
     }
 
     // Check ownership
-    if (vehicle.owner.toString() !== req.user._id.toString() ||
-        (driver && driver.owner.toString() !== req.user._id.toString())) {
+    const driverBelongsToAccount = driver ? canAccessRentalOwnerResource(req.user, driver.owner) : true;
+    const driverIsAvailableMarketplace = driver
+      ? driver.profileType === 'marketplace' &&
+        driver.status === 'available' &&
+        driver.availability?.isAvailable !== false &&
+        !driver.assignedVehicle
+      : true;
+
+    if (!canAccessRentalOwnerResource(req.user, vehicle.owner) ||
+        (driver && !driverBelongsToAccount && !driverIsAvailableMarketplace)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied'
@@ -522,8 +581,13 @@ exports.assignDriver = async (req, res) => {
       });
     }
 
-    if (driverId) {
-      await assertDriverAssignable(driverId, req.user._id);
+    if (driverId && driverBelongsToAccount) {
+      await assertDriverAssignable(driverId, getRentalOwnerScopeId(req.user));
+    } else if (driverId && driver) {
+      if (driver.assignedVehicle) throw new Error('Driver cannot be assigned: Driver is already assigned to a vehicle');
+      if (driver.status !== 'available' || driver.availability?.isAvailable === false) {
+        throw new Error('Driver cannot be assigned: Driver is not available');
+      }
     }
 
     const existingDriverId = vehicle.assignedDriver;
@@ -536,6 +600,13 @@ exports.assignDriver = async (req, res) => {
 
     vehicle.assignedDriver = driverId || undefined;
     await vehicle.save();
+    await Shipment.updateMany(
+      {
+        vehicle: vehicle._id,
+        status: { $in: ['assigned', 'en_route_pickup', 'picked_up', 'in_transit', 'arrived_delivery'] }
+      },
+      driverId ? { assignedDriver: driverId } : { $unset: { assignedDriver: 1 } }
+    );
 
     if (driver) {
       driver.assignedVehicle = req.params.id;
@@ -587,6 +658,7 @@ exports.getAvailableForRental = async (req, res) => {
     if (minCapacity) query['capacity.weight.value'] = { $gte: parseInt(minCapacity) };
 
     const vehicles = await Vehicle.find(query)
+      .populate(vehicleReferencePopulate)
       .populate('owner', 'fullName phone rating.average')
       .select('-documents -maintenance -rentalHistory') // Exclude sensitive info
       .sort({ 'pricing.dailyRate': 1 })
@@ -597,7 +669,7 @@ exports.getAvailableForRental = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: vehicles,
+      data: vehicles.map(vehicleDisplayObject),
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -627,7 +699,7 @@ exports.updateRentalSettings = async (req, res) => {
     }
 
     // Check ownership
-    if (vehicle.owner.toString() !== req.user._id.toString()) {
+    if (!canAccessRentalOwnerResource(req.user, vehicle.owner)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied'
@@ -644,7 +716,7 @@ exports.updateRentalSettings = async (req, res) => {
     };
 
     if (req.body.availableForRental === true) {
-      await assertRentalOwnerCanList(req.user._id);
+      await assertRentalOwnerCanList(getRentalOwnerScopeId(req.user));
     }
 
     await vehicle.save();
@@ -799,7 +871,7 @@ exports.uploadVehiclePhoto = async (req, res) => {
     }
 
     // Check ownership
-    if (vehicle.owner.toString() !== req.user._id.toString()) {
+    if (!canAccessRentalOwnerResource(req.user, vehicle.owner)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied'
@@ -906,7 +978,7 @@ exports.deleteVehiclePhoto = async (req, res) => {
     }
 
     // Check ownership
-    if (vehicle.owner.toString() !== req.user._id.toString()) {
+    if (!canAccessRentalOwnerResource(req.user, vehicle.owner)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied'

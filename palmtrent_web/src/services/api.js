@@ -337,6 +337,31 @@ export const shipmentsAPI = {
 
 // Vehicles API
 export const vehiclesAPI = {
+  getMine: (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    return apiFetch(`/vehicles${queryString ? `?${queryString}` : ''}`);
+  },
+
+  create: (data) => apiFetch('/vehicles', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  update: (id, data) => apiFetch(`/vehicles/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
+  updateStatus: (id, status) => apiFetch(`/vehicles/${id}/status`, {
+    method: 'PUT',
+    body: JSON.stringify({ status }),
+  }),
+
+  updateRentalSettings: (id, data) => apiFetch(`/vehicles/${id}/rental-settings`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
   getTypes: () => apiFetch('/reference/vehicle-types'),
 
   getMakes: () => apiFetch('/reference/vehicle-makes'),
@@ -347,6 +372,13 @@ export const vehiclesAPI = {
 // Trailer owner / fleet rental API
 export const fleetAPI = {
   getDashboard: () => apiFetch('/trailer-owner/dashboard-stats'),
+
+  getStaff: () => apiFetch('/trailer-owner/staff'),
+
+  createStaff: (data) => apiFetch('/trailer-owner/staff', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
 
   getFleet: (params = {}) => {
     const queryString = new URLSearchParams(params).toString();
@@ -383,6 +415,11 @@ export const fleetAPI = {
     body: JSON.stringify(data),
   }),
 
+  createWalkInRental: (data) => apiFetch('/rentals/walk-in', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
   getMyListings: () => apiFetch('/rentals/my-listings'),
 
   getMyRentals: () => apiFetch('/rentals/my-rentals'),
@@ -414,6 +451,23 @@ export const driversAPI = {
     const queryString = typeof params === 'string' ? params : new URLSearchParams(params).toString();
     return apiFetch(`/drivers${queryString ? `?${queryString}` : ''}`);
   },
+
+  searchMarketplace: (params = {}) => {
+    const queryString = typeof params === 'string' ? params : new URLSearchParams(params).toString();
+    return apiFetch(`/drivers/marketplace${queryString ? `?${queryString}` : ''}`);
+  },
+
+  getMyProfile: () => apiFetch('/drivers/me'),
+
+  updateMyProfile: (data) => apiFetch('/drivers/me', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
+  updateMyAvailability: (data) => apiFetch('/drivers/me/availability', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
 
   create: (data) => apiFetch('/drivers', {
     method: 'POST',
@@ -584,6 +638,11 @@ export const adminAPI = {
 
   getUserById: (id) => apiFetch(`/admin/users/${id}`),
 
+  createUser: (data) => apiFetch('/admin/users', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
   updateUser: (id, data) => apiFetch(`/admin/users/${id}`, {
     method: 'PUT',
     body: JSON.stringify(data),
@@ -622,6 +681,16 @@ export const adminAPI = {
   confirmPayment: (id, note = '') => apiFetch(`/admin/payments/${id}/confirm`, {
     method: 'POST',
     body: JSON.stringify({ note }),
+  }),
+
+  reconcileEcocashAgentPayments: (payload = {}) => apiFetch('/payments/ecocash-agent/reconcile-admin', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
+
+  verifyAgentPayment: (payload = {}) => apiFetch('/payments/verify-agent', {
+    method: 'POST',
+    body: JSON.stringify(payload),
   }),
 
   getAuditLogs: (params = {}) => {
@@ -674,6 +743,45 @@ export const adminAPI = {
 
   testIntegration: (provider) => apiFetch(`/admin/integrations/${provider}/test`, {
     method: 'POST',
+  }),
+
+  getEmergencies: (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    return apiFetch(`/emergency/admin/list${queryString ? `?${queryString}` : ''}`);
+  },
+
+  acknowledgeEmergency: (id) => apiFetch(`/emergency/${id}/acknowledge`, {
+    method: 'PUT',
+  }),
+
+  dispatchEmergencyResponder: (id, data) => apiFetch(`/emergency/${id}/dispatch`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
+  resolveEmergency: (id, data) => apiFetch(`/emergency/${id}/resolve`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
+  acceptEmergencyQuote: (id, responderId) => apiFetch(`/emergency/${id}/quotes/${responderId}/accept`, {
+    method: 'PUT',
+    body: JSON.stringify({}),
+  }),
+
+  rejectEmergencyQuote: (id, responderId, reason = '') => apiFetch(`/emergency/${id}/quotes/${responderId}/reject`, {
+    method: 'PUT',
+    body: JSON.stringify({ reason }),
+  }),
+
+  getEmergencyResponders: (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    return apiFetch(`/emergency/admin/responders${queryString ? `?${queryString}` : ''}`);
+  },
+
+  verifyEmergencyResponder: (id, data) => apiFetch(`/emergency/admin/responders/${id}/verify`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
   }),
 
   getMonetization: () => apiFetch('/admin/monetization'),

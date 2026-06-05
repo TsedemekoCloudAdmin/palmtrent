@@ -6,6 +6,18 @@ const VehicleType = require('../models/VehicleType');
 
 const vehicleModelSeedData = [
   {
+    make: 'Honda',
+    country: 'Japan',
+    isPopular: true,
+    models: [
+      { name: 'Fit', variants: ['Fit', 'Fit Hybrid', 'RS'], types: ['Compact Hatchback'] },
+      { name: 'Grace', variants: ['Hybrid', 'LX', 'EX'], types: ['Sedan'] },
+      { name: 'Freed', variants: ['Hybrid', 'G', 'Spike'], types: ['MPV / People Carrier'] },
+      { name: 'Vezel', variants: ['Hybrid', 'X', 'Z'], types: ['Compact SUV / Crossover'] },
+      { name: 'CR-V', variants: ['LX', 'EX', 'Executive'], types: ['Compact SUV / Crossover'] }
+    ]
+  },
+  {
     make: 'Hino',
     country: 'Japan',
     models: [
@@ -31,6 +43,13 @@ const vehicleModelSeedData = [
     country: 'Japan',
     models: [
       { name: 'Dyna', variants: ['Dyna 150', 'Dyna 200', 'Dyna 300'], types: ['3-Tonne Truck', '5-Tonne Truck'] },
+      { name: 'Vitz', variants: ['1.0', '1.3', 'Hybrid'], types: ['Compact Hatchback'] },
+      { name: 'Yaris', variants: ['Hatch', 'Sedan', 'Cross'], types: ['Compact Hatchback', 'Sedan', 'Compact SUV / Crossover'] },
+      { name: 'Aqua', variants: ['Hybrid', 'X', 'G'], types: ['Compact Hatchback'] },
+      { name: 'Corolla', variants: ['Quest', 'Sedan', 'Hybrid'], types: ['Sedan'] },
+      { name: 'Corolla Cross', variants: ['XS', 'XR', 'Hybrid'], types: ['Compact SUV / Crossover'] },
+      { name: 'RAV4', variants: ['GX', 'VX', 'Hybrid'], types: ['Compact SUV / Crossover'] },
+      { name: 'Fortuner', variants: ['2.4 GD-6', '2.8 GD-6', '4x4'], types: ['Compact SUV / Crossover'] },
       { name: 'Hilux', variants: ['Single Cab', 'Xtra Cab', 'Double Cab', '48V Double Cab'], types: ['Single Cab Bakkie', 'Double Cab Bakkie'] },
       { name: 'Land Cruiser 70', variants: ['79 Single Cab', '79 Double Cab', 'Troop Carrier'], types: ['Single Cab Bakkie', 'Double Cab Bakkie'] },
       { name: 'HiAce', variants: ['Panel Van', 'Sesfikile', 'Crew Van'], types: ['Panel Van', 'Delivery Van'] },
@@ -44,6 +63,8 @@ const vehicleModelSeedData = [
     isPopular: true,
     models: [
       { name: 'Ranger', variants: ['Single Cab', 'Super Cab', 'Double Cab', 'Raptor'], types: ['Single Cab Bakkie', 'Double Cab Bakkie'] },
+      { name: 'EcoSport', variants: ['Ambiente', 'Trend', 'Titanium'], types: ['Compact SUV / Crossover'] },
+      { name: 'Territory', variants: ['Ambiente', 'Trend', 'Titanium'], types: ['Compact SUV / Crossover'] },
       { name: 'Transit', variants: ['Panel Van', 'Single Chassis Cab', 'Double Chassis Cab'], types: ['Panel Van', 'Delivery Van', '3-Tonne Truck'] },
       { name: 'Transit Custom', variants: ['Panel Van', 'Sport', 'Trend'], types: ['Panel Van', 'Delivery Van'] },
       { name: 'Tourneo Custom', variants: ['People Mover', 'Crew Van'], types: ['Delivery Van', 'Panel Van'] }
@@ -55,6 +76,8 @@ const vehicleModelSeedData = [
     isPopular: true,
     models: [
       { name: 'P-Series', variants: ['Commercial Single Cab', 'Commercial Double Cab', 'LT Double Cab', 'LS Double Cab'], types: ['Single Cab Bakkie', 'Double Cab Bakkie'] },
+      { name: 'Haval Jolion', variants: ['City', 'Premium', 'Lux', 'Super Luxury'], types: ['Compact SUV / Crossover'] },
+      { name: 'Haval H6', variants: ['Premium', 'Luxury', 'Super Luxury', 'GT'], types: ['Compact SUV / Crossover'] },
       { name: 'P300', variants: ['SX', 'LT', 'LTD', 'Commercial Double Cab'], types: ['Single Cab Bakkie', 'Double Cab Bakkie'] },
       { name: 'P500', variants: ['2.4T Double Cab', 'HEV Double Cab', 'Luxury', 'Ultra Luxury'], types: ['Double Cab Bakkie'] },
       { name: 'Steed', variants: ['Steed 5 Single Cab', 'Steed 5 Double Cab', 'Steed 6 Double Cab'], types: ['Single Cab Bakkie', 'Double Cab Bakkie'] },
@@ -67,6 +90,8 @@ const vehicleModelSeedData = [
     isPopular: true,
     models: [
       { name: 'Amarok', variants: ['Single Cab', 'Double Cab', 'PanAmericana', 'Aventura'], types: ['Single Cab Bakkie', 'Double Cab Bakkie'] },
+      { name: 'Polo', variants: ['Vivo', 'TSI', 'Life', 'R-Line'], types: ['Compact Hatchback'] },
+      { name: 'T-Cross', variants: ['Comfortline', 'Highline', 'R-Line'], types: ['Compact SUV / Crossover'] },
       { name: 'Caddy Cargo', variants: ['Cargo', 'Maxi Cargo'], types: ['Panel Van', 'Delivery Van'] },
       { name: 'Transporter', variants: ['Panel Van', 'Kombi', 'Crew Bus'], types: ['Panel Van', 'Delivery Van'] },
       { name: 'Crafter', variants: ['Panel Van', 'Long Wheelbase', 'Extra Long Wheelbase', 'Chassis Cab'], types: ['Panel Van', 'Delivery Van', '3-Tonne Truck'] }
@@ -133,6 +158,11 @@ const vehicleModelSeedData = [
     country: 'South Korea',
     models: [
       { name: 'H100', variants: ['Bakkie', 'Dropside', 'Tipper'], types: ['Single Cab Bakkie', '3-Tonne Truck'] },
+      { name: 'i20', variants: ['Motion', 'Fluid', 'N-Line'], types: ['Compact Hatchback'] },
+      { name: 'Grand i10', variants: ['Motion', 'Fluid'], types: ['Compact Hatchback'] },
+      { name: 'Accent', variants: ['Sedan', 'Fluid'], types: ['Sedan'] },
+      { name: 'Creta', variants: ['Premium', 'Executive', 'Elite'], types: ['Compact SUV / Crossover'] },
+      { name: 'Tucson', variants: ['Premium', 'Executive', 'Elite'], types: ['Compact SUV / Crossover'] },
       { name: 'Porter', variants: ['Single Cab', 'Dropside'], types: ['Single Cab Bakkie', '3-Tonne Truck'] },
       { name: 'Staria', variants: ['Panel Van', 'Multicab'], types: ['Panel Van', 'Delivery Van'] }
     ]
@@ -142,13 +172,21 @@ const vehicleModelSeedData = [
     country: 'South Korea',
     models: [
       { name: 'K2700', variants: ['Workhorse', 'Dropside'], types: ['Single Cab Bakkie', '3-Tonne Truck'] },
-      { name: 'K2500', variants: ['Dropside', 'Chassis Cab'], types: ['Single Cab Bakkie', '3-Tonne Truck'] }
+      { name: 'K2500', variants: ['Dropside', 'Chassis Cab'], types: ['Single Cab Bakkie', '3-Tonne Truck'] },
+      { name: 'Picanto', variants: ['Start', 'Street', 'Style'], types: ['Compact Hatchback'] },
+      { name: 'Rio', variants: ['Hatch', 'Sedan'], types: ['Compact Hatchback', 'Sedan'] },
+      { name: 'Seltos', variants: ['EX', 'GT-Line'], types: ['Compact SUV / Crossover'] },
+      { name: 'Sportage', variants: ['LX', 'EX', 'GT-Line'], types: ['Compact SUV / Crossover'] }
     ]
   },
   {
     make: 'Mazda',
     country: 'Japan',
     models: [
+      { name: 'Demio', variants: ['13C', '13S', 'Skyactiv'], types: ['Compact Hatchback'] },
+      { name: 'Axela', variants: ['Sport', 'Sedan', 'Hybrid'], types: ['Compact Hatchback', 'Sedan'] },
+      { name: 'CX-3', variants: ['Active', 'Dynamic', 'Individual'], types: ['Compact SUV / Crossover'] },
+      { name: 'CX-5', variants: ['Active', 'Dynamic', 'Akera'], types: ['Compact SUV / Crossover'] },
       { name: 'BT-50', variants: ['Single Cab', 'Freestyle Cab', 'Double Cab'], types: ['Single Cab Bakkie', 'Double Cab Bakkie'] },
       { name: 'B-Series', variants: ['Single Cab', 'Double Cab'], types: ['Single Cab Bakkie', 'Double Cab Bakkie'] }
     ]
@@ -167,7 +205,12 @@ const vehicleModelSeedData = [
     country: 'Japan',
     models: [
       { name: 'Super Carry', variants: ['Dropside', 'Panel Van Conversion'], types: ['Single Cab Bakkie', 'Delivery Van'] },
-      { name: 'Carry', variants: ['Dropside', 'Van'], types: ['Single Cab Bakkie', 'Delivery Van'] }
+      { name: 'Carry', variants: ['Dropside', 'Van'], types: ['Single Cab Bakkie', 'Delivery Van'] },
+      { name: 'Swift', variants: ['GL', 'GLX', 'Sport'], types: ['Compact Hatchback'] },
+      { name: 'Baleno', variants: ['GL', 'GLX'], types: ['Compact Hatchback'] },
+      { name: 'Dzire', variants: ['GA', 'GL'], types: ['Sedan'] },
+      { name: 'Vitara Brezza', variants: ['GL', 'GLX'], types: ['Compact SUV / Crossover'] },
+      { name: 'Ertiga', variants: ['GA', 'GL', 'GLX'], types: ['MPV / People Carrier'] }
     ]
   },
   {
@@ -176,7 +219,9 @@ const vehicleModelSeedData = [
     models: [
       { name: 'Triton', variants: ['Single Cab', 'Club Cab', 'Double Cab'], types: ['Single Cab Bakkie', 'Double Cab Bakkie'] },
       { name: 'L200', variants: ['Single Cab', 'Club Cab', 'Double Cab'], types: ['Single Cab Bakkie', 'Double Cab Bakkie'] },
-      { name: 'Delica', variants: ['Panel Van', 'Crew Van'], types: ['Panel Van', 'Delivery Van'] }
+      { name: 'ASX', variants: ['GL', 'GLX', 'Aspire'], types: ['Compact SUV / Crossover'] },
+      { name: 'Outlander', variants: ['GLX', 'Exceed', 'PHEV'], types: ['Compact SUV / Crossover'] },
+      { name: 'Delica', variants: ['Panel Van', 'Crew Van'], types: ['Panel Van', 'Delivery Van', 'MPV / People Carrier'] }
     ]
   },
   {
@@ -194,6 +239,10 @@ const vehicleModelSeedData = [
     models: [
       { name: 'NP300 / Hardbody', variants: ['Single Cab', 'Double Cab'], types: ['Single Cab Bakkie', 'Double Cab Bakkie'] },
       { name: 'Navara', variants: ['Single Cab', 'Double Cab'], types: ['Single Cab Bakkie', 'Double Cab Bakkie'] },
+      { name: 'Micra', variants: ['Visia', 'Acenta', 'Tekna'], types: ['Compact Hatchback'] },
+      { name: 'Almera', variants: ['Acenta', 'Tekna'], types: ['Sedan'] },
+      { name: 'Qashqai', variants: ['Visia', 'Acenta', 'Tekna'], types: ['Compact SUV / Crossover'] },
+      { name: 'X-Trail', variants: ['Visia', 'Acenta', 'Tekna'], types: ['Compact SUV / Crossover'] },
       { name: 'Cabstar', variants: ['NT400', 'Atlas'], types: ['3-Tonne Truck', '5-Tonne Truck'] },
       { name: 'NV350', variants: ['Panel Van', 'Crew Van'], types: ['Panel Van', 'Delivery Van'] },
       { name: 'Interstar', variants: ['Panel Van', 'Chassis Cab'], types: ['Panel Van', 'Delivery Van', '3-Tonne Truck'] },

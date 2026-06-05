@@ -39,6 +39,95 @@ const connectDB = async () => {
 // VEHICLE TYPES SEED DATA
 // ========================================
 const vehicleTypesData = [
+  // Small vehicle rentals
+  {
+    name: 'Compact Hatchback',
+    category: 'car',
+    subcategory: 'hatchback',
+    description: 'Small self-drive hatchback for city errands and short rentals',
+    capacity: {
+      weight: { min: 0.1, max: 0.45, unit: 'tonnes' },
+      volume: { min: 0.2, max: 0.6, unit: 'cubic_meters' }
+    },
+    dimensions: { length: 3.9, width: 1.7, height: 1.5 },
+    trailerConfiguration: {
+      hasIntegratedTrailer: false,
+      canAttachTrailer: false,
+      requiresTrailer: false
+    },
+    suitableCargoCategories: ['general'],
+    specialCapabilities: [],
+    requirements: { licenseClass: 'code_8' },
+    pricing: { baseRatePerKm: 1.5, minimumCharge: 35 },
+    displayOrder: 1,
+    isActive: true
+  },
+  {
+    name: 'Sedan',
+    category: 'car',
+    subcategory: 'sedan',
+    description: 'Comfortable sedan rental for business and family travel',
+    capacity: {
+      weight: { min: 0.1, max: 0.55, unit: 'tonnes' },
+      volume: { min: 0.3, max: 0.7, unit: 'cubic_meters' }
+    },
+    dimensions: { length: 4.6, width: 1.8, height: 1.5 },
+    trailerConfiguration: {
+      hasIntegratedTrailer: false,
+      canAttachTrailer: false,
+      requiresTrailer: false
+    },
+    suitableCargoCategories: ['general'],
+    specialCapabilities: [],
+    requirements: { licenseClass: 'code_8' },
+    pricing: { baseRatePerKm: 1.8, minimumCharge: 45 },
+    displayOrder: 2,
+    isActive: true
+  },
+  {
+    name: 'Compact SUV / Crossover',
+    category: 'suv',
+    subcategory: 'compact_suv',
+    description: 'Compact SUV or crossover rental with more luggage space',
+    capacity: {
+      weight: { min: 0.2, max: 0.7, unit: 'tonnes' },
+      volume: { min: 0.6, max: 1.2, unit: 'cubic_meters' }
+    },
+    dimensions: { length: 4.4, width: 1.85, height: 1.7 },
+    trailerConfiguration: {
+      hasIntegratedTrailer: false,
+      canAttachTrailer: false,
+      requiresTrailer: false
+    },
+    suitableCargoCategories: ['general'],
+    specialCapabilities: [],
+    requirements: { licenseClass: 'code_8' },
+    pricing: { baseRatePerKm: 2.2, minimumCharge: 65 },
+    displayOrder: 3,
+    isActive: true
+  },
+  {
+    name: 'MPV / People Carrier',
+    category: 'suv',
+    subcategory: 'mpv',
+    description: 'Multi-purpose family and group rental vehicle',
+    capacity: {
+      weight: { min: 0.2, max: 0.8, unit: 'tonnes' },
+      volume: { min: 0.8, max: 1.5, unit: 'cubic_meters' }
+    },
+    dimensions: { length: 4.8, width: 1.9, height: 1.8 },
+    trailerConfiguration: {
+      hasIntegratedTrailer: false,
+      canAttachTrailer: false,
+      requiresTrailer: false
+    },
+    suitableCargoCategories: ['general'],
+    specialCapabilities: [],
+    requirements: { licenseClass: 'code_8' },
+    pricing: { baseRatePerKm: 2.5, minimumCharge: 80 },
+    displayOrder: 4,
+    isActive: true
+  },
   // Bakkies
   {
     name: 'Single Cab Bakkie',
@@ -59,7 +148,7 @@ const vehicleTypesData = [
     specialCapabilities: [],
     requirements: { licenseClass: 'code_8' },
     pricing: { baseRatePerKm: 3.5, minimumCharge: 150 },
-    displayOrder: 1,
+    displayOrder: 10,
     isActive: true
   },
   {
@@ -81,7 +170,7 @@ const vehicleTypesData = [
     specialCapabilities: [],
     requirements: { licenseClass: 'code_8' },
     pricing: { baseRatePerKm: 4, minimumCharge: 180 },
-    displayOrder: 2,
+    displayOrder: 11,
     isActive: true
   },
   {
@@ -103,7 +192,7 @@ const vehicleTypesData = [
     specialCapabilities: [],
     requirements: { licenseClass: 'code_8' },
     pricing: { baseRatePerKm: 4.5, minimumCharge: 200 },
-    displayOrder: 3,
+    displayOrder: 12,
     isActive: true
   },
   {
@@ -125,7 +214,7 @@ const vehicleTypesData = [
     specialCapabilities: [],
     requirements: { licenseClass: 'code_8' },
     pricing: { baseRatePerKm: 3.5, minimumCharge: 120 },
-    displayOrder: 4,
+    displayOrder: 13,
     isActive: true
   },
   // Trucks by tonnage

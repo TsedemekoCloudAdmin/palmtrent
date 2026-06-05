@@ -21,10 +21,10 @@ router.use(protect);
 
 // Trailer CRUD
 router.route('/')
-  .post(authorize('trailer_owner', 'transporter', 'admin'), createTrailer);
+  .post(authorize('trailer_owner', 'rental_owner', 'transporter', 'admin'), createTrailer);
 
-router.get('/my-trailers', authorize('trailer_owner', 'transporter', 'admin'), getMyTrailers);
-router.get('/my-fleet', authorize('trailer_owner', 'transporter', 'admin'), getMyTrailers);
+router.get('/my-trailers', authorize('trailer_owner', 'rental_owner', 'transporter', 'admin'), getMyTrailers);
+router.get('/my-fleet', authorize('trailer_owner', 'rental_owner', 'transporter', 'admin'), getMyTrailers);
 
 router.route('/:id')
   .get(getTrailerById)
@@ -33,12 +33,12 @@ router.route('/:id')
 
 // Status and settings
 router.route('/:id/status')
-  .patch(authorize('trailer_owner', 'transporter', 'admin'), updateTrailerStatus)
-  .put(authorize('trailer_owner', 'transporter', 'admin'), updateTrailerStatus);
+  .patch(authorize('trailer_owner', 'rental_owner', 'transporter', 'admin'), updateTrailerStatus)
+  .put(authorize('trailer_owner', 'rental_owner', 'transporter', 'admin'), updateTrailerStatus);
 
 router.route('/:id/rental-settings')
-  .patch(authorize('trailer_owner', 'transporter', 'admin'), updateRentalSettings)
-  .put(authorize('trailer_owner', 'transporter', 'admin'), updateRentalSettings);
+  .patch(authorize('trailer_owner', 'rental_owner', 'transporter', 'admin'), updateRentalSettings)
+  .put(authorize('trailer_owner', 'rental_owner', 'transporter', 'admin'), updateRentalSettings);
 
 // Trailer rentals
 router.get('/:id/rentals', getTrailerRentals);

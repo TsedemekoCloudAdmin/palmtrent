@@ -1,6 +1,25 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
+const platformRoleAliases = {
+  main_admin: 'admin',
+  admin: 'admin',
+  clerk: 'admin'
+};
+
+const getEffectiveRoles = (user) => {
+  const roles = new Set();
+  if (!user) return roles;
+  if (user.userType) roles.add(user.userType);
+  (user.roles || []).forEach(role => roles.add(role));
+  if (user.platformRole) {
+    roles.add(user.platformRole);
+    if (platformRoleAliases[user.platformRole]) roles.add(platformRoleAliases[user.platformRole]);
+  }
+  if (user.isPlatformStaff) roles.add('admin');
+  return roles;
+};
+
 const protect = async (req, res, next) => {
   try {
     let token;
@@ -51,7 +70,10 @@ const protect = async (req, res, next) => {
 
 const authorize = (...roles) => {
   return (req, res, next) => {
-    if (!roles.includes(req.user.userType)) {
+    const effectiveRoles = getEffectiveRoles(req.user);
+    const hasRole = roles.some(role => effectiveRoles.has(role));
+
+    if (!hasRole) {
       return res.status(403).json({
         success: false,
         message: `User role ${req.user.userType} is not authorized to access this route`
@@ -107,7 +129,7 @@ async function loadCorporateAccount(req, res) {
 const requireCorporateRole = (...allowedRoles) => {
   return async (req, res, next) => {
     try {
-      if (req.user.userType === 'admin') return next();
+      if (getEffectiveRoles(req.user).has('admin')) return next();
 
       const access = await loadCorporateAccount(req, res);
       if (!access) return;
@@ -127,7 +149,7 @@ const requireCorporateRole = (...allowedRoles) => {
 const requireCorporatePermission = (...requiredPermissions) => {
   return async (req, res, next) => {
     try {
-      if (req.user.userType === 'admin') return next();
+      if (getEffectiveRoles(req.user).has('admin')) return next();
 
       const access = await loadCorporateAccount(req, res);
       if (!access) return;

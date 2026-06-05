@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle, Clock, DollarSign, Package, Plus, RefreshCw,
-  Settings, Truck, Wrench, X, User, LogOut, CreditCard, Trash2
+  Settings, Truck, Wrench, X, User, Users, LogOut, CreditCard, Trash2
 } from 'lucide-react';
 import { authAPI, driversAPI, fleetAPI, publicAPI, referenceAPI, subscriptionCheckoutAPI, vehiclesAPI } from '../services/api';
 import logo from '../assets/logo3.png';
 import './styles/TrailerOwnerDashboard.css';
 
 const ASSET_TYPES = [
+  { value: 'small_vehicle', label: 'Small Vehicle' },
   { value: 'trailer', label: 'Trailer' },
   { value: 'tractor_unit', label: 'Tractor Unit' },
   { value: 'truck', label: 'Truck' },
@@ -35,6 +36,7 @@ const emptyForm = {
 };
 
 const REFERENCE_CATEGORIES_BY_ASSET = {
+  small_vehicle: ['car', 'suv', 'bakkie', 'van'],
   truck: ['truck', 'van', 'bakkie'],
   tractor_unit: ['tractor'],
   full_rig: ['tractor', 'truck']
@@ -48,6 +50,33 @@ const getRecordLabel = (record) => record?.name || record?.label || record?.disp
 
 const findById = (records, id) => records.find(item => getRecordId(item) === id);
 
+const SMALL_VEHICLE_CATEGORIES = ['car', 'suv', 'bakkie', 'van'];
+
+const isSmallVehicleRecord = (vehicle = {}) => SMALL_VEHICLE_CATEGORIES.includes(vehicle.vehicleType?.category);
+
+const normalizeSmallVehicleAsset = (vehicle) => ({
+  ...vehicle,
+  assetType: 'small_vehicle',
+  itemType: 'small_vehicle',
+  assetName: vehicle.assetName || [getRecordLabel(vehicle.make), getRecordLabel(vehicle.model)]
+    .filter(Boolean)
+    .join(' ') || vehicle.registrationNumber,
+  vehicleTypeLabel: getRecordLabel(vehicle.vehicleType),
+  operatingAreas: vehicle.operatingAreas || [],
+  rentalSettings: vehicle.rentalSettings || vehicle.pricing || {}
+});
+
+const assetDisplayName = (asset = {}) => (
+  asset.assetName ||
+  [asset.make, asset.model].map(value => typeof value === 'string' ? value : getRecordLabel(value)).filter(Boolean).join(' ') ||
+  asset.registrationNumber ||
+  'Fleet asset'
+);
+
+const assetRegistration = (asset = {}) => asset.registrationNumber || asset.trailer?.registrationNumber || asset.vehicle?.registrationNumber || 'Unregistered';
+
+const assetTypeFor = (asset = {}) => asset.assetType || asset.itemType || 'vehicle';
+
 const emptyDriverForm = {
   fullName: '',
   phone: '',
@@ -58,6 +87,43 @@ const emptyDriverForm = {
   experience: '',
   employmentType: 'full_time',
   notes: ''
+};
+
+const emptyStaffForm = {
+  fullName: '',
+  email: '',
+  phone: '',
+  password: '',
+  role: 'agent'
+};
+
+const emptyWalkInRentalForm = {
+  assetId: '',
+  fullName: '',
+  phone: '',
+  email: '',
+  nationalId: '',
+  licenseNumber: '',
+  licenseExpiry: '',
+  startDate: '',
+  endDate: '',
+  pickupAddress: '',
+  returnAddress: '',
+  paymentMethod: 'cash',
+  notes: ''
+};
+
+const emptyInspectionForm = {
+  odometerReading: '',
+  fuelLevel: 'full',
+  notes: '',
+  signature: '',
+  photos: '',
+  damageDescription: '',
+  damageFees: '',
+  cleaningFees: '',
+  lateFees: '',
+  extraKmFees: ''
 };
 
 const formatDate = (value) => {
@@ -90,6 +156,7 @@ const hydrateProfileForm = (user = {}) => ({
 
 const TrailerOwnerDashboard = () => {
   const currentUser = authAPI.getCurrentUser() || {};
+  const isDriverAccount = currentUser.userType === 'driver';
   const [activeTab, setActiveTab] = useState('fleet');
   const [stats, setStats] = useState({});
   const [fleet, setFleet] = useState([]);
@@ -97,6 +164,8 @@ const TrailerOwnerDashboard = () => {
   const [rentals, setRentals] = useState([]);
   const [market, setMarket] = useState([]);
   const [drivers, setDrivers] = useState([]);
+  const [staffUsers, setStaffUsers] = useState([]);
+  const [driverProfile, setDriverProfile] = useState(null);
   const [subscription, setSubscription] = useState(null);
   const [referenceData, setReferenceData] = useState({
     trailerTypes: [],
@@ -107,6 +176,7 @@ const TrailerOwnerDashboard = () => {
   const [referenceLoading, setReferenceLoading] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [driverForm, setDriverForm] = useState(emptyDriverForm);
+  const [staffForm, setStaffForm] = useState(emptyStaffForm);
   const [profileForm, setProfileForm] = useState(hydrateProfileForm(currentUser));
   const [requestForm, setRequestForm] = useState({
     startDate: '',
@@ -121,26 +191,52 @@ const TrailerOwnerDashboard = () => {
   const [showAddFleetDialog, setShowAddFleetDialog] = useState(false);
   const [showDriverDialog, setShowDriverDialog] = useState(false);
   const [editingDriverId, setEditingDriverId] = useState('');
+  const [showWalkInDialog, setShowWalkInDialog] = useState(false);
+  const [walkInForm, setWalkInForm] = useState(emptyWalkInRentalForm);
+  const [inspectionDialog, setInspectionDialog] = useState(null);
+  const [inspectionForm, setInspectionForm] = useState(emptyInspectionForm);
 
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [dashboard, fleetResponse, listingResponse, rentalResponse, driversResponse, subscriptionResponse] = await Promise.all([
+      if (isDriverAccount) {
+        const [profileResponse, subscriptionResponse] = await Promise.all([
+          driversAPI.getMyProfile(),
+          publicAPI.getMySubscription()
+        ]);
+        setDriverProfile(profileResponse.data || null);
+        setSubscription(subscriptionResponse.data || null);
+        return;
+      }
+      const loadTrailerFleet = assetFilter !== 'small_vehicle';
+      const loadSmallVehicles = assetFilter === 'all' || assetFilter === 'small_vehicle';
+      const trailerParams = assetFilter === 'all' || assetFilter === 'small_vehicle' ? {} : { assetType: assetFilter };
+      const marketParams = {
+        ...(assetFilter === 'all' ? {} : { itemType: assetFilter }),
+        ...(requestForm.startDate ? { startDate: requestForm.startDate } : {}),
+        ...(requestForm.endDate ? { endDate: requestForm.endDate } : {}),
+        ...(requestForm.pickupAddress ? { city: requestForm.pickupAddress } : {})
+      };
+      const [dashboard, fleetResponse, vehicleResponse, listingResponse, rentalResponse, driversResponse, subscriptionResponse, staffResponse] = await Promise.all([
         fleetAPI.getDashboard(),
-        fleetAPI.getFleet(assetFilter === 'all' ? {} : { assetType: assetFilter }),
+        loadTrailerFleet ? fleetAPI.getFleet(trailerParams) : Promise.resolve({ data: [] }),
+        loadSmallVehicles ? vehiclesAPI.getMine({ limit: 100 }) : Promise.resolve({ data: [] }),
         fleetAPI.getMyListings(),
         fleetAPI.getMyRentals(),
         driversAPI.getAll({ limit: 100 }),
-        publicAPI.getMySubscription()
+        publicAPI.getMySubscription(),
+        fleetAPI.getStaff()
       ]);
+      const smallVehicles = (vehicleResponse.data || []).filter(isSmallVehicleRecord).map(normalizeSmallVehicleAsset);
       setStats(dashboard.data || {});
-      setFleet(fleetResponse.data || []);
+      setFleet([...(fleetResponse.data || []), ...smallVehicles]);
       setListings(listingResponse.data || []);
       setRentals(rentalResponse.data || []);
       setDrivers(driversResponse.data || []);
       setSubscription(subscriptionResponse.data || null);
+      setStaffUsers(staffResponse.data || []);
       if (activeTab === 'market') {
-        const marketResponse = await fleetAPI.getAvailableRentals(assetFilter === 'all' ? {} : { itemType: assetFilter });
+        const marketResponse = await fleetAPI.getAvailableRentals(marketParams);
         setMarket(marketResponse.data || []);
       }
     } catch (error) {
@@ -148,7 +244,7 @@ const TrailerOwnerDashboard = () => {
     } finally {
       setLoading(false);
     }
-  }, [assetFilter, activeTab]);
+  }, [assetFilter, activeTab, requestForm.startDate, requestForm.endDate, requestForm.pickupAddress, isDriverAccount]);
 
   useEffect(() => {
     loadData();
@@ -208,7 +304,10 @@ const TrailerOwnerDashboard = () => {
     return { ...current, [field]: value };
   });
   const updateDriverForm = (field, value) => setDriverForm((current) => ({ ...current, [field]: value }));
+  const updateStaffForm = (field, value) => setStaffForm((current) => ({ ...current, [field]: value }));
   const updateProfileForm = (field, value) => setProfileForm((current) => ({ ...current, [field]: value }));
+  const updateWalkInForm = (field, value) => setWalkInForm((current) => ({ ...current, [field]: value }));
+  const updateInspectionForm = (field, value) => setInspectionForm((current) => ({ ...current, [field]: value }));
   const updateProfileAddress = (field, value) => setProfileForm((current) => ({
     ...current,
     address: {
@@ -216,6 +315,14 @@ const TrailerOwnerDashboard = () => {
       [field]: value
     }
   }));
+
+  const rentalReadyAssets = useMemo(() => (
+    fleet.filter(asset => asset.rentalSettings?.availableForRental !== false)
+  ), [fleet]);
+
+  const selectedWalkInAsset = useMemo(() => (
+    rentalReadyAssets.find(asset => asset._id === walkInForm.assetId)
+  ), [rentalReadyAssets, walkInForm.assetId]);
 
   const createAsset = async (event) => {
     event.preventDefault();
@@ -227,6 +334,61 @@ const TrailerOwnerDashboard = () => {
       const selectedTrailerType = findById(referenceData.trailerTypes, form.trailerType);
       const selectedVehicleType = findById(referenceData.vehicleTypes, form.vehicleType);
       const vehicleDescriptor = selectedVehicleType ? `${getRecordLabel(selectedVehicleType)}. ` : '';
+
+      if (form.assetType === 'small_vehicle') {
+        if (!selectedVehicleType) throw new Error('Select a small vehicle type.');
+        if (!selectedMake) throw new Error('Select a make.');
+        if (!selectedModel) throw new Error('Select a model.');
+        if (!form.year) throw new Error('Enter the vehicle year.');
+
+        const vehiclePayload = {
+          registrationNumber: form.registrationNumber,
+          make: form.make,
+          model: form.model,
+          vehicleType: form.vehicleType,
+          category: selectedVehicleType.category || 'car',
+          subType: selectedVehicleType.subcategory || '',
+          year: Number(form.year),
+          ownerType: currentUser.companyName ? 'company' : 'individual',
+          status: 'available',
+          capacity: {
+            weight: {
+              value: Number(form.capacityWeight) || Number(selectedVehicleType.capacity?.weight?.max) || 0.5,
+              unit: 'tonnes'
+            }
+          },
+          specifications: {
+            transmission: 'manual',
+            engineType: 'petrol'
+          },
+          description: form.description,
+          pricing: {
+            availableForRental: form.availableForRental,
+            dailyRate: Number(form.dailyRate) || 0,
+            weeklyRate: Number(form.weeklyRate) || 0,
+            deposit: Number(form.deposit) || 0,
+            minimumRentalPeriod: 1
+          },
+          rentalSettings: {
+            availableForRental: form.availableForRental,
+            availableForShipmentWork: false,
+            rentalMode: form.rentalMode,
+            dailyRate: Number(form.dailyRate) || 0,
+            weeklyRate: Number(form.weeklyRate) || 0,
+            deposit: Number(form.deposit) || 0,
+            pickupLocations: form.city ? [{ city: form.city, address: form.city }] : []
+          },
+          operatingAreas: form.city ? [{ city: form.city, country: 'Zimbabwe' }] : []
+        };
+
+        await vehiclesAPI.create(vehiclePayload);
+        setForm(emptyForm);
+        setMessage('Small vehicle added');
+        await loadData();
+        setShowAddFleetDialog(false);
+        return;
+      }
+
       const payload = {
         assetType: form.assetType,
         registrationNumber: form.registrationNumber,
@@ -237,7 +399,7 @@ const TrailerOwnerDashboard = () => {
         capacity: {
           weight: {
             value: Number(form.capacityWeight) || 1,
-            unit: 'kg'
+            unit: 'tonnes'
           }
         },
         tractorUnit: {
@@ -287,6 +449,25 @@ const TrailerOwnerDashboard = () => {
       setDriverForm(emptyDriverForm);
     }
     setShowDriverDialog(true);
+  };
+
+  const saveStaffUser = async (event) => {
+    event.preventDefault();
+    try {
+      setLoading(true);
+      setMessage('');
+      await fleetAPI.createStaff({
+        ...staffForm,
+        phone: normalizeZimbabwePhone(staffForm.phone)
+      });
+      setStaffForm(emptyStaffForm);
+      setMessage('Staff user added');
+      await loadData();
+    } catch (error) {
+      setMessage(error.message || 'Could not add staff user');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const saveDriver = async (event) => {
@@ -392,9 +573,27 @@ const TrailerOwnerDashboard = () => {
     }
   };
 
+  const updateDriverAvailability = async (availability) => {
+    try {
+      setLoading(true);
+      setMessage('');
+      const response = await driversAPI.updateMyAvailability(availability);
+      setDriverProfile(response.data || null);
+      setMessage('Availability updated');
+    } catch (error) {
+      setMessage(error.message || 'Could not update availability');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const updateStatus = async (asset, status) => {
     try {
-      await fleetAPI.updateStatus(asset._id, status);
+      if (assetTypeFor(asset) === 'small_vehicle') {
+        await vehiclesAPI.updateStatus(asset._id, status);
+      } else {
+        await fleetAPI.updateStatus(asset._id, status);
+      }
       setMessage(`${asset.registrationNumber} moved to ${status}`);
       await loadData();
     } catch (error) {
@@ -402,22 +601,134 @@ const TrailerOwnerDashboard = () => {
     }
   };
 
+  const openInspectionDialog = (rental, type) => {
+    setInspectionDialog({ rental, type });
+    setInspectionForm({
+      ...emptyInspectionForm,
+      fuelLevel: type === 'return' ? (rental.pickup?.fuelLevel || 'full') : 'full',
+      odometerReading: type === 'return' ? (rental.pickup?.odometerReading || '') : ''
+    });
+  };
+
+  const buildInspectionPayload = (type) => {
+    const photos = String(inspectionForm.photos || '')
+      .split(',')
+      .map(value => value.trim())
+      .filter(Boolean);
+
+    const payload = {
+      odometerReading: Number(inspectionForm.odometerReading) || 0,
+      fuelLevel: inspectionForm.fuelLevel,
+      notes: inspectionForm.notes,
+      signature: inspectionForm.signature,
+      photos,
+      conditionChecklist: [
+        {
+          item: type === 'pickup' ? 'Pickup inspection' : 'Return inspection',
+          status: inspectionForm.damageDescription ? 'issue' : 'ok',
+          notes: inspectionForm.damageDescription || inspectionForm.notes || ''
+        }
+      ]
+    };
+
+    if (type === 'return') {
+      payload.damages = inspectionForm.damageDescription
+        ? [{ description: inspectionForm.damageDescription, cost: Number(inspectionForm.damageFees) || 0 }]
+        : [];
+      payload.damageFees = Number(inspectionForm.damageFees) || 0;
+      payload.cleaningFees = Number(inspectionForm.cleaningFees) || 0;
+      payload.lateFees = Number(inspectionForm.lateFees) || 0;
+      payload.extraKmFees = Number(inspectionForm.extraKmFees) || 0;
+    }
+
+    return payload;
+  };
+
+  const submitInspection = async (event) => {
+    event.preventDefault();
+    if (!inspectionDialog?.rental) return;
+    try {
+      setLoading(true);
+      setMessage('');
+      const payload = buildInspectionPayload(inspectionDialog.type);
+      if (inspectionDialog.type === 'pickup') {
+        await fleetAPI.confirmPickup(inspectionDialog.rental._id, payload);
+        setMessage('Rental pickup confirmed');
+      } else {
+        await fleetAPI.confirmReturn(inspectionDialog.rental._id, payload);
+        setMessage('Rental return confirmed and settlement updated');
+      }
+      setInspectionDialog(null);
+      setInspectionForm(emptyInspectionForm);
+      await loadData();
+    } catch (error) {
+      setMessage(error.message || 'Could not save inspection');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitWalkInRental = async (event) => {
+    event.preventDefault();
+    try {
+      setLoading(true);
+      setMessage('');
+      if (!selectedWalkInAsset) throw new Error('Select an available rental asset.');
+      if (!walkInForm.fullName.trim()) throw new Error('Customer full name is required.');
+      if (!walkInForm.phone.trim()) throw new Error('Customer mobile number is required.');
+      if (!walkInForm.startDate || !walkInForm.endDate) throw new Error('Rental start and end dates are required.');
+
+      await fleetAPI.createWalkInRental({
+        itemType: selectedWalkInAsset.itemType || selectedWalkInAsset.assetType || 'trailer',
+        itemId: selectedWalkInAsset._id,
+        startDate: walkInForm.startDate,
+        endDate: walkInForm.endDate,
+        pickupLocation: { address: walkInForm.pickupAddress || 'Owner pickup point' },
+        returnLocation: { address: walkInForm.returnAddress || walkInForm.pickupAddress || 'Owner return point' },
+        paymentMethod: walkInForm.paymentMethod,
+        notes: walkInForm.notes,
+        customer: {
+          fullName: walkInForm.fullName,
+          phone: walkInForm.phone,
+          email: walkInForm.email,
+          nationalId: walkInForm.nationalId,
+          licenseNumber: walkInForm.licenseNumber,
+          licenseExpiry: walkInForm.licenseExpiry,
+          notes: walkInForm.notes
+        }
+      });
+
+      setShowWalkInDialog(false);
+      setWalkInForm(emptyWalkInRentalForm);
+      setMessage('Walk-in rental created');
+      await loadData();
+    } catch (error) {
+      setMessage(error.message || 'Could not create walk-in rental');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleRentalAction = async (rental, action) => {
     try {
+      if (['pickup', 'return'].includes(action)) {
+        openInspectionDialog(rental, action);
+        return;
+      }
       if (action === 'approve') await fleetAPI.approveRental(rental._id);
       if (action === 'reject') await fleetAPI.rejectRental(rental._id, 'Rejected by owner');
       if (action === 'pay') {
         const response = await fleetAPI.payRental(rental._id);
-        setMessage(response.data?.redirectUrl
-          ? `Payment link created: ${response.data.redirectUrl}`
+        const redirectUrl = response.data?.redirectUrl;
+        if (redirectUrl) window.open(redirectUrl, '_blank', 'noopener,noreferrer');
+        setMessage(redirectUrl
+          ? 'Payment link opened in a new tab. You can also share it with the customer.'
           : 'Payment initiated. Complete payment, then check status.');
       }
       if (action === 'check-payment') {
         await fleetAPI.checkRentalPayment(rental._id);
         setMessage('Payment status refreshed');
       }
-      if (action === 'pickup') await fleetAPI.confirmPickup(rental._id, { notes: 'Pickup confirmed from portal' });
-      if (action === 'return') await fleetAPI.confirmReturn(rental._id, { notes: 'Return confirmed from portal' });
       if (!['pay', 'check-payment'].includes(action)) setMessage('Rental updated');
       await loadData();
     } catch (error) {
@@ -451,8 +762,83 @@ const TrailerOwnerDashboard = () => {
   const vehicleTypeOptions = referenceData.vehicleTypes.filter((type) => (
     !vehicleTypeCategories.length || vehicleTypeCategories.includes(type.category)
   ));
-  const showVehicleType = ['truck', 'tractor_unit', 'full_rig'].includes(form.assetType);
+  const showVehicleType = ['small_vehicle', 'truck', 'tractor_unit', 'full_rig'].includes(form.assetType);
   const showTrailerType = ['trailer', 'full_rig'].includes(form.assetType);
+
+  if (isDriverAccount) {
+    const isAvailable = driverProfile?.availability?.isAvailable !== false;
+    const visible = driverProfile?.marketplace?.visible === true;
+    const lookingForWork = driverProfile?.marketplace?.lookingForWork !== false;
+
+    return (
+      <div className="fleet-page">
+        <aside className="fleet-sidebar">
+          <div className="fleet-brand">
+            <img src={logo} alt="Palmtrent" className="fleet-brand-logo" />
+            <span>Driver Portal</span>
+          </div>
+          <button className="active"><User className="icon" /> Availability</button>
+          <button onClick={authAPI.logout}><LogOut className="icon" /> Sign Out</button>
+        </aside>
+        <main className="fleet-main">
+          <header className="fleet-header">
+            <div>
+              <h1>Driver Work Profile</h1>
+              <p>Set your availability so transporters and rental owners can find you for driving work.</p>
+            </div>
+          </header>
+          {message && <div className="fleet-message">{message}</div>}
+          <div className="fleet-account-grid">
+            <section className="fleet-panel">
+              <div className="panel-title">
+                <h2>Availability</h2>
+                <Clock className="icon" />
+              </div>
+              <div className="subscription-card">
+                <h3>{driverProfile?.fullName || currentUser.fullName}</h3>
+                <p>{driverProfile?.licenseClass ? `License ${driverProfile.licenseClass}` : 'Complete your license details from mobile profile.'}</p>
+                <span className={`status ${isAvailable ? 'available' : 'inactive'}`}>{isAvailable ? 'available' : 'inactive'}</span>
+                <div className="toggle-row">
+                  <label>
+                    <input type="checkbox" checked={visible} onChange={(event) => updateDriverAvailability({ visible: event.target.checked, lookingForWork, isAvailable })} />
+                    Show me in driver search
+                  </label>
+                  <label>
+                    <input type="checkbox" checked={lookingForWork} onChange={(event) => updateDriverAvailability({ visible, lookingForWork: event.target.checked, isAvailable })} />
+                    Looking for work
+                  </label>
+                  <label>
+                    <input type="checkbox" checked={isAvailable} onChange={(event) => updateDriverAvailability({ visible, lookingForWork, isAvailable: event.target.checked })} />
+                    Available now
+                  </label>
+                </div>
+              </div>
+            </section>
+            <section className="fleet-panel">
+              <div className="panel-title">
+                <h2>Subscription</h2>
+                <CreditCard className="icon" />
+              </div>
+              {subscription ? (
+                <div className="subscription-card">
+                  <h3>{subscription.plan?.name || 'Driver Annual'}</h3>
+                  <p>{subscription.currency || 'USD'} {subscription.amount || 0} / {subscription.billingCycle}</p>
+                  <span className={`status ${subscription.payment?.status || subscription.status}`}>{subscription.payment?.status || subscription.status}</span>
+                  {Number(subscription.amount || subscription.plan?.price || 0) > 0 && !['paid', 'not_required'].includes(subscription.payment?.status) && (
+                    <button className="fleet-primary" onClick={paySubscription} disabled={payingSubscription}>
+                      {payingSubscription ? 'Opening ClicknPay...' : 'Pay Subscription'}
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="empty-state">Choose the Driver Annual plan from the pricing section to appear in driver search.</div>
+              )}
+            </section>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="fleet-page">
@@ -463,6 +849,7 @@ const TrailerOwnerDashboard = () => {
         </div>
         <button className={activeTab === 'fleet' ? 'active' : ''} onClick={() => setActiveTab('fleet')}><Truck className="icon" /> Fleet</button>
         <button className={activeTab === 'drivers' ? 'active' : ''} onClick={() => setActiveTab('drivers')}><User className="icon" /> Drivers</button>
+        <button className={activeTab === 'staff' ? 'active' : ''} onClick={() => setActiveTab('staff')}><Users className="icon" /> Staff</button>
         <button className={activeTab === 'market' ? 'active' : ''} onClick={() => setActiveTab('market')}><DollarSign className="icon" /> Market</button>
         <button className={activeTab === 'rentals' ? 'active' : ''} onClick={() => setActiveTab('rentals')}><Package className="icon" /> Rentals</button>
         <button className={activeTab === 'account' ? 'active' : ''} onClick={() => setActiveTab('account')}><Settings className="icon" /> Account</button>
@@ -471,8 +858,8 @@ const TrailerOwnerDashboard = () => {
       <main className="fleet-main">
         <header className="fleet-header">
           <div>
-            <h1>Trailer And Truck Fleet</h1>
-            <p>Manage trailers, tractor units, trucks, full rigs, and rental handovers.</p>
+            <h1>Fleet And Vehicle Rentals</h1>
+            <p>Manage small vehicle rentals, trailers, tractor units, trucks, full rigs, and handovers.</p>
           </div>
           <div className="fleet-header-actions">
             <button className="fleet-secondary" onClick={loadData} disabled={loading}>
@@ -516,8 +903,8 @@ const TrailerOwnerDashboard = () => {
                 {fleet.map(asset => (
                   <article className="asset-card" key={asset._id}>
                     <div>
-                      <h3>{asset.assetName || asset.registrationNumber}</h3>
-                      <p>{labelFor(asset.assetType)} • {asset.registrationNumber}</p>
+                      <h3>{assetDisplayName(asset)}</h3>
+                      <p>{labelFor(assetTypeFor(asset))} - {assetRegistration(asset)}</p>
                       <span className={`status ${asset.status}`}>{asset.status}</span>
                     </div>
                     <div className="asset-meta">
@@ -546,7 +933,7 @@ const TrailerOwnerDashboard = () => {
                   <div className="fleet-dialog-header">
                     <div>
                       <h2 id="add-fleet-title">Add Fleet Asset</h2>
-                      <p>Register a trailer, tractor unit, truck, or full rig.</p>
+                      <p>Register a rental car, van, bakkie, trailer, tractor unit, truck, or full rig.</p>
                     </div>
                     <button
                       className="dialog-close"
@@ -583,12 +970,12 @@ const TrailerOwnerDashboard = () => {
                       </label>
                     )}
                     {showVehicleType && (
-                      <label>Truck / Vehicle Type
+                      <label>{form.assetType === 'small_vehicle' ? 'Small Vehicle Type' : 'Truck / Vehicle Type'}
                         <select value={form.vehicleType} onChange={(e) => updateForm('vehicleType', e.target.value)} required={showVehicleType}>
-                          <option value="">{referenceLoading ? 'Loading truck types...' : 'Select truck type'}</option>
+                          <option value="">{referenceLoading ? 'Loading vehicle types...' : 'Select vehicle type'}</option>
                           {vehicleTypeOptions.map(type => (
                             <option key={getRecordId(type)} value={getRecordId(type)}>
-                              {getRecordLabel(type)}{type.capacity?.weight?.max ? ` up to ${type.capacity.weight.max}kg` : ''}
+                              {getRecordLabel(type)}{type.capacity?.weight?.max ? ` up to ${type.capacity.weight.max} ${type.capacity.weight.unit || 'tonnes'}` : ''}
                             </option>
                           ))}
                         </select>
@@ -621,7 +1008,7 @@ const TrailerOwnerDashboard = () => {
                       <label>Year
                         <input type="number" value={form.year} onChange={(e) => updateForm('year', e.target.value)} />
                       </label>
-                      <label>Capacity KG
+                      <label>Capacity (tonnes)
                         <input type="number" value={form.capacityWeight} onChange={(e) => updateForm('capacityWeight', e.target.value)} />
                       </label>
                     </div>
@@ -646,7 +1033,9 @@ const TrailerOwnerDashboard = () => {
                     </label>
                     <div className="toggle-row">
                       <label><input type="checkbox" checked={form.availableForRental} onChange={(e) => updateForm('availableForRental', e.target.checked)} /> Rent out</label>
-                      <label><input type="checkbox" checked={form.availableForShipmentWork} onChange={(e) => updateForm('availableForShipmentWork', e.target.checked)} /> Shipment work</label>
+                      {form.assetType !== 'small_vehicle' && (
+                        <label><input type="checkbox" checked={form.availableForShipmentWork} onChange={(e) => updateForm('availableForShipmentWork', e.target.checked)} /> Shipment work</label>
+                      )}
                     </div>
                     <button className="fleet-primary" disabled={loading}>Add Asset</button>
                   </form>
@@ -660,20 +1049,26 @@ const TrailerOwnerDashboard = () => {
           <section className="fleet-panel">
             <div className="panel-title">
               <h2>Rental Requests And Active Rentals</h2>
+              <button className="fleet-primary" type="button" onClick={() => setShowWalkInDialog(true)}>
+                <Plus className="icon" />
+                Walk-in Rental
+              </button>
             </div>
             <div className="rental-table">
               {listings.map(rental => (
                 <article className="rental-row" key={`owner-${rental._id}`}>
                   <div>
                     <h3>{rental.rentalReference}</h3>
-                    <p>{labelFor(rental.itemType)} • {rental.trailer?.registrationNumber || rental.vehicle?.registrationNumber}</p>
+                    <p>{labelFor(rental.itemType)} - {rental.trailer?.registrationNumber || rental.vehicle?.registrationNumber}</p>
+                    <p>{rental.channel === 'walk_in' ? `Walk-in: ${rental.renterSnapshot?.fullName || rental.renter?.fullName || 'Customer'}` : `Renter: ${rental.renter?.fullName || 'Online customer'}`}</p>
                   </div>
                   <span className={`status ${rental.status}`}>{rental.status}</span>
                   <strong>${rental.pricing?.total || 0}</strong>
                   <div className="rental-actions">
                     {rental.status === 'pending' && <button onClick={() => handleRentalAction(rental, 'approve')}>Approve</button>}
                     {rental.status === 'pending' && <button onClick={() => handleRentalAction(rental, 'reject')}>Reject</button>}
-                    {['approved', 'payment_pending'].includes(rental.status) && <span className="rental-note">Awaiting renter payment</span>}
+                    {rental.status === 'approved' && <button onClick={() => handleRentalAction(rental, 'pay')}>Create Payment Link</button>}
+                    {rental.status === 'payment_pending' && <button onClick={() => handleRentalAction(rental, 'check-payment')}>Check Payment</button>}
                     {rental.status === 'confirmed' && <button onClick={() => handleRentalAction(rental, 'pickup')}>Confirm Pickup</button>}
                     {rental.status === 'active' && <button onClick={() => handleRentalAction(rental, 'return')}>Confirm Return</button>}
                   </div>
@@ -684,6 +1079,7 @@ const TrailerOwnerDashboard = () => {
                   <div>
                     <h3>{rental.rentalReference}</h3>
                     <p>My rental - {labelFor(rental.itemType)} - {rental.trailer?.registrationNumber || rental.vehicle?.registrationNumber}</p>
+                    <p>{formatDate(rental.startDate)} to {formatDate(rental.endDate)}</p>
                   </div>
                   <span className={`status ${rental.status}`}>{rental.status}</span>
                   <strong>${rental.pricing?.total || 0}</strong>
@@ -828,12 +1224,13 @@ const TrailerOwnerDashboard = () => {
               {market.map(asset => (
                 <article className="asset-card" key={asset._id}>
                   <div>
-                    <h3>{asset.assetName || asset.registrationNumber}</h3>
-                    <p>{labelFor(asset.assetType || asset.itemType)} • {asset.registrationNumber}</p>
+                    <h3>{assetDisplayName(asset)}</h3>
+                    <p>{labelFor(assetTypeFor(asset))} - {asset.registrationNumber}</p>
                     <span className="status available">available</span>
                   </div>
                   <div className="asset-meta">
-                    <span>${asset.rentalSettings?.dailyRate || 0}/day</span>
+                    <span>{asset.quote ? `$${Number(asset.quote.total || 0).toFixed(2)} total` : `$${asset.rentalSettings?.dailyRate || 0}/day`}</span>
+                    {asset.quote?.duration?.days && <span>{asset.quote.duration.days} day estimate</span>}
                     <span>{asset.operatingAreas?.[0]?.city || 'No city'}</span>
                   </div>
                   <div className="asset-actions">
@@ -844,6 +1241,62 @@ const TrailerOwnerDashboard = () => {
               {!market.length && <div className="empty-state">No available rental assets found.</div>}
             </div>
           </section>
+        )}
+
+        {activeTab === 'staff' && (
+          <div className="fleet-account-grid">
+            <section className="fleet-panel">
+              <div className="panel-title">
+                <h2>Add Rental Staff</h2>
+                <Users className="icon" />
+              </div>
+              <form className="fleet-form" onSubmit={saveStaffUser}>
+                <label>Full Name
+                  <input value={staffForm.fullName} onChange={(e) => updateStaffForm('fullName', e.target.value)} required />
+                </label>
+                <label>Email
+                  <input type="email" value={staffForm.email} onChange={(e) => updateStaffForm('email', e.target.value)} required />
+                </label>
+                <label>Mobile Number
+                  <input value={staffForm.phone} onChange={(e) => updateStaffForm('phone', e.target.value)} required />
+                </label>
+                <label>Password
+                  <input type="password" value={staffForm.password} onChange={(e) => updateStaffForm('password', e.target.value)} minLength={8} required />
+                </label>
+                <label>Role
+                  <select value={staffForm.role} onChange={(e) => updateStaffForm('role', e.target.value)}>
+                    <option value="agent">Agent</option>
+                    <option value="manager">Manager</option>
+                    <option value="viewer">Viewer</option>
+                  </select>
+                </label>
+                <button className="fleet-primary" disabled={loading}>Add Staff User</button>
+              </form>
+            </section>
+
+            <section className="fleet-panel wide">
+              <div className="panel-title">
+                <h2>Company Staff</h2>
+                <span>{staffUsers.length} users</span>
+              </div>
+              <div className="asset-list">
+                {staffUsers.map(staff => (
+                  <article className="asset-card" key={staff._id}>
+                    <div>
+                      <h3>{staff.fullName}</h3>
+                      <p>{staff.email} - {staff.phone}</p>
+                      <span className={`status ${staff.status || 'active'}`}>{staff.status || 'active'}</span>
+                    </div>
+                    <div className="asset-meta">
+                      <span>{staff.rentalStaffRole || 'agent'}</span>
+                      <span>{formatDate(staff.createdAt)}</span>
+                    </div>
+                  </article>
+                ))}
+                {!staffUsers.length && <div className="empty-state">No rental staff users yet.</div>}
+              </div>
+            </section>
+          </div>
         )}
 
         {activeTab === 'account' && (
@@ -921,6 +1374,156 @@ const TrailerOwnerDashboard = () => {
                 <LogOut className="icon" />
                 Sign Out
               </button>
+            </section>
+          </div>
+        )}
+
+        {showWalkInDialog && (
+          <div className="fleet-dialog-backdrop" role="presentation" onMouseDown={() => setShowWalkInDialog(false)}>
+            <section className="fleet-dialog" role="dialog" aria-modal="true" aria-labelledby="walk-in-rental-title" onMouseDown={(event) => event.stopPropagation()}>
+              <div className="fleet-dialog-header">
+                <div>
+                  <h2 id="walk-in-rental-title">Create Walk-in Rental</h2>
+                  <p>Use this for customers assisted at your rental desk or by company staff.</p>
+                </div>
+                <button className="dialog-close" type="button" aria-label="Close" onClick={() => setShowWalkInDialog(false)}>
+                  <X className="icon" />
+                </button>
+              </div>
+              <form className="fleet-form" onSubmit={submitWalkInRental}>
+                <label>Rental Asset
+                  <select value={walkInForm.assetId} onChange={(event) => updateWalkInForm('assetId', event.target.value)} required>
+                    <option value="">Select asset</option>
+                    {rentalReadyAssets.map(asset => (
+                      <option key={asset._id} value={asset._id}>
+                        {assetDisplayName(asset)} - {assetRegistration(asset)} ({labelFor(assetTypeFor(asset))})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {!rentalReadyAssets.length && <small className="fleet-form-hint">Mark a fleet asset as available for rental before creating a walk-in rental.</small>}
+                <div className="form-row">
+                  <label>Customer Full Name
+                    <input value={walkInForm.fullName} onChange={(event) => updateWalkInForm('fullName', event.target.value)} required />
+                  </label>
+                  <label>Mobile Number
+                    <input value={walkInForm.phone} onChange={(event) => updateWalkInForm('phone', event.target.value)} required />
+                  </label>
+                </div>
+                <div className="form-row">
+                  <label>Email
+                    <input type="email" value={walkInForm.email} onChange={(event) => updateWalkInForm('email', event.target.value)} />
+                  </label>
+                  <label>National ID
+                    <input value={walkInForm.nationalId} onChange={(event) => updateWalkInForm('nationalId', event.target.value)} />
+                  </label>
+                </div>
+                <div className="form-row">
+                  <label>License Number
+                    <input value={walkInForm.licenseNumber} onChange={(event) => updateWalkInForm('licenseNumber', event.target.value)} />
+                  </label>
+                  <label>License Expiry
+                    <input type="date" value={walkInForm.licenseExpiry} onChange={(event) => updateWalkInForm('licenseExpiry', event.target.value)} />
+                  </label>
+                </div>
+                <div className="form-row">
+                  <label>Start Date
+                    <input type="date" value={walkInForm.startDate} onChange={(event) => updateWalkInForm('startDate', event.target.value)} required />
+                  </label>
+                  <label>End Date
+                    <input type="date" value={walkInForm.endDate} onChange={(event) => updateWalkInForm('endDate', event.target.value)} required />
+                  </label>
+                </div>
+                <div className="form-row">
+                  <label>Pickup Address
+                    <input value={walkInForm.pickupAddress} onChange={(event) => updateWalkInForm('pickupAddress', event.target.value)} />
+                  </label>
+                  <label>Return Address
+                    <input value={walkInForm.returnAddress} onChange={(event) => updateWalkInForm('returnAddress', event.target.value)} />
+                  </label>
+                </div>
+                <label>Payment Method
+                  <select value={walkInForm.paymentMethod} onChange={(event) => updateWalkInForm('paymentMethod', event.target.value)}>
+                    <option value="cash">Cash collected at rental desk</option>
+                    <option value="clicknpay">Customer will pay online</option>
+                  </select>
+                </label>
+                <label>Notes
+                  <textarea value={walkInForm.notes} onChange={(event) => updateWalkInForm('notes', event.target.value)} rows={3} />
+                </label>
+                <div className="dialog-actions">
+                  <button className="fleet-secondary" type="button" onClick={() => setShowWalkInDialog(false)}>Cancel</button>
+                  <button className="fleet-primary" disabled={loading || !rentalReadyAssets.length}>Create Rental</button>
+                </div>
+              </form>
+            </section>
+          </div>
+        )}
+
+        {inspectionDialog && (
+          <div className="fleet-dialog-backdrop" role="presentation" onMouseDown={() => setInspectionDialog(null)}>
+            <section className="fleet-dialog" role="dialog" aria-modal="true" aria-labelledby="rental-inspection-title" onMouseDown={(event) => event.stopPropagation()}>
+              <div className="fleet-dialog-header">
+                <div>
+                  <h2 id="rental-inspection-title">{inspectionDialog.type === 'pickup' ? 'Confirm Pickup' : 'Confirm Return'}</h2>
+                  <p>{inspectionDialog.rental?.rentalReference} - capture condition, odometer and customer acknowledgement.</p>
+                </div>
+                <button className="dialog-close" type="button" aria-label="Close" onClick={() => setInspectionDialog(null)}>
+                  <X className="icon" />
+                </button>
+              </div>
+              <form className="fleet-form" onSubmit={submitInspection}>
+                <div className="form-row">
+                  <label>Odometer Reading
+                    <input type="number" min="0" value={inspectionForm.odometerReading} onChange={(event) => updateInspectionForm('odometerReading', event.target.value)} required />
+                  </label>
+                  <label>Fuel Level
+                    <select value={inspectionForm.fuelLevel} onChange={(event) => updateInspectionForm('fuelLevel', event.target.value)}>
+                      <option value="full">Full</option>
+                      <option value="three_quarter">Three quarter</option>
+                      <option value="half">Half</option>
+                      <option value="quarter">Quarter</option>
+                      <option value="empty">Empty</option>
+                    </select>
+                  </label>
+                </div>
+                <label>Customer / Staff Signature Name
+                  <input value={inspectionForm.signature} onChange={(event) => updateInspectionForm('signature', event.target.value)} />
+                </label>
+                <label>Photo URLs
+                  <textarea value={inspectionForm.photos} onChange={(event) => updateInspectionForm('photos', event.target.value)} rows={2} placeholder="Comma separated photo URLs" />
+                </label>
+                <label>Inspection Notes
+                  <textarea value={inspectionForm.notes} onChange={(event) => updateInspectionForm('notes', event.target.value)} rows={3} />
+                </label>
+                {inspectionDialog.type === 'return' && (
+                  <>
+                    <label>Damage / Return Notes
+                      <textarea value={inspectionForm.damageDescription} onChange={(event) => updateInspectionForm('damageDescription', event.target.value)} rows={3} />
+                    </label>
+                    <div className="form-row">
+                      <label>Damage Fees
+                        <input type="number" min="0" value={inspectionForm.damageFees} onChange={(event) => updateInspectionForm('damageFees', event.target.value)} />
+                      </label>
+                      <label>Cleaning Fees
+                        <input type="number" min="0" value={inspectionForm.cleaningFees} onChange={(event) => updateInspectionForm('cleaningFees', event.target.value)} />
+                      </label>
+                    </div>
+                    <div className="form-row">
+                      <label>Late Fees
+                        <input type="number" min="0" value={inspectionForm.lateFees} onChange={(event) => updateInspectionForm('lateFees', event.target.value)} />
+                      </label>
+                      <label>Extra KM Fees
+                        <input type="number" min="0" value={inspectionForm.extraKmFees} onChange={(event) => updateInspectionForm('extraKmFees', event.target.value)} />
+                      </label>
+                    </div>
+                  </>
+                )}
+                <div className="dialog-actions">
+                  <button className="fleet-secondary" type="button" onClick={() => setInspectionDialog(null)}>Cancel</button>
+                  <button className="fleet-primary" disabled={loading}>{inspectionDialog.type === 'pickup' ? 'Confirm Pickup' : 'Confirm Return'}</button>
+                </div>
+              </form>
             </section>
           </div>
         )}

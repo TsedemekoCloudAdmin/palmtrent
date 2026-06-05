@@ -15,8 +15,10 @@ import {
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../services/apiService';
 import socketService from '../services/socketService';
+import useAuth from '../hook/useAuth';
 
 const AgentPaymentScreen = ({ route, navigation, onNavigate, bookingData, updateBookingData }) => {
+  const { user } = useAuth();
   const routeParams = route?.params || {};
   const bookingId = routeParams.bookingId || bookingData?.bookingId;
   const bookingReference = routeParams.bookingReference || bookingData?.bookingReference;
@@ -40,6 +42,7 @@ const AgentPaymentScreen = ({ route, navigation, onNavigate, bookingData, update
   const [checkingStatus, setCheckingStatus] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [copiedLookupReference, setCopiedLookupReference] = useState(false);
 
   const pollRef = useRef(null);
   const countdownRef = useRef(null);
@@ -106,7 +109,10 @@ const AgentPaymentScreen = ({ route, navigation, onNavigate, bookingData, update
       const response = await apiService.post('/payments/initiate-agent', {
         bookingId,
         amount,
-        customer: {}
+        customer: {
+          email: user?.email,
+          phone: user?.phone || user?.mobile
+        }
       });
 
       if (response.success) {
@@ -245,12 +251,18 @@ const AgentPaymentScreen = ({ route, navigation, onNavigate, bookingData, update
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const copyLookupReference = (text) => {
+    Clipboard.setString(text);
+    setCopiedLookupReference(true);
+    setTimeout(() => setCopiedLookupReference(false), 2000);
+  };
+
   const sharePaymentDetails = async () => {
     if (!paymentData) return;
 
     try {
       await Share.share({
-        message: `PalmTrent Payment Details\n\nAgent Code: ${paymentData.agentCode}\nAmount: USD $${paymentData.amount?.toFixed(2)}\nMerchant: ${paymentData.instructions?.merchantCode}\n\nPay at any EcoCash Agent`
+        message: `PalmTrent Payment Details\n\nAgent Code: ${paymentData.agentCode}\nEcoCash Source Reference: ${paymentData.ecocashSourceReference || 'Not required'}\nAmount: USD $${paymentData.amount?.toFixed(2)}\nMerchant: ${paymentData.instructions?.merchantCode}\n\nPay at any EcoCash Agent`
       });
     } catch (error) {
       console.error('Share error:', error);
@@ -334,6 +346,27 @@ const AgentPaymentScreen = ({ route, navigation, onNavigate, bookingData, update
             <Text style={styles.agentCodeNote}>
               Quote this code to the EcoCash Agent
             </Text>
+
+            {paymentData?.ecocashSourceReference && (
+              <View style={styles.lookupReferenceCard}>
+                <Text style={styles.lookupReferenceLabel}>EcoCash Source Reference</Text>
+                <TouchableOpacity
+                  style={styles.lookupReferenceButton}
+                  onPress={() => copyLookupReference(paymentData.ecocashSourceReference)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.lookupReferenceValue}>{paymentData.ecocashSourceReference}</Text>
+                  <MaterialIcons
+                    name={copiedLookupReference ? "check" : "content-copy"}
+                    size={20}
+                    color={copiedLookupReference ? "#16a34a" : "#475569"}
+                  />
+                </TouchableOpacity>
+                <Text style={styles.lookupReferenceNote}>
+                  Use this UUID if the agent asks for the EcoCash source reference.
+                </Text>
+              </View>
+            )}
           </View>
 
           {/* Amount Card */}
@@ -514,6 +547,45 @@ const styles = StyleSheet.create({
     color: '#166534',
     marginTop: 12,
     textAlign: 'center',
+  },
+  lookupReferenceCard: {
+    width: '100%',
+    marginTop: 18,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+  },
+  lookupReferenceLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#166534',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  lookupReferenceButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#dbeafe',
+  },
+  lookupReferenceValue: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#0C2D48',
+    fontFamily: 'monospace',
+  },
+  lookupReferenceNote: {
+    marginTop: 8,
+    fontSize: 12,
+    lineHeight: 16,
+    color: '#64748b',
   },
   // Amount Card
   amountCard: {

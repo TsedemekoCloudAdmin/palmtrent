@@ -8,8 +8,22 @@ const {
   createDriver,
   updateDriver,
   deleteDriver,
-  updateDriverStatus
+  updateDriverStatus,
+  searchMarketplaceDrivers,
+  getMyDriverProfile,
+  updateMyDriverProfile,
+  updateMyAvailability
 } = require('../controllers/driverController');
+
+router.route('/marketplace')
+  .get(protect, searchMarketplaceDrivers);
+
+router.route('/me')
+  .get(protect, getMyDriverProfile)
+  .put(protect, updateMyDriverProfile);
+
+router.route('/me/availability')
+  .put(protect, updateMyAvailability);
 
 router.route('/')
   .get(protect, getDrivers)

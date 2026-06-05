@@ -115,6 +115,33 @@ const escrowSchema = new mongoose.Schema({
     reference: String,
     processedAt: Date
   },
+  roadsideAssistanceAllocations: [{
+    emergency: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Emergency'
+    },
+    payment: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Payment'
+    },
+    amount: {
+      type: Number,
+      default: 0
+    },
+    providerEarnings: {
+      type: Number,
+      default: 0
+    },
+    platformFee: {
+      type: Number,
+      default: 0
+    },
+    allocatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    allocatedAt: Date
+  }],
   metadata: mongoose.Schema.Types.Mixed
 }, {
   timestamps: true

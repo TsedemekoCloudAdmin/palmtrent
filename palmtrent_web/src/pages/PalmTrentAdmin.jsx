@@ -136,6 +136,8 @@ const AdminDashboard = () => {
         return <DisputesView onDisputesChanged={loadAdminBadges} />;
       case 'reviews':
         return <ReviewsView />;
+      case 'sos':
+        return <EmergencyView />;
       case 'support':
         return <SupportView />;
       case 'settings':
@@ -238,6 +240,13 @@ const AdminDashboard = () => {
             active={activeTab === 'reviews'}
             sidebarOpen={sidebarOpen}
             onClick={() => handleNavClick('reviews')}
+          />
+          <NavItem
+            icon={<AlertCircle />}
+            label="SOS"
+            active={activeTab === 'sos'}
+            sidebarOpen={sidebarOpen}
+            onClick={() => handleNavClick('sos')}
           />
           <NavItem
             icon={<MessageSquare />}
@@ -419,6 +428,15 @@ const DashboardView = ({ timeRange, setTimeRange, setActiveTab }) => {
 
 // ============ Users View ============
 const UsersView = ({ setActiveTab, setJobsUserFilter, verificationMode = false, onVerificationChanged }) => {
+  const customerRoleOptions = [
+    { value: 'shipper', label: 'Shipper' },
+    { value: 'transporter', label: 'Transporter' },
+    { value: 'trailer_owner', label: 'Trailer Owner' },
+    { value: 'rental_owner', label: 'Rental Owner' },
+    { value: 'driver', label: 'Driver' },
+    { value: 'roadside_provider', label: 'Roadside Provider' },
+    { value: 'corporate', label: 'Corporate' }
+  ];
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -430,6 +448,18 @@ const UsersView = ({ setActiveTab, setJobsUserFilter, verificationMode = false, 
   const [userMessage, setUserMessage] = useState('');
   const [roleEditUser, setRoleEditUser] = useState(null);
   const [roleEditValue, setRoleEditValue] = useState('shipper');
+  const [roleEditRoles, setRoleEditRoles] = useState([]);
+  const [roleEditPlatformRole, setRoleEditPlatformRole] = useState('');
+  const [showCreateUserModal, setShowCreateUserModal] = useState(false);
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [createUserForm, setCreateUserForm] = useState({
+    fullName: '',
+    email: '',
+    phone: '',
+    password: '',
+    platformRole: 'admin',
+    roles: []
+  });
   const [shipperNationalId, setShipperNationalId] = useState('');
   const [verificationForm, setVerificationForm] = useState({
     status: 'approved',
@@ -460,6 +490,9 @@ const UsersView = ({ setActiveTab, setJobsUserFilter, verificationMode = false, 
           email: u.email,
           phone: u.phone,
           userType: u.userType,
+          roles: u.roles || (u.userType && !['admin', 'clerk'].includes(u.userType) ? [u.userType] : []),
+          platformRole: u.platformRole || '',
+          isPlatformStaff: u.isPlatformStaff || ['admin', 'clerk'].includes(u.userType),
           status: verificationMode
             ? (u.verification?.status || (u.isVerified ? 'approved' : 'not_started'))
             : (u.status || 'active'),
@@ -495,7 +528,7 @@ const UsersView = ({ setActiveTab, setJobsUserFilter, verificationMode = false, 
     const matchesSearch = user.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          user.phone.includes(searchTerm);
-    const matchesType = filterType === 'all' || user.userType === filterType;
+    const matchesType = filterType === 'all' || user.userType === filterType || user.roles?.includes(filterType) || user.platformRole === filterType;
     const matchesStatus = verificationMode || filterStatus === 'all' || user.status === filterStatus;
     const matchesVerificationQueue = !verificationMode || user.userType !== 'shipper';
     return matchesSearch && matchesType && matchesStatus && matchesVerificationQueue;
@@ -684,6 +717,55 @@ const UsersView = ({ setActiveTab, setJobsUserFilter, verificationMode = false, 
     })));
   };
 
+  const toggleRole = (role, selected, setter) => {
+    setter(current => {
+      const set = new Set(current || []);
+      if (selected) set.add(role);
+      else set.delete(role);
+      return [...set];
+    });
+  };
+
+  const updateCreateUserForm = (field, value) => {
+    setCreateUserForm(current => ({ ...current, [field]: value }));
+  };
+
+  const toggleCreateUserRole = (role, selected) => {
+    setCreateUserForm(current => {
+      const roles = new Set(current.roles || []);
+      if (selected) roles.add(role);
+      else roles.delete(role);
+      return { ...current, roles: [...roles] };
+    });
+  };
+
+  const createPlatformUser = async () => {
+    try {
+      setCreatingUser(true);
+      setUserMessage('');
+      const response = await adminAPI.createUser({
+        ...createUserForm,
+        userType: createUserForm.platformRole === 'clerk' ? 'clerk' : 'admin',
+        isPlatformStaff: true
+      });
+      setShowCreateUserModal(false);
+      setCreateUserForm({
+        fullName: '',
+        email: '',
+        phone: '',
+        password: '',
+        platformRole: 'admin',
+        roles: []
+      });
+      await loadUsers();
+      setUserMessage(response.message || 'Platform user created.');
+    } catch (error) {
+      setUserMessage(error.message || 'Unable to create platform user.');
+    } finally {
+      setCreatingUser(false);
+    }
+  };
+
   const updateSelectedUserStatus = async (status) => {
     try {
       await adminAPI.updateUser(selectedUser.id, { status });
@@ -698,15 +780,21 @@ const UsersView = ({ setActiveTab, setJobsUserFilter, verificationMode = false, 
   const editUserRole = (user) => {
     setRoleEditUser(user);
     setRoleEditValue(user.userType || 'shipper');
+    setRoleEditRoles(user.roles || (user.userType && !['admin', 'clerk'].includes(user.userType) ? [user.userType] : []));
+    setRoleEditPlatformRole(user.platformRole || (['admin', 'clerk'].includes(user.userType) ? user.userType : ''));
     setUserMessage('');
   };
 
   const saveUserRole = async () => {
     if (!roleEditUser) return;
     try {
-      await adminAPI.updateUser(roleEditUser.id, { userType: roleEditValue });
+      await adminAPI.updateUser(roleEditUser.id, {
+        userType: roleEditValue,
+        roles: roleEditRoles,
+        platformRole: roleEditPlatformRole || null
+      });
       await loadUsers();
-      setUserMessage(`${roleEditUser.fullName} role updated to ${roleEditValue}.`);
+      setUserMessage(`${roleEditUser.fullName} access updated.`);
       setRoleEditUser(null);
     } catch (error) {
       setUserMessage(error.message || 'Unable to update user.');
@@ -739,6 +827,11 @@ const UsersView = ({ setActiveTab, setJobsUserFilter, verificationMode = false, 
             <button className="btn-secondary" onClick={loadUsers}>
               <RefreshCw className="icon" /> Refresh
             </button>
+            {!verificationMode && (
+              <button className="btn-secondary" onClick={() => setShowCreateUserModal(true)}>
+                <Users className="icon" /> Add Admin/Clerk
+              </button>
+            )}
             <button className="btn-primary" onClick={exportUsers}>
               <Download className="icon" /> Export
             </button>
@@ -770,6 +863,8 @@ const UsersView = ({ setActiveTab, setJobsUserFilter, verificationMode = false, 
             <option value="transporter">Transporters</option>
             <option value="corporate">Corporate</option>
             <option value="trailer_owner">Trailer Owners</option>
+            {!verificationMode && <option value="admin">Admins</option>}
+            {!verificationMode && <option value="clerk">Clerks</option>}
           </select>
           <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="filter-select">
             <option value="all">All Status</option>
@@ -818,7 +913,10 @@ const UsersView = ({ setActiveTab, setJobsUserFilter, verificationMode = false, 
                     <td>
                       <div className="type-badge">
                         {getUserTypeIcon(user.userType)}
-                        <span>{user.userType.replace('_', ' ')}</span>
+                        <span>
+                          {user.platformRole || user.userType.replace('_', ' ')}
+                          {user.roles?.length ? ` (${user.roles.map(role => role.replace('_', ' ')).join(', ')})` : ''}
+                        </span>
                       </div>
                     </td>
                     <td>{getStatusBadge(user.status)}</td>
@@ -1108,6 +1206,59 @@ const UsersView = ({ setActiveTab, setJobsUserFilter, verificationMode = false, 
         </div>
       )}
 
+      {showCreateUserModal && (
+        <div className="modal-overlay" onClick={() => setShowCreateUserModal(false)}>
+          <div className="modal-content user-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Add Admin or Clerk</h2>
+              <button className="modal-close" onClick={() => setShowCreateUserModal(false)}><XCircle className="icon" /></button>
+            </div>
+            <div className="modal-body">
+              <div className="settings-form compact-form">
+                <label>Full Name</label>
+                <input value={createUserForm.fullName} onChange={(event) => updateCreateUserForm('fullName', event.target.value)} />
+
+                <label>Email</label>
+                <input type="email" value={createUserForm.email} onChange={(event) => updateCreateUserForm('email', event.target.value)} />
+
+                <label>Mobile Number</label>
+                <input value={createUserForm.phone} placeholder="+263..." onChange={(event) => updateCreateUserForm('phone', event.target.value)} />
+
+                <label>Temporary Password</label>
+                <input type="password" value={createUserForm.password} onChange={(event) => updateCreateUserForm('password', event.target.value)} />
+
+                <label>Platform Access</label>
+                <select value={createUserForm.platformRole} onChange={(event) => updateCreateUserForm('platformRole', event.target.value)}>
+                  <option value="main_admin">Main Administrator</option>
+                  <option value="admin">Administrator</option>
+                  <option value="clerk">Clerk</option>
+                </select>
+
+                <label>Customer Roles Also Allowed</label>
+                <div className="role-checkbox-grid">
+                  {customerRoleOptions.map(option => (
+                    <label className="checkbox-row" key={option.value}>
+                      <input
+                        type="checkbox"
+                        checked={createUserForm.roles.includes(option.value)}
+                        onChange={(event) => toggleCreateUserRole(option.value, event.target.checked)}
+                      />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button className="btn-secondary" onClick={() => setShowCreateUserModal(false)}>Cancel</button>
+              <button className="btn-primary" onClick={createPlatformUser} disabled={creatingUser}>
+                {creatingUser ? 'Creating...' : 'Create User'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {roleEditUser && (
         <div className="modal-overlay" onClick={() => setRoleEditUser(null)}>
           <div className="modal-content user-modal" onClick={(event) => event.stopPropagation()}>
@@ -1121,14 +1272,37 @@ const UsersView = ({ setActiveTab, setJobsUserFilter, verificationMode = false, 
                 <div><span>Email</span><strong>{roleEditUser.email}</strong></div>
               </div>
               <div className="settings-form">
-                <label>Role</label>
+                <label>Primary Role</label>
                 <select value={roleEditValue} onChange={(event) => setRoleEditValue(event.target.value)}>
                   <option value="shipper">Shipper</option>
                   <option value="transporter">Transporter</option>
                   <option value="corporate">Corporate</option>
                   <option value="trailer_owner">Trailer Owner</option>
                   <option value="admin">Admin</option>
+                  <option value="clerk">Clerk</option>
                 </select>
+
+                <label>Platform Access</label>
+                <select value={roleEditPlatformRole} onChange={(event) => setRoleEditPlatformRole(event.target.value)}>
+                  <option value="">No platform staff access</option>
+                  <option value="main_admin">Main Administrator</option>
+                  <option value="admin">Administrator</option>
+                  <option value="clerk">Clerk</option>
+                </select>
+
+                <label>Customer Roles</label>
+                <div className="role-checkbox-grid">
+                  {customerRoleOptions.map(option => (
+                    <label className="checkbox-row" key={option.value}>
+                      <input
+                        type="checkbox"
+                        checked={roleEditRoles.includes(option.value)}
+                        onChange={(event) => toggleRole(option.value, event.target.checked, setRoleEditRoles)}
+                      />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
             </div>
             <div className="modal-actions">
@@ -1168,7 +1342,9 @@ const JobsView = ({ userFilter, clearUserFilter }) => {
           amount: booking.pricing?.total || booking.pricing?.totals?.total || booking.totalAmount || 0,
           createdAt: booking.createdAt,
           cargo: booking.cargoDetails?.description || booking.cargoDetails?.type || 'N/A',
-          paymentStatus: booking.paymentStatus || booking.payment?.status || 'N/A'
+          paymentStatus: booking.paymentStatus || booking.payment?.status || 'N/A',
+          paymentMethod: booking.payment?.method || 'N/A',
+          paymentReference: booking.payment?.reference || ''
         })));
       } catch (error) {
         console.error('Failed to load jobs:', error);
@@ -1252,6 +1428,8 @@ const JobsView = ({ userFilter, clearUserFilter }) => {
               <div className="detail-item"><DollarSign className="icon" /><div><label>Amount</label><p>${Number(selectedJob.amount || 0).toLocaleString()}</p></div></div>
               <div className="detail-item"><Users className="icon" /><div><label>Shipper</label><p>{selectedJob.shipper}</p></div></div>
               <div className="detail-item"><Truck className="icon" /><div><label>Transporter</label><p>{selectedJob.transporter}</p></div></div>
+              <div className="detail-item"><CreditCard className="icon" /><div><label>Payment</label><p>{selectedJob.paymentStatus?.replace(/_/g, ' ')} {selectedJob.paymentReference ? `(${selectedJob.paymentReference})` : ''}</p></div></div>
+              <div className="detail-item"><DollarSign className="icon" /><div><label>Method</label><p>{selectedJob.paymentMethod?.replace(/_/g, ' ')}</p></div></div>
               <div className="detail-item"><MapPin className="icon" /><div><label>Pickup</label><p>{selectedJob.pickup}</p></div></div>
               <div className="detail-item"><MapPin className="icon" /><div><label>Delivery</label><p>{selectedJob.delivery}</p></div></div>
             </div>
@@ -1282,6 +1460,7 @@ const JobsView = ({ userFilter, clearUserFilter }) => {
                 <th>Shipper</th>
                 <th>Transporter</th>
                 <th>Status</th>
+                <th>Payment</th>
                 <th>Amount</th>
                 <th>Date</th>
                 <th>Actions</th>
@@ -1295,6 +1474,12 @@ const JobsView = ({ userFilter, clearUserFilter }) => {
                   <td>{job.shipper}</td>
                   <td>{job.transporter}</td>
                   <td>{getStatusBadge(job.status)}</td>
+                  <td>
+                    <span className={`status-badge ${job.paymentStatus === 'confirmed' ? 'status-completed' : 'status-pending'}`}>
+                      {job.paymentStatus?.replace(/_/g, ' ')}
+                    </span>
+                    {job.paymentReference && <div className="payment-reference-mini">{job.paymentReference}</div>}
+                  </td>
                   <td className="amount-cell">${job.amount}</td>
                   <td>{new Date(job.createdAt).toLocaleDateString()}</td>
                   <td>
@@ -1432,6 +1617,14 @@ const PaymentsView = () => {
   const [filterMethod, setFilterMethod] = useState('all');
   const [paymentMessage, setPaymentMessage] = useState('');
   const [selectedPayment, setSelectedPayment] = useState(null);
+  const [reconciling, setReconciling] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState(null);
+  const [confirmForm, setConfirmForm] = useState({
+    ecocashReference: '',
+    confirmedAmount: '',
+    note: '',
+    manualOverride: false
+  });
 
   const loadPayments = useCallback(async () => {
     try {
@@ -1447,7 +1640,13 @@ const PaymentsView = () => {
         amount: Number(payment.amount || 0),
         method: payment.paymentMethod || payment.method || payment.gateway || 'N/A',
         status: payment.status || 'pending',
-        date: payment.createdAt
+        date: payment.createdAt,
+        gatewayReference: payment.gatewayReference || '',
+        agentCode: payment.metadata?.agentCode || '',
+        ecocashReference: payment.metadata?.ecocashReference || payment.metadata?.ecocashLookupStatus?.ecocashReference || '',
+        ecocashSourceReference: payment.metadata?.ecocashLookup?.sourceReference || '',
+        lookupError: payment.metadata?.ecocashLookupLastError?.message || '',
+        raw: payment
       })));
     } catch (error) {
       console.error('Failed to load payments:', error);
@@ -1484,14 +1683,57 @@ const PaymentsView = () => {
   const downloadReceipt = (payment) => {
     downloadCsv(`receipt-${payment.id}.csv`, [payment]);
   };
-  const confirmPayment = async (payment) => {
+  const runEcocashReconcile = async () => {
     try {
       setPaymentMessage('');
-      await adminAPI.confirmPayment(payment.dbId, 'Confirmed from admin payments screen');
+      setReconciling(true);
+      const response = await adminAPI.reconcileEcocashAgentPayments({ limit: 30 });
       await loadPayments();
-      setPaymentMessage(`Payment ${payment.id} confirmed.`);
+      setPaymentMessage(response.message || `EcoCash reconciliation checked ${response.data?.checked || 0} payment(s).`);
     } catch (error) {
-      setPaymentMessage(error.message || 'Unable to confirm payment.');
+      setPaymentMessage(error.message || 'Unable to run EcoCash reconciliation.');
+    } finally {
+      setReconciling(false);
+    }
+  };
+
+  const openConfirmDialog = (payment) => {
+    setConfirmDialog(payment);
+    setConfirmForm({
+      ecocashReference: payment.ecocashReference || payment.gatewayReference || '',
+      confirmedAmount: payment.amount ? String(payment.amount) : '',
+      note: '',
+      manualOverride: false
+    });
+  };
+
+  const closeConfirmDialog = () => {
+    setConfirmDialog(null);
+    setConfirmForm({ ecocashReference: '', confirmedAmount: '', note: '', manualOverride: false });
+  };
+
+  const submitManualConfirmation = async (event) => {
+    event.preventDefault();
+    if (!confirmDialog) return;
+
+    try {
+      setPaymentMessage('');
+      const payload = {
+        paymentReference: confirmDialog.id,
+        agentCode: confirmDialog.agentCode || undefined,
+        ecocashReference: confirmForm.ecocashReference.trim() || undefined,
+        confirmedAmount: confirmForm.confirmedAmount ? Number(confirmForm.confirmedAmount) : undefined,
+        verifyWithEcocash: Boolean(confirmForm.ecocashReference.trim()) && !confirmForm.manualOverride,
+        manualOverride: Boolean(confirmForm.manualOverride),
+        note: confirmForm.note.trim() || undefined
+      };
+
+      await adminAPI.verifyAgentPayment(payload);
+      await loadPayments();
+      setPaymentMessage(`Payment ${confirmDialog.id} verification submitted.`);
+      closeConfirmDialog();
+    } catch (error) {
+      setPaymentMessage(error.message || 'Unable to verify this payment.');
     }
   };
 
@@ -1532,6 +1774,9 @@ const PaymentsView = () => {
             <button className="btn-secondary" onClick={exportPayments}>
               <Download className="icon" /> Export
             </button>
+            <button className="btn-primary" onClick={runEcocashReconcile} disabled={reconciling}>
+              <RefreshCw className={`icon ${reconciling ? 'spinning' : ''}`} /> {reconciling ? 'Reconciling...' : 'Run EcoCash Reconcile'}
+            </button>
           </div>
         </div>
       </div>
@@ -1571,6 +1816,7 @@ const PaymentsView = () => {
             <option value="openapi_africa">OpenAPI Africa</option>
             <option value="clicknpay">ClicknPay</option>
             <option value="bank_transfer">Bank Transfer</option>
+            <option value="cash_agent">Cash via Agent</option>
             <option value="card">Card</option>
           </select>
         </div>
@@ -1609,8 +1855,8 @@ const PaymentsView = () => {
                     <div className="action-buttons">
                       <button className="action-btn" title="View Details" onClick={() => viewPayment(payment)}><Eye className="icon" /></button>
                       <button className="action-btn" title="Receipt" onClick={() => downloadReceipt(payment)}><FileText className="icon" /></button>
-                      {canAdminConfirmPayment(payment.status) && (
-                        <button className="action-btn success" title="Confirm" onClick={() => confirmPayment(payment)}><CheckCircle className="icon" /></button>
+                      {canAdminConfirmPayment(payment.status) && payment.method === 'cash_agent' && (
+                        <button className="action-btn success" title="Verify EcoCash Agent Payment" onClick={() => openConfirmDialog(payment)}><CheckCircle className="icon" /></button>
                       )}
                     </div>
                   </td>
@@ -1638,13 +1884,95 @@ const PaymentsView = () => {
                 <div><span>Method</span><strong>{selectedPayment.method.replace(/_/g, ' ')}</strong></div>
                 <div><span>Amount</span><strong>${selectedPayment.amount.toFixed(2)}</strong></div>
                 <div><span>Status</span><strong>{selectedPayment.status}</strong></div>
+                <div><span>Agent Code</span><strong>{selectedPayment.agentCode || '-'}</strong></div>
+                <div><span>EcoCash Source Ref</span><strong>{selectedPayment.ecocashSourceReference || '-'}</strong></div>
+                <div><span>EcoCash Ref</span><strong>{selectedPayment.ecocashReference || selectedPayment.gatewayReference || '-'}</strong></div>
                 <div><span>Date</span><strong>{new Date(selectedPayment.date).toLocaleString()}</strong></div>
               </div>
+              {selectedPayment.lookupError && (
+                <div className="integration-message warning">
+                  <AlertCircle className="icon" />
+                  <span>{selectedPayment.lookupError}</span>
+                </div>
+              )}
             </div>
             <div className="modal-actions">
               <button className="btn-secondary" onClick={() => downloadReceipt(selectedPayment)}><FileText className="icon" /> Receipt</button>
               <button className="btn-primary" onClick={() => setSelectedPayment(null)}>Close</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDialog && (
+        <div className="modal-overlay" onClick={closeConfirmDialog}>
+          <div className="modal-content payment-modal reconciliation-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h2>Verify Cash Agent Payment</h2>
+                <p className="modal-kicker">{confirmDialog.bookingRef} · {confirmDialog.id}</p>
+              </div>
+              <button className="modal-close" onClick={closeConfirmDialog}>
+                <XCircle className="icon" />
+              </button>
+            </div>
+            <form onSubmit={submitManualConfirmation}>
+              <div className="modal-body">
+                <div className="reconciliation-summary">
+                  <div><span>Amount</span><strong>${confirmDialog.amount.toFixed(2)}</strong></div>
+                  <div><span>Agent code</span><strong>{confirmDialog.agentCode || '-'}</strong></div>
+                  <div><span>EcoCash source UUID</span><strong>{confirmDialog.ecocashSourceReference || '-'}</strong></div>
+                </div>
+
+                <div className="builder-form-grid">
+                  <label>
+                    EcoCash receipt/reference
+                    <input
+                      value={confirmForm.ecocashReference}
+                      onChange={(event) => setConfirmForm(prev => ({ ...prev, ecocashReference: event.target.value }))}
+                      placeholder="MP240226.1054.A45839"
+                    />
+                  </label>
+                  <label>
+                    Confirmed amount
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={confirmForm.confirmedAmount}
+                      onChange={(event) => setConfirmForm(prev => ({ ...prev, confirmedAmount: event.target.value }))}
+                      placeholder="10.00"
+                    />
+                  </label>
+                  <label className="span-2">
+                    Admin note
+                    <textarea
+                      rows="3"
+                      value={confirmForm.note}
+                      onChange={(event) => setConfirmForm(prev => ({ ...prev, note: event.target.value }))}
+                      placeholder="Receipt checked in EcoCash merchant portal, paid to PalmTrent biller."
+                    />
+                  </label>
+                  <label className="checkbox-row span-2">
+                    <input
+                      type="checkbox"
+                      checked={confirmForm.manualOverride}
+                      onChange={(event) => setConfirmForm(prev => ({ ...prev, manualOverride: event.target.checked }))}
+                    />
+                    <span>Manual override after confirming the receipt belongs to this PalmTrent booking.</span>
+                  </label>
+                </div>
+
+                <div className="integration-message">
+                  <Shield className="icon" />
+                  <span>If the user quoted the PalmTrent reference, leave manual override off so the API lookup verifies it. If they forgot the reference, tick manual override only after checking the EcoCash receipt in the merchant portal.</span>
+                </div>
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn-secondary" onClick={closeConfirmDialog}>Cancel</button>
+                <button type="submit" className="btn-primary"><CheckCircle className="icon" /> Verify Payment</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -2681,6 +3009,9 @@ const MonetizationView = () => {
                   <select value={planForm.audience} onChange={e => updatePlanField('audience', e.target.value)}>
                     <option value="transporter">Transporter</option>
                     <option value="trailer_owner">Trailer Owner</option>
+                    <option value="rental_owner">Rental Owner</option>
+                    <option value="driver">Driver</option>
+                    <option value="roadside_provider">Roadside Provider</option>
                     <option value="corporate">Corporate</option>
                     <option value="shipper">Shipper</option>
                   </select>
@@ -2791,6 +3122,7 @@ const MonetizationView = () => {
                     <option value="shipment">Shipment</option>
                     <option value="rental">Rental</option>
                     <option value="subscription">Subscription</option>
+                    <option value="roadside_assistance">Roadside Assistance</option>
                   </select>
                 </label>
                 <label>
@@ -2800,6 +3132,9 @@ const MonetizationView = () => {
                     <option value="shipper">Shipper</option>
                     <option value="transporter">Transporter</option>
                     <option value="trailer_owner">Trailer Owner</option>
+                    <option value="rental_owner">Rental Owner</option>
+                    <option value="driver">Driver</option>
+                    <option value="roadside_provider">Roadside Provider</option>
                     <option value="corporate">Corporate</option>
                   </select>
                 </label>
@@ -3289,8 +3624,34 @@ const INTEGRATION_FIELDS = {
     { key: 'returnUrl', label: 'Return URL' },
     { key: 'currency', label: 'Currency' }
   ],
+  ecocashOpenApi: [
+    { key: 'mode', label: 'Mode (sandbox/live)' },
+    { key: 'baseUrl', label: 'Base URL' },
+    { key: 'statusEndpoint', label: 'Status Endpoint' },
+    { key: 'merchantCode', label: 'Merchant/Biller Code' },
+    { key: 'apiKey', label: 'API Key', secret: true },
+    { key: 'bearerToken', label: 'Bearer Token', secret: true },
+    { key: 'webhookSecret', label: 'Webhook Secret', secret: true },
+    { key: 'reconcileLimit', label: 'Reconcile Limit' },
+    { key: 'reconcileMinIntervalMs', label: 'Minimum Lookup Interval (ms)' },
+    { key: 'reconcileDelayMs', label: 'Delay Between Lookups (ms)' }
+  ],
   mapbox: [
     { key: 'accessToken', label: 'Access Token', secret: true }
+  ],
+  emergencyDispatch: [
+    { key: 'baseUrl', label: 'Dispatch API URL' },
+    { key: 'apiKey', label: 'Dispatch API Key', secret: true },
+    { key: 'callbackUrl', label: 'Callback URL' },
+    { key: 'supportPhone', label: 'Palmtrent SOS Support Phone' },
+    { key: 'dispatchTimeoutMs', label: 'Dispatch Timeout (ms)' },
+    { key: 'responderRadiusMeters', label: 'Responder Radius (meters)' },
+    { key: 'responderBroadcastLimit', label: 'Responder Broadcast Limit' },
+    { key: 'towBaseFee', label: 'Tow Base Fee (USD)' },
+    { key: 'towPerKmFee', label: 'Tow Distance Rate (USD per km)' },
+    { key: 'mechanicBaseFee', label: 'Mechanic Base Fee (USD)' },
+    { key: 'towAssistanceFee', label: 'Default Tow Assistance Fee (USD)' },
+    { key: 'mechanicAssistanceFee', label: 'Default Mechanic Assistance Fee (USD)' }
   ],
   whatsapp: [
     { key: 'phoneNumberId', label: 'Phone Number ID' },
@@ -3319,6 +3680,233 @@ const INTEGRATION_FIELDS = {
   uploadScanner: [
     { key: 'scanCommand', label: 'Scan Command' }
   ]
+};
+
+// ============ Emergency SOS View ============
+const EmergencyView = () => {
+  const [emergencies, setEmergencies] = useState([]);
+  const [responders, setResponders] = useState([]);
+  const [filterStatus, setFilterStatus] = useState('active');
+  const [message, setMessage] = useState('');
+
+  const loadEmergencies = useCallback(async () => {
+    try {
+      const [emergencyResponse, responderResponse] = await Promise.all([
+        adminAPI.getEmergencies({ status: filterStatus, limit: 100 }),
+        adminAPI.getEmergencyResponders({ verification: 'all' })
+      ]);
+      setEmergencies(emergencyResponse.data || []);
+      setResponders(responderResponse.data || []);
+    } catch (error) {
+      setMessage(error.message || 'Unable to load SOS requests.');
+      setEmergencies([]);
+    }
+  }, [filterStatus]);
+
+  useEffect(() => {
+    loadEmergencies();
+  }, [loadEmergencies]);
+
+  const updateEmergency = async (emergency, action) => {
+    try {
+      if (action === 'acknowledge') await adminAPI.acknowledgeEmergency(emergency._id);
+      if (action === 'dispatch') await adminAPI.dispatchEmergencyResponder(emergency._id, { responderType: 'support_team', notes: 'Manual admin dispatch' });
+      if (action === 'resolve') await adminAPI.resolveEmergency(emergency._id, { notes: 'Resolved by Palmtrent admin' });
+      setMessage(`SOS ${action} complete.`);
+      await loadEmergencies();
+    } catch (error) {
+      setMessage(error.message || `Unable to ${action} SOS.`);
+    }
+  };
+
+  const verifyResponder = async (responder, status) => {
+    try {
+      await adminAPI.verifyEmergencyResponder(responder._id, { status, notes: `Marked ${status} by admin` });
+      setMessage(`Responder ${status}.`);
+      await loadEmergencies();
+    } catch (error) {
+      setMessage(error.message || 'Unable to update responder verification.');
+    }
+  };
+
+  const decideQuote = async (emergency, responseItem, decision) => {
+    const responderId = responseItem?.responder?._id || responseItem?.responder || responseItem?.user?._id || responseItem?.user;
+    if (!responderId) {
+      setMessage('Unable to identify the quoted responder.');
+      return;
+    }
+    try {
+      if (decision === 'accept') await adminAPI.acceptEmergencyQuote(emergency._id, responderId);
+      if (decision === 'reject') await adminAPI.rejectEmergencyQuote(emergency._id, responderId, 'Rejected by Palmtrent admin.');
+      setMessage(`Roadside quote ${decision === 'accept' ? 'accepted' : 'rejected'}.`);
+      await loadEmergencies();
+    } catch (error) {
+      setMessage(error.message || 'Unable to update roadside quote.');
+    }
+  };
+
+  const activeCount = emergencies.filter(item => ['triggered', 'acknowledged', 'responding', 'on_scene'].includes(item.status)).length;
+
+  return (
+    <>
+      <div className="admin-topbar">
+        <div className="topbar-content">
+          <div className="topbar-left">
+            <h1 className="page-title">SOS Control</h1>
+            <p className="page-subtitle">{activeCount} active emergency request(s)</p>
+          </div>
+          <div className="topbar-right">
+            <button className="btn-secondary" onClick={loadEmergencies}>
+              <RefreshCw className="icon" /> Refresh
+            </button>
+            <select value={filterStatus} onChange={(event) => setFilterStatus(event.target.value)} className="filter-select">
+              <option value="active">Active</option>
+              <option value="all">All</option>
+              <option value="resolved">Resolved</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="admin-content">
+        {message && <div className="integration-message"><AlertCircle className="icon" /><span>{message}</span></div>}
+
+        <div className="stats-grid">
+          <StatCard title="Active SOS" value={activeCount} icon={<AlertCircle className="icon" />} color="error" />
+          <StatCard title="Roadside Providers" value={responders.length} icon={<Truck className="icon" />} color="primary" />
+          <StatCard title="Pending Provider Verification" value={responders.filter(item => item.verification?.status === 'pending').length} icon={<Clock className="icon" />} color="accent" />
+        </div>
+
+        <div className="settings-section">
+          <div className="settings-section-header">
+            <div>
+              <h3>Emergency Requests</h3>
+              <p>Accident and medical SOS can be sent to the configured external dispatch API. Breakdown SOS is broadcast to nearby verified providers.</p>
+            </div>
+          </div>
+          <div className="data-table-container">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>User</th>
+                  <th>Phone</th>
+                  <th>Location</th>
+                  <th>Status</th>
+                  <th>Assistance Billing</th>
+                  <th>Routing</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {emergencies.map((emergency) => {
+                  const pendingQuote = (emergency.response?.responders || []).find(item => item.status === 'quote_submitted' && item.quote?.total);
+                  return (
+                    <tr key={emergency._id}>
+                      <td>{emergency.emergencyType}</td>
+                      <td>{emergency.triggeredBy?.fullName || 'N/A'}</td>
+                      <td>{emergency.contactPhone || emergency.triggeredBy?.phone || 'N/A'}</td>
+                      <td>{emergency.location?.address || emergency.location?.coordinates?.join(', ') || 'N/A'}</td>
+                      <td><span className={`status-badge status-${emergency.status}`}>{emergency.status}</span></td>
+                      <td>
+                        {pendingQuote ? (
+                          <>
+                            <strong>{pendingQuote.quote.currency || 'USD'} {Number(pendingQuote.quote.total || 0).toFixed(2)}</strong>
+                            <br />
+                            <small>Pending quote approval / {pendingQuote.quote.serviceType?.replace(/_/g, ' ')}</small>
+                            {pendingQuote.quote.distanceKm ? (
+                              <>
+                                <br />
+                                <small>{Number(pendingQuote.quote.distanceKm).toFixed(1)} km towing distance</small>
+                              </>
+                            ) : null}
+                            <div className="table-actions">
+                              <button className="action-btn success" title="Accept quote" onClick={() => decideQuote(emergency, pendingQuote, 'accept')}><Check className="icon" /></button>
+                              <button className="action-btn danger" title="Reject quote" onClick={() => decideQuote(emergency, pendingQuote, 'reject')}><XCircle className="icon" /></button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <strong>{emergency.billing?.amount ? `${emergency.billing.currency || 'USD'} ${Number(emergency.billing.amount || 0).toFixed(2)}` : 'N/A'}</strong>
+                            <br />
+                            <small>{emergency.billing?.amount ? (emergency.billing?.paymentStatus || 'pending') : 'not_required'}{emergency.billing?.providerEarnings ? ` / payout ${Number(emergency.billing.providerEarnings).toFixed(2)}` : ''}</small>
+                            {emergency.billing?.paymentSource && (
+                              <>
+                                <br />
+                                <small>{emergency.billing.paymentSource.replace(/_/g, ' ')}</small>
+                              </>
+                            )}
+                          </>
+                        )}
+                      </td>
+                      <td>
+                        <div>{emergency.response?.externalDispatch?.status || 'not_required'}</div>
+                        <small>{(emergency.response?.responders || []).length} provider(s)</small>
+                      </td>
+                      <td>
+                        <div className="table-actions">
+                          <button className="action-btn" title="Acknowledge" onClick={() => updateEmergency(emergency, 'acknowledge')}><Check className="icon" /></button>
+                          <button className="action-btn" title="Dispatch support" onClick={() => updateEmergency(emergency, 'dispatch')}><Truck className="icon" /></button>
+                          <button className="action-btn success" title="Resolve" onClick={() => updateEmergency(emergency, 'resolve')}><CheckCircle className="icon" /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {emergencies.length === 0 && (
+                  <tr><td colSpan="8">No SOS requests found.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="settings-section">
+          <div className="settings-section-header">
+            <div>
+              <h3>Roadside Providers</h3>
+              <p>Approve tow operators and mechanics before they receive live SOS broadcasts.</p>
+            </div>
+          </div>
+          <div className="data-table-container">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Provider</th>
+                  <th>Services</th>
+                  <th>Phone</th>
+                  <th>Availability</th>
+                  <th>Verification</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {responders.map((responder) => (
+                  <tr key={responder._id}>
+                    <td>{responder.businessName || responder.user?.fullName || 'N/A'}</td>
+                    <td>{(responder.serviceTypes || []).join(', ')}</td>
+                    <td>{responder.phone || responder.user?.phone || 'N/A'}</td>
+                    <td>{responder.availability?.status || 'offline'}</td>
+                    <td>{responder.verification?.status || 'pending'}</td>
+                    <td>
+                      <div className="table-actions">
+                        <button className="action-btn success" onClick={() => verifyResponder(responder, 'approved')}><Check className="icon" /></button>
+                        <button className="action-btn danger" onClick={() => verifyResponder(responder, 'rejected')}><XCircle className="icon" /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {responders.length === 0 && (
+                  <tr><td colSpan="6">No roadside providers registered.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </>
+  );
 };
 
 // ============ Support View ============
@@ -3539,6 +4127,7 @@ const SupportView = () => {
 
 // ============ Settings View ============
 const SettingsView = () => {
+  const [activeSettingsTab, setActiveSettingsTab] = useState('preferences');
   const [integrations, setIntegrations] = useState([]);
   const [integrationForms, setIntegrationForms] = useState({});
   const [loadingIntegrations, setLoadingIntegrations] = useState(true);
@@ -3785,6 +4374,24 @@ const SettingsView = () => {
             </div>
           )}
 
+          <div className="settings-tabs">
+            {[
+              { id: 'preferences', label: 'Preferences' },
+              { id: 'setup', label: 'Production Setup' },
+              { id: 'integrations', label: 'Integration Keys' }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                className={`settings-tab ${activeSettingsTab === tab.id ? 'active' : ''}`}
+                onClick={() => setActiveSettingsTab(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {activeSettingsTab === 'preferences' && (
+            <>
           <div className="settings-section">
             <h3>Platform Settings</h3>
             <div className="settings-grid">
@@ -3852,7 +4459,10 @@ const SettingsView = () => {
           <button className="btn-primary" onClick={savePreferences} disabled={savingPreferences}>
             {savingPreferences ? 'Saving...' : 'Save Changes'}
           </button>
+            </>
+          )}
 
+          {activeSettingsTab === 'setup' && (
           <div className="settings-section">
             <div className="settings-section-header">
               <div>
@@ -3887,7 +4497,9 @@ const SettingsView = () => {
               </div>
             </div>
           </div>
+          )}
 
+          {activeSettingsTab === 'integrations' && (
           <div className="settings-section">
             <div className="settings-section-header">
               <div>
@@ -3956,6 +4568,9 @@ const SettingsView = () => {
                                   onChange={(event) => updateIntegrationForm(integration.provider, field.key, event.target.value)}
                                 />
                               )}
+                              {field.secret && integration.configuredFields?.includes(field.key) && (
+                                <small className="fleet-form-hint">Saved securely in encrypted integration settings.</small>
+                              )}
                             </div>
                           );
                         })}
@@ -3994,6 +4609,7 @@ const SettingsView = () => {
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
     </>

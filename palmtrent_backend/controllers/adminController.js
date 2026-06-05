@@ -68,13 +68,42 @@ function mergeDocumentAuthorityChecks(documents = [], checks = [], adminId) {
 }
 
 const verificationQueueQuery = {
-  userType: { $nin: ['shipper', 'admin'] },
   isVerified: { $ne: true },
-  $or: [
-    { 'verification.status': { $in: ['pending', 'not_started'] } },
-    { 'verification.status': { $exists: false } }
+  $and: [
+    {
+      $or: [
+        { userType: { $in: ['transporter', 'trailer_owner', 'rental_owner', 'driver', 'roadside_provider', 'corporate'] } },
+        { roles: { $in: ['transporter', 'trailer_owner', 'rental_owner', 'driver', 'roadside_provider', 'corporate'] } }
+      ]
+    },
+    { userType: { $nin: ['admin', 'clerk'] } },
+    {
+      $or: [
+        { 'verification.status': { $in: ['pending', 'not_started'] } },
+        { 'verification.status': { $exists: false } }
+      ]
+    }
   ]
 };
+
+const CUSTOMER_ROLES = ['shipper', 'transporter', 'trailer_owner', 'rental_owner', 'driver', 'roadside_provider', 'corporate'];
+const PLATFORM_ROLES = ['main_admin', 'admin', 'clerk'];
+
+function normalizeRoles(value, fallbackUserType) {
+  const incoming = Array.isArray(value) ? value : (value ? [value] : []);
+  const roles = [...new Set(incoming.filter(role => CUSTOMER_ROLES.includes(role)))];
+  if (CUSTOMER_ROLES.includes(fallbackUserType) && !roles.includes(fallbackUserType)) {
+    roles.push(fallbackUserType);
+  }
+  return roles;
+}
+
+function normalizePlatformRole(value, userType) {
+  if (PLATFORM_ROLES.includes(value)) return value;
+  if (userType === 'clerk') return 'clerk';
+  if (userType === 'admin') return 'admin';
+  return undefined;
+}
 
 // @desc    Get admin dashboard statistics
 // @route   GET /api/v1/admin/dashboard
@@ -88,11 +117,11 @@ exports.getDashboardStats = async (req, res) => {
 
     // User statistics shown to platform admins should represent customers and
     // subscribers on the platform, not the internal admin accounts.
-    const platformUserQuery = { userType: { $ne: 'admin' } };
+    const platformUserQuery = { isPlatformStaff: { $ne: true }, userType: { $nin: ['admin', 'clerk'] } };
     const totalUsers = await User.countDocuments(platformUserQuery);
-    const totalShippers = await User.countDocuments({ userType: 'shipper' });
-    const totalTransporters = await User.countDocuments({ userType: 'transporter' });
-    const totalTrailerOwners = await User.countDocuments({ userType: 'trailer_owner' });
+    const totalShippers = await User.countDocuments({ $or: [{ userType: 'shipper' }, { roles: 'shipper' }] });
+    const totalTransporters = await User.countDocuments({ $or: [{ userType: 'transporter' }, { roles: 'transporter' }] });
+    const totalTrailerOwners = await User.countDocuments({ $or: [{ userType: 'trailer_owner' }, { roles: 'trailer_owner' }] });
     const newUsersThisMonth = await User.countDocuments({
       ...platformUserQuery,
       createdAt: { $gte: startOfMonth }
@@ -211,9 +240,14 @@ exports.getUsers = async (req, res) => {
     const { role, status, search, page = 1, limit = 20, sort = '-createdAt' } = req.query;
 
     let query = {};
+    const andFilters = [];
 
     if (role && role !== 'all') {
-      query.userType = role;
+      andFilters.push({ $or: [
+        { userType: role },
+        { roles: role },
+        { platformRole: role }
+      ] });
     }
 
     if (status) {
@@ -231,12 +265,14 @@ exports.getUsers = async (req, res) => {
     }
 
     if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: 'i' } },
+      andFilters.push({ $or: [
+        { fullName: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
         { phone: { $regex: search, $options: 'i' } }
-      ];
+      ] });
     }
+
+    if (andFilters.length) query.$and = [...(query.$and || []), ...andFilters];
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
@@ -274,6 +310,79 @@ exports.getUsers = async (req, res) => {
   } catch (error) {
     console.error('Get users error:', error);
     res.status(500).json({ success: false, message: 'Error fetching users' });
+  }
+};
+
+// @desc    Create a platform or customer user from the admin portal
+// @route   POST /api/v1/admin/users
+// @access  Private/Admin
+exports.createUser = async (req, res) => {
+  try {
+    const {
+      fullName,
+      email,
+      phone,
+      password,
+      userType = 'shipper',
+      roles,
+      platformRole,
+      status = 'active',
+      governmentId
+    } = req.body;
+
+    if (!fullName || !email || !phone || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Full name, email, phone, and password are required'
+      });
+    }
+
+    const safeUserType = ['shipper', 'transporter', 'trailer_owner', 'rental_owner', 'driver', 'roadside_provider', 'corporate', 'admin', 'clerk'].includes(userType)
+      ? userType
+      : 'shipper';
+    const safePlatformRole = normalizePlatformRole(platformRole, safeUserType);
+    const user = await User.create({
+      fullName,
+      email,
+      phone,
+      password,
+      userType: safeUserType,
+      roles: normalizeRoles(roles, safeUserType),
+      platformRole: safePlatformRole,
+      isPlatformStaff: Boolean(safePlatformRole || ['admin', 'clerk'].includes(safeUserType)),
+      status,
+      governmentId
+    });
+
+    await recordAudit({
+      actor: req.user,
+      action: 'user.created',
+      entityType: 'User',
+      entityId: user._id,
+      entityRef: user.email,
+      after: {
+        userType: user.userType,
+        roles: user.roles,
+        platformRole: user.platformRole,
+        status: user.status
+      },
+      req
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'User created successfully',
+      data: user
+    });
+  } catch (error) {
+    console.error('Create user error:', error);
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: 'A user with this email or phone already exists'
+      });
+    }
+    res.status(500).json({ success: false, message: error.message || 'Error creating user' });
   }
 };
 
@@ -326,7 +435,7 @@ exports.getUserById = async (req, res) => {
 // @access  Private/Admin
 exports.updateUser = async (req, res) => {
   try {
-    const { fullName, email, phone, userType, status, verification, governmentId } = req.body;
+    const { fullName, email, phone, userType, roles, platformRole, status, verification, governmentId } = req.body;
 
     const user = await User.findById(req.params.id);
 
@@ -339,6 +448,11 @@ exports.updateUser = async (req, res) => {
     if (email) user.email = email;
     if (phone) user.phone = phone;
     if (userType) user.userType = userType;
+    if (roles !== undefined) user.roles = normalizeRoles(roles, userType || user.userType);
+    if (platformRole !== undefined || userType === 'admin' || userType === 'clerk') {
+      user.platformRole = normalizePlatformRole(platformRole, userType || user.userType);
+      user.isPlatformStaff = Boolean(user.platformRole || ['admin', 'clerk'].includes(user.userType));
+    }
     if (status) user.status = status;
     if (governmentId !== undefined) user.governmentId = String(governmentId || '').trim();
     if (verification) user.verification = { ...user.verification, ...verification };
@@ -761,9 +875,9 @@ exports.getPayments = async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const payments = await Payment.find(query)
-      .populate('user', 'name email')
-      .populate('booking', 'bookingId bookingReference')
-      .populate('rental', 'rentalReference')
+      .populate('user', 'name fullName email phone')
+      .populate('booking', 'bookingId bookingReference status paymentStatus payment route shipper user')
+      .populate('rental', 'rentalReference status')
       .sort('-createdAt')
       .skip(skip)
       .limit(parseInt(limit));

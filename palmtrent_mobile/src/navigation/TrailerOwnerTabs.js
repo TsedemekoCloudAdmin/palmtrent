@@ -6,6 +6,8 @@ import HomeScreen from '../screens/HomeScreen';
 import TrailerListScreen from '../screens/trailerOwner/TrailerListScreen';
 import TrailerRentalScreen from '../screens/trailerOwner/TrailerRentalScreen';
 import FleetRentalRequestsScreen from '../screens/trailerOwner/FleetRentalRequestsScreen';
+import RentalStaffScreen from '../screens/trailerOwner/RentalStaffScreen';
+import OwnerDriversScreen from '../screens/trailerOwner/OwnerDriversScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 
 const Tab = createBottomTabNavigator();
@@ -56,6 +58,22 @@ const TrailerOwnerTabs = () => (
       options={{
         title: 'Rentals',
         tabBarIcon: ({ color, size }) => <MaterialIcons name="assignment" size={size} color={color} />,
+      }}
+    />
+    <Tab.Screen
+      name="Staff"
+      component={RentalStaffScreen}
+      options={{
+        title: 'Staff',
+        tabBarIcon: ({ color, size }) => <MaterialIcons name="groups" size={size} color={color} />,
+      }}
+    />
+    <Tab.Screen
+      name="Drivers"
+      component={OwnerDriversScreen}
+      options={{
+        title: 'Drivers',
+        tabBarIcon: ({ color, size }) => <MaterialIcons name="badge" size={size} color={color} />,
       }}
     />
     <Tab.Screen

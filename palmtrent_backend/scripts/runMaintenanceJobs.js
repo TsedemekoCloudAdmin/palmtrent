@@ -6,12 +6,13 @@ const documentExpiryService = require('../services/documentExpiryService');
 const escrowService = require('../services/escrowService');
 const shipmentMaintenanceService = require('../services/shipmentMaintenanceService');
 const corporateReportService = require('../services/corporateReportService');
+const ecocashOpenApiService = require('../services/ecocashOpenApiService');
 
 const requestedTasks = process.argv
   .slice(2)
   .map(task => task.trim().toLowerCase())
   .filter(Boolean);
-const tasks = new Set(requestedTasks.length > 0 ? requestedTasks : ['escrow', 'payouts', 'documents', 'shipments', 'corporate-reports']);
+const tasks = new Set(requestedTasks.length > 0 ? requestedTasks : ['escrow', 'payouts', 'documents', 'shipments', 'corporate-reports', 'ecocash-agent']);
 
 const runMaintenanceJobs = async () => {
   if (!process.env.MONGODB_URI) {
@@ -35,6 +36,9 @@ const runMaintenanceJobs = async () => {
   }
   if (tasks.has('corporate-reports')) {
     results.corporateReports = await corporateReportService.processDueSchedules();
+  }
+  if (tasks.has('ecocash-agent')) {
+    results.ecocashAgent = await ecocashOpenApiService.reconcilePendingCashAgentPayments();
   }
 
   console.log(JSON.stringify({

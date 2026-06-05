@@ -8,12 +8,14 @@ const vehicleTypeSchema = new mongoose.Schema({
   },
   category: {
     type: String,
-    enum: ['bakkie', 'truck', 'tractor', 'van'],
+    enum: ['car', 'suv', 'bakkie', 'truck', 'tractor', 'van'],
     required: true
   },
   subcategory: {
     type: String,
     enum: [
+      // Small rental vehicle subcategories
+      'hatchback', 'sedan', 'crossover', 'compact_suv', 'midsize_suv', 'mpv', 'minibus',
       // Bakkie subcategories
       'single_cab', 'double_cab', 'panel_van', 'delivery_van',
       // Truck subcategories

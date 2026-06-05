@@ -4,8 +4,23 @@ const toId = (value) => {
   return value.toString();
 };
 
-const isAdmin = (user) => user?.userType === 'admin';
+const isAdmin = (user) => (
+  user?.userType === 'admin' ||
+  user?.userType === 'clerk' ||
+  user?.isPlatformStaff === true ||
+  ['main_admin', 'admin', 'clerk'].includes(user?.platformRole)
+);
 const isSameId = (value, user) => Boolean(toId(value) && toId(value) === toId(user));
+
+const getRentalOwnerScopeId = (user) => (
+  toId(user?.associatedRentalOwner) || toId(user?._id || user?.id)
+);
+
+const canAccessRentalOwnerResource = (user, ownerId) => {
+  if (!user || !ownerId) return false;
+  if (isAdmin(user)) return true;
+  return toId(ownerId) === getRentalOwnerScopeId(user);
+};
 
 const canReadBooking = (user, booking) => {
   if (!user || !booking) return false;
@@ -45,6 +60,16 @@ const canReadSubscription = (user, subscription) => {
   return isSameId(subscription.user, user);
 };
 
+const canReadEmergency = (user, emergency) => {
+  if (!user || !emergency) return false;
+  if (isAdmin(user)) return true;
+
+  if (isSameId(emergency.triggeredBy, user)) return true;
+  return (emergency.response?.responders || []).some(responder =>
+    isSameId(responder.user, user)
+  );
+};
+
 const canReadPayment = (user, payment) => {
   if (!user || !payment) return false;
   if (isAdmin(user)) return true;
@@ -52,6 +77,7 @@ const canReadPayment = (user, payment) => {
   if (payment.booking) return canReadBooking(user, payment.booking);
   if (payment.rental) return canReadRental(user, payment.rental);
   if (payment.subscription) return canReadSubscription(user, payment.subscription);
+  if (payment.emergency) return canReadEmergency(user, payment.emergency);
   return false;
 };
 
@@ -62,6 +88,7 @@ const canManagePayment = (user, payment) => {
   if (payment.booking) return canManageBookingPayment(user, payment.booking);
   if (payment.rental) return isSameId(payment.rental.renter, user);
   if (payment.subscription) return canReadSubscription(user, payment.subscription);
+  if (payment.emergency) return isSameId(payment.emergency.triggeredBy, user);
   return false;
 };
 
@@ -104,11 +131,15 @@ module.exports = {
   canConfirmEscrowDelivery,
   canManageBookingPayment,
   canManagePayment,
+  canAccessRentalOwnerResource,
   canReadBooking,
   canReadEscrow,
+  canReadEmergency,
+  canReadRental,
   canReadPayment,
   canReadSubscription,
   canRecordEscrowCashCollection,
   isAdmin,
+  getRentalOwnerScopeId,
   isUploadOwnedByUser
 };

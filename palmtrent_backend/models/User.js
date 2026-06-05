@@ -1,6 +1,9 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
+const CUSTOMER_ROLES = ['shipper', 'transporter', 'trailer_owner', 'rental_owner', 'driver', 'roadside_provider', 'corporate'];
+const PLATFORM_ROLES = ['main_admin', 'admin', 'clerk'];
+
 const userSchema = new mongoose.Schema({
   fullName: {
     type: String,
@@ -31,7 +34,19 @@ const userSchema = new mongoose.Schema({
   userType: {
     type: String,
     required: true,
-    enum: ['shipper', 'transporter', 'trailer_owner', 'corporate', 'admin']
+    enum: [...CUSTOMER_ROLES, 'admin', 'clerk']
+  },
+  roles: [{
+    type: String,
+    enum: CUSTOMER_ROLES
+  }],
+  platformRole: {
+    type: String,
+    enum: PLATFORM_ROLES
+  },
+  isPlatformStaff: {
+    type: Boolean,
+    default: false
   },
   isVerified: {
     type: Boolean,
@@ -224,6 +239,15 @@ const userSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'CorporateAccount'
   },
+  associatedRentalOwner: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  rentalStaffRole: {
+    type: String,
+    enum: ['owner', 'manager', 'agent', 'viewer']
+  },
+  rentalStaffPermissions: [String],
   favoriteTransporters: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
@@ -272,6 +296,8 @@ const userSchema = new mongoose.Schema({
 //userSchema.index({ email: 1 });
 //userSchema.index({ phone: 1 });
 userSchema.index({ userType: 1 });
+userSchema.index({ roles: 1 });
+userSchema.index({ platformRole: 1 });
 userSchema.index({ status: 1 });
 userSchema.index({ isActive: 1 });
 userSchema.index({ 'verification.status': 1 });
@@ -279,6 +305,17 @@ userSchema.index({ location: '2dsphere' });
 
 // Hash password before saving
 userSchema.pre('save', async function(next) {
+  if (!Array.isArray(this.roles)) this.roles = [];
+
+  if (CUSTOMER_ROLES.includes(this.userType) && !this.roles.includes(this.userType)) {
+    this.roles.push(this.userType);
+  }
+
+  if (['admin', 'clerk'].includes(this.userType) || PLATFORM_ROLES.includes(this.platformRole)) {
+    this.isPlatformStaff = true;
+    this.platformRole = this.platformRole || (this.userType === 'clerk' ? 'clerk' : 'admin');
+  }
+
   if (!this.isModified('password')) return next();
   
   this.password = await bcrypt.hash(this.password, 12);

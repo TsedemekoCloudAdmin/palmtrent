@@ -23,6 +23,10 @@ const shipmentSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Vehicle'
   },
+  assignedDriver: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Driver'
+  },
   rentedAssets: [{
     rental: { type: mongoose.Schema.Types.ObjectId, ref: 'Rental' },
     asset: { type: mongoose.Schema.Types.ObjectId, ref: 'Trailer' },
@@ -325,6 +329,7 @@ shipmentSchema.pre('save', function(next) {
 shipmentSchema.index({ shipper: 1, status: 1 });
 shipmentSchema.index({ booking: 1 });
 shipmentSchema.index({ transporter: 1, status: 1 });
+shipmentSchema.index({ assignedDriver: 1, status: 1 });
 shipmentSchema.index({ transporter: 1, status: 1, paymentStatus: 1 });  // ADDED for dashboard queries
 shipmentSchema.index({ transporter: 1, rating: 1 });  // ADDED for rating aggregation
 //shipmentSchema.index({ bookingReference: 1 });

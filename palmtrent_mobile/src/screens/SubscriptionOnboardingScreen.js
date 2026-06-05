@@ -16,6 +16,10 @@ import useAuth from '../hook/useAuth';
 import apiService from '../services/apiService';
 
 const POST_REGISTRATION_SUBSCRIPTION_KEY = 'postRegistrationSubscriptionPrompt';
+const REQUIRED_PLAN_BY_USER_TYPE = {
+  driver: { code: 'driver_annual', audience: 'driver', label: 'Driver subscription' },
+  roadside_provider: { code: 'roadside_provider_monthly', audience: 'roadside_provider', label: 'Roadside provider subscription' }
+};
 
 const SubscriptionOnboardingScreen = ({ navigation }) => {
   const { user } = useAuth();
@@ -23,6 +27,7 @@ const SubscriptionOnboardingScreen = ({ navigation }) => {
   const [subscription, setSubscription] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectingPlanId, setSelectingPlanId] = useState(null);
+  const [requiredPlanSelectionDone, setRequiredPlanSelectionDone] = useState(false);
 
   const finish = useCallback(async () => {
     await AsyncStorage.removeItem(POST_REGISTRATION_SUBSCRIPTION_KEY);
@@ -97,6 +102,37 @@ const SubscriptionOnboardingScreen = ({ navigation }) => {
     const selectedPlanId = subscription?.plan?._id || subscription?.plan?.id || subscription?.plan;
     return selectedPlanId && selectedPlanId === (plan.id || plan._id);
   };
+
+  useEffect(() => {
+    const requiredPlan = REQUIRED_PLAN_BY_USER_TYPE[user?.userType];
+    if (!requiredPlan || loading || requiredPlanSelectionDone || selectingPlanId) return;
+
+    const paymentStatus = subscription?.payment?.status;
+    if (subscription && paymentStatus === 'paid') {
+      setRequiredPlanSelectionDone(true);
+      return;
+    }
+
+    if (subscription && ['pending', 'processing'].includes(paymentStatus)) {
+      setRequiredPlanSelectionDone(true);
+      AsyncStorage.removeItem(POST_REGISTRATION_SUBSCRIPTION_KEY);
+      navigation.navigate('MobileMoneyPayment', {
+        paymentContext: 'subscription',
+        subscriptionId: subscription._id || subscription.id,
+        subscriptionName: subscription.plan?.name || requiredPlan.label,
+        amount: Number(subscription.amount || subscription.plan?.price || 0),
+        paymentMethod: 'clicknpay',
+        paymentReference: subscription.payment?.reference
+      });
+      return;
+    }
+
+    const plan = plans.find(item => item.code === requiredPlan.code) || plans.find(item => item.audience === requiredPlan.audience);
+    if (!plan) return;
+
+    setRequiredPlanSelectionDone(true);
+    selectPlan(plan);
+  }, [user?.userType, loading, requiredPlanSelectionDone, selectingPlanId, subscription, plans, navigation]);
 
   if (loading) {
     return (
@@ -174,9 +210,11 @@ const SubscriptionOnboardingScreen = ({ navigation }) => {
           </View>
         )}
 
-        <TouchableOpacity style={styles.skipButton} onPress={finish} disabled={Boolean(selectingPlanId)}>
-          <Text style={styles.skipButtonText}>Skip for later</Text>
-        </TouchableOpacity>
+        {!REQUIRED_PLAN_BY_USER_TYPE[user?.userType] && (
+          <TouchableOpacity style={styles.skipButton} onPress={finish} disabled={Boolean(selectingPlanId)}>
+            <Text style={styles.skipButtonText}>Skip for later</Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
     </SafeAreaView>
   );

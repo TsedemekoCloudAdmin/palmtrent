@@ -1,10 +1,12 @@
 const Trailer = require('../models/Trailer');
 const Rental = require('../models/Rental');
+const User = require('../models/User');
 const { formatRelativeTime } = require('../utils/formatDate');
+const { getRentalOwnerScopeId, canAccessRentalOwnerResource } = require('../services/resourceAccessService');
 
 exports.getDashboardStats = async (req, res) => {
   try {
-    const ownerId = req.user.id;
+    const ownerId = getRentalOwnerScopeId(req.user);
 
     const assets = await Trailer.find({ owner: ownerId });
     const totalAssets = assets.length;
@@ -82,7 +84,7 @@ exports.getRecentActivity = async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 5;
 
-    const recentAssets = await Trailer.find({ owner: req.user._id })
+    const recentAssets = await Trailer.find({ owner: getRentalOwnerScopeId(req.user) })
       .sort({ updatedAt: -1 })
       .limit(limit)
       .select('registrationNumber assetType assetName tractorUnit status updatedAt')
@@ -117,7 +119,7 @@ exports.getRecentActivity = async (req, res) => {
 
 exports.getTrailers = async (req, res) => {
   try {
-    const trailers = await Trailer.find({ owner: req.user._id }).sort({ createdAt: -1 });
+    const trailers = await Trailer.find({ owner: getRentalOwnerScopeId(req.user) }).sort({ createdAt: -1 });
 
     res.status(200).json({
       success: true,
@@ -129,5 +131,56 @@ exports.getTrailers = async (req, res) => {
       success: false,
       message: 'Failed to fetch trailers'
     });
+  }
+};
+
+exports.getStaffUsers = async (req, res) => {
+  try {
+    const ownerId = getRentalOwnerScopeId(req.user);
+    const staff = await User.find({ associatedRentalOwner: ownerId })
+      .select('fullName email phone userType status rentalStaffRole rentalStaffPermissions createdAt')
+      .sort({ createdAt: -1 });
+    res.json({ success: true, data: staff });
+  } catch (error) {
+    console.error('Get rental staff error:', error);
+    res.status(500).json({ success: false, message: 'Failed to load staff users' });
+  }
+};
+
+exports.createStaffUser = async (req, res) => {
+  try {
+    if (!canAccessRentalOwnerResource(req.user, getRentalOwnerScopeId(req.user))) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+    const { fullName, email, phone, password, role = 'agent', permissions = ['rentals:read', 'rentals:write', 'fleet:read'] } = req.body;
+    if (!fullName || !email || !phone || !password) {
+      return res.status(400).json({ success: false, message: 'Full name, email, phone, and password are required' });
+    }
+
+    const staff = await User.create({
+      fullName,
+      email: String(email).trim().toLowerCase(),
+      phone,
+      password,
+      userType: 'rental_owner',
+      roles: ['rental_owner'],
+      associatedRentalOwner: getRentalOwnerScopeId(req.user),
+      rentalStaffRole: role,
+      rentalStaffPermissions: permissions,
+      isPhoneVerified: true,
+      profileCompleted: true
+    });
+
+    res.status(201).json({
+      success: true,
+      data: staff,
+      message: 'Staff user added'
+    });
+  } catch (error) {
+    console.error('Create rental staff error:', error);
+    if (error.code === 11000) {
+      return res.status(409).json({ success: false, message: 'Email or phone is already registered' });
+    }
+    res.status(500).json({ success: false, message: error.message || 'Failed to create staff user' });
   }
 };

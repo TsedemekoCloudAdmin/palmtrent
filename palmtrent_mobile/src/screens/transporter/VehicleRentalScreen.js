@@ -14,6 +14,12 @@ import {
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../../services/apiService';
 
+const getRecordLabel = (value, fallback = 'N/A') => {
+  if (!value) return fallback;
+  if (typeof value === 'object') return value.name || value.label || fallback;
+  return String(value);
+};
+
 const VehicleRentalScreen = ({ navigation, route }) => {
   const { job } = route.params || {};
   const [loading, setLoading] = useState(true);
@@ -24,7 +30,15 @@ const VehicleRentalScreen = ({ navigation, route }) => {
 
   const fetchAvailableVehicles = useCallback(async () => {
     try {
-      const response = await apiService.request('/rentals/available?itemType=vehicle');
+      const startDate = job?.route?.pickup?.date || new Date().toISOString();
+      const endDate = job?.route?.delivery?.date || new Date(Date.now() + 86400000).toISOString();
+      const params = new URLSearchParams({
+        itemType: 'small_vehicle',
+        startDate,
+        endDate,
+        rateType: 'daily'
+      });
+      const response = await apiService.request(`/rentals/available?${params.toString()}`);
       if (response.success) {
         setVehicles(response.vehicles || response.data || []);
       } else {
@@ -37,7 +51,7 @@ const VehicleRentalScreen = ({ navigation, route }) => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [job]);
 
   useEffect(() => {
     fetchAvailableVehicles();
@@ -56,7 +70,7 @@ const VehicleRentalScreen = ({ navigation, route }) => {
 
     Alert.alert(
       'Confirm Rental',
-      `Rent ${selectedVehicle.make} ${selectedVehicle.model} for $${selectedVehicle.rentalSettings?.dailyRate || 0}/day?`,
+      `Rent ${selectedVehicle.make} ${selectedVehicle.model} for ${selectedVehicle.quote ? `$${Number(selectedVehicle.quote.total || 0).toFixed(2)} total` : `$${selectedVehicle.rentalSettings?.dailyRate || 0}/day`}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -70,7 +84,7 @@ const VehicleRentalScreen = ({ navigation, route }) => {
               const response = await apiService.request('/rentals/request', {
                 method: 'POST',
                 body: JSON.stringify({
-                  itemType: 'vehicle',
+                  itemType: selectedVehicle.itemType || 'small_vehicle',
                   itemId: selectedVehicle._id,
                   startDate,
                   endDate,
@@ -138,7 +152,7 @@ const VehicleRentalScreen = ({ navigation, route }) => {
           <Text style={styles.backButtonText}>Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Rent a Vehicle</Text>
-        <Text style={styles.headerSubtitle}>I have trailer, need truck</Text>
+        <Text style={styles.headerSubtitle}>Compare available cars, bakkies, vans, and SUVs</Text>
       </View>
 
       <ScrollView
@@ -152,10 +166,10 @@ const VehicleRentalScreen = ({ navigation, route }) => {
           <View style={styles.infoBanner}>
             <Text style={styles.infoTitle}>How it works</Text>
             <View style={styles.infoList}>
-              <Text style={styles.infoItem}>1. Browse available trucks near your location</Text>
-              <Text style={styles.infoItem}>2. Rental fee is deducted from your earnings</Text>
-              <Text style={styles.infoItem}>3. Fuel costs are your responsibility</Text>
-              <Text style={styles.infoItem}>4. Return vehicle after job completion</Text>
+              <Text style={styles.infoItem}>1. Browse vehicles available for your dates</Text>
+              <Text style={styles.infoItem}>2. Compare renter prices before requesting</Text>
+              <Text style={styles.infoItem}>3. Pay after the owner approves the rental</Text>
+              <Text style={styles.infoItem}>4. Return the vehicle at the agreed handover point</Text>
             </View>
           </View>
 
@@ -188,6 +202,12 @@ const VehicleRentalScreen = ({ navigation, route }) => {
             <View style={styles.termsCard}>
               <Text style={styles.termsTitle}>Rental Terms</Text>
               <View style={styles.termsList}>
+                <View style={styles.termRow}>
+                  <Text style={styles.termLabel}>Estimated total</Text>
+                  <Text style={styles.termValue}>
+                    {selectedVehicle.quote ? `$${Number(selectedVehicle.quote.total || 0).toFixed(2)}` : 'Select dates for quote'}
+                  </Text>
+                </View>
                 <View style={styles.termRow}>
                   <Text style={styles.termLabel}>Daily rate</Text>
                   <Text style={styles.termValue}>
@@ -241,7 +261,7 @@ const VehicleRentalScreen = ({ navigation, route }) => {
           ) : (
             <Text style={styles.rentButtonText}>
               {selectedVehicle
-                ? `Rent for $${selectedVehicle.rentalSettings?.dailyRate || 0}/day`
+                ? `Request ${selectedVehicle.quote ? `$${Number(selectedVehicle.quote.total || 0).toFixed(2)}` : 'Rental'}`
                 : 'Select a Vehicle'}
             </Text>
           )}
@@ -261,7 +281,7 @@ const VehicleCard = ({ vehicle, selected, onSelect }) => (
       <View style={styles.vehicleType}>
         <MaterialIcons name="directions-car" size={20} color="#F37021" />
         <Text style={styles.vehicleTypeText}>
-          {vehicle.make} {vehicle.model}
+          {vehicle.makeName || getRecordLabel(vehicle.make)} {vehicle.modelName || getRecordLabel(vehicle.model)}
         </Text>
       </View>
       {vehicle.rating?.average > 0 && (
@@ -273,12 +293,12 @@ const VehicleCard = ({ vehicle, selected, onSelect }) => (
     </View>
 
     <Text style={styles.vehicleInfo}>
-      {vehicle.vehicleType} | {vehicle.year} | {vehicle.registrationNumber}
+      {vehicle.vehicleTypeName || getRecordLabel(vehicle.vehicleType)} | {vehicle.year} | {vehicle.registrationNumber}
     </Text>
 
     <Text style={styles.capacity}>
       {vehicle.capacity?.weight?.value
-        ? `${vehicle.capacity.weight.value} ${vehicle.capacity.weight.unit || 'kg'}`
+        ? `${vehicle.capacity.weight.value} ${vehicle.capacity.weight.unit || 'tonnes'}`
         : 'Capacity not specified'}
     </Text>
 
@@ -321,7 +341,7 @@ const VehicleCard = ({ vehicle, selected, onSelect }) => (
 
     <View style={styles.vehicleFooter}>
       <Text style={styles.rate}>
-        ${vehicle.rentalSettings?.dailyRate || 0}/day
+        {vehicle.quote ? `$${Number(vehicle.quote.total || 0).toFixed(2)} total` : `$${vehicle.rentalSettings?.dailyRate || 0}/day`}
       </Text>
       {selected && (
         <MaterialIcons name="check-circle" size={24} color="#16a34a" />

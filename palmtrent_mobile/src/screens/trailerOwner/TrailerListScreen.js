@@ -257,6 +257,17 @@ const TrailerListScreen = ({ navigation }) => {
             </TouchableOpacity>
           </View>
 
+          <TouchableOpacity style={styles.staffButton} onPress={() => navigateTo('RentalStaff')}>
+            <View style={styles.staffButtonIcon}>
+              <MaterialIcons name="groups" size={20} color="#0C2D48" />
+            </View>
+            <View style={styles.staffButtonTextBlock}>
+              <Text style={styles.staffButtonTitle}>Manage Rental Staff</Text>
+              <Text style={styles.staffButtonText}>Add assistants for walk-in clients and fleet rentals</Text>
+            </View>
+            <MaterialIcons name="chevron-right" size={22} color="#94a3b8" />
+          </TouchableOpacity>
+
           {rentalMarketplaceNotice && (
             <View style={styles.noticeBanner}>
               <MaterialIcons name="workspace-premium" size={20} color="#F37021" />
@@ -576,6 +587,38 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     fontWeight: '600',
+  },
+  staffButton: {
+    backgroundColor: 'white',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  staffButtonIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#dbeafe',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  staffButtonTextBlock: {
+    flex: 1,
+  },
+  staffButtonTitle: {
+    color: '#0f172a',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  staffButtonText: {
+    color: '#64748b',
+    fontSize: 12,
+    marginTop: 2,
   },
   loadingContainer: {
     flex: 1,

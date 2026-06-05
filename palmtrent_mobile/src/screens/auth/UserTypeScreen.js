@@ -12,6 +12,38 @@ const PHONE_VERIFICATION_DISABLED = process.env.EXPO_PUBLIC_DISABLE_PHONE_VERIFI
 
 const UserTypeScreen = ({ navigation }) => {
   const [selectedType, setSelectedType] = useState(null);
+  const accountTypes = [
+    {
+      value: 'shipper',
+      title: 'Book Transport',
+      description: 'Request transport, compare matched transporters, pay, and track goods.'
+    },
+    {
+      value: 'transporter',
+      title: 'Offer Transport Services',
+      description: 'Accept shipment jobs, manage your fleet, and rent out your vehicles when available.'
+    },
+    {
+      value: 'rental_owner',
+      title: 'Rent Out Vehicles',
+      description: 'Manage small cars, bakkies, vans, trailers, trucks, staff users, and rental bookings.'
+    },
+    {
+      value: 'trailer_owner',
+      title: 'Rent Out Trailers',
+      description: 'Manage trailers, tractor units, trucks, full rigs, handovers, and rental requests.'
+    },
+    {
+      value: 'driver',
+      title: 'Find Driving Work',
+      description: 'Create a driver profile, pay the annual driver subscription, and set when you are available.'
+    },
+    {
+      value: 'roadside_provider',
+      title: 'Provide Roadside Help',
+      description: 'Register as a tow operator or mechanic, stay available, and receive nearby SOS requests.'
+    }
+  ];
 
   const handleContinue = () => {
     if (!selectedType) return;
@@ -33,38 +65,19 @@ const UserTypeScreen = ({ navigation }) => {
       </View>
 
       <View style={styles.cardsContainer}>
-        <TouchableOpacity
-          style={[
-            styles.simpleCard,
-            selectedType === 'shipper' && styles.simpleCardSelected
-          ]}
-          onPress={() => setSelectedType('shipper')}
-        >
-          <Text style={styles.simpleCardText}>Book Transport</Text>
-          <Text style={styles.simpleCardSubtext}>I need to transport goods</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.simpleCard,
-            selectedType === 'transporter' && styles.simpleCardSelected
-          ]}
-          onPress={() => setSelectedType('transporter')}
-        >
-          <Text style={styles.simpleCardText}>Offer Transport Services</Text>
-          <Text style={styles.simpleCardSubtext}>I own a truck/vehicle</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.simpleCard,
-            selectedType === 'trailer_owner' && styles.simpleCardSelected
-          ]}
-          onPress={() => setSelectedType('trailer_owner')}
-        >
-          <Text style={styles.simpleCardText}>Rent Out Trailers</Text>
-          <Text style={styles.simpleCardSubtext}>I own trailers for rental</Text>
-        </TouchableOpacity>
+        {accountTypes.map((type) => (
+          <TouchableOpacity
+            key={type.value}
+            style={[
+              styles.simpleCard,
+              selectedType === type.value && styles.simpleCardSelected
+            ]}
+            onPress={() => setSelectedType(type.value)}
+          >
+            <Text style={styles.simpleCardText}>{type.title}</Text>
+            <Text style={styles.simpleCardSubtext}>{type.description}</Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
       {selectedType && (

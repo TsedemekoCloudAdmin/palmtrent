@@ -37,6 +37,8 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
   const paymentContext = routeParams.paymentContext || bookingData?.paymentContext || 'booking';
   const subscriptionId = routeParams.subscriptionId || bookingData?.subscriptionId;
   const subscriptionName = routeParams.subscriptionName || bookingData?.subscriptionName || 'Subscription';
+  const emergencyId = routeParams.emergencyId || bookingData?.emergencyId;
+  const emergencyTitle = routeParams.emergencyTitle || bookingData?.emergencyTitle || 'SOS Assistance';
   const amount = routeParams.amount || bookingData?.amount || bookingData?.pricing?.totals?.total;
   const amountValue = Number(amount || 0);
   const paymentMethod = routeParams.paymentMethod || bookingData?.paymentMethod || 'clicknpay';
@@ -123,7 +125,9 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
   };
 
   const provider = providerConfig[paymentMethod] || providerConfig.clicknpay;
-  const backTarget = paymentContext === 'subscription' ? 'main-tabs' : 'booking-review';
+  const isSubscriptionPayment = paymentContext === 'subscription';
+  const isEmergencyPayment = paymentContext === 'emergency';
+  const backTarget = isSubscriptionPayment || isEmergencyPayment ? 'main-tabs' : 'booking-review';
 
   useEffect(() => {
     return () => {
@@ -195,8 +199,13 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
   const handleInitiatePayment = async () => {
     if (!validateForm()) return;
 
-    if (paymentContext === 'subscription' && !subscriptionId && !existingPaymentReference) {
+    if (isSubscriptionPayment && !subscriptionId && !existingPaymentReference) {
       Alert.alert('Subscription Missing', 'We could not find the subscription to pay for. Please select the plan again.');
+      return;
+    }
+
+    if (isEmergencyPayment && !emergencyId && !existingPaymentReference) {
+      Alert.alert('SOS Missing', 'We could not find the SOS request to pay for. Please open the assistance request again.');
       return;
     }
 
@@ -211,21 +220,26 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
           email: email.trim(),
           phone: phoneNumber.trim()
         };
-        const createResponse = paymentContext === 'subscription'
-          ? await apiService.createSubscriptionPayment(subscriptionId, paymentMethod, customer)
-          : await apiService.post('/payments/create', {
-              bookingId,
-              amount,
-              paymentMethod,
-              customer
-            });
+        let createResponse;
+        if (isSubscriptionPayment) {
+          createResponse = await apiService.createSubscriptionPayment(subscriptionId, paymentMethod, customer);
+        } else if (isEmergencyPayment) {
+          createResponse = await apiService.createEmergencyPayment(emergencyId, paymentMethod, customer);
+        } else {
+          createResponse = await apiService.post('/payments/create', {
+            bookingId,
+            amount,
+            paymentMethod,
+            customer
+          });
+        }
 
         if (!createResponse.success) {
           throw new Error(createResponse.message || 'Failed to create payment');
         }
 
-        if (paymentContext === 'subscription' && createResponse.data?.paymentRequired === false) {
-          Alert.alert('Subscription Ready', createResponse.message || 'This subscription does not require payment.', [
+        if (createResponse.data?.paymentRequired === false) {
+          Alert.alert(isEmergencyPayment ? 'SOS Assistance Paid' : 'Subscription Ready', createResponse.message || 'This payment is already confirmed.', [
             { text: 'Continue', onPress: () => navigateTo('main-tabs') }
           ]);
           setProcessing(false);
@@ -273,6 +287,45 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
       Alert.alert('Payment Failed', error.message || 'Failed to initiate payment');
       setProcessing(false);
     }
+  };
+
+  const handleUseFreightAllocation = () => {
+    if (!isEmergencyPayment || !emergencyId) return;
+
+    Alert.alert(
+      'Use Freight Money?',
+      'This will deduct the roadside assistance fee from your transporter freight payout for the linked booking.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Use Freight Money',
+          onPress: async () => {
+            setProcessing(true);
+            try {
+              const response = await apiService.createEmergencyPayment(
+                emergencyId,
+                'freight_allocation',
+                { email: email.trim(), phone: phoneNumber.trim() },
+                { paymentSource: 'freight_allocation' }
+              );
+              if (!response.success) {
+                throw new Error(response.message || 'Unable to allocate freight money.');
+              }
+              setPaymentStatus('success');
+              Alert.alert(
+                'Assistance Paid',
+                response.message || 'Roadside assistance has been paid from your freight allocation.',
+                [{ text: 'Continue', onPress: () => navigateTo('main-tabs') }]
+              );
+            } catch (error) {
+              Alert.alert('Allocation Failed', error.message || 'Unable to use freight allocation for this SOS.');
+            } finally {
+              setProcessing(false);
+            }
+          }
+        }
+      ]
+    );
   };
 
   const getDefaultInstructions = () => {
@@ -323,10 +376,19 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
 
     // Navigate to confirmation after delay
     setTimeout(() => {
-      if (paymentContext === 'subscription') {
+      if (isSubscriptionPayment) {
         Alert.alert(
           'Subscription Paid',
           'Your subscription payment is confirmed. Your account access still depends on document verification where required.',
+          [{ text: 'Continue', onPress: () => navigateTo('main-tabs') }]
+        );
+        return;
+      }
+
+      if (isEmergencyPayment) {
+        Alert.alert(
+          'SOS Assistance Paid',
+          'Your roadside assistance payment is confirmed. The provider payout will be prepared after the job is completed.',
           [{ text: 'Continue', onPress: () => navigateTo('main-tabs') }]
         );
         return;
@@ -431,8 +493,10 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
         Your ClicknPay payment of USD ${amountValue.toFixed(2)} has been confirmed.
       </Text>
       <Text style={styles.successSubtext}>
-        {paymentContext === 'subscription'
+        {isSubscriptionPayment
           ? 'Returning to your dashboard...'
+          : isEmergencyPayment
+            ? 'Returning to SOS support...'
           : 'Redirecting to booking confirmation...'}
       </Text>
       <ActivityIndicator size="small" color={provider.color} style={{ marginTop: 20 }} />
@@ -461,10 +525,10 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
             <Text style={styles.summaryTitle}>Payment Summary</Text>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>
-                {paymentContext === 'subscription' ? 'Subscription' : 'Booking Reference'}
+                {isSubscriptionPayment ? 'Subscription' : isEmergencyPayment ? 'SOS Assistance' : 'Booking Reference'}
               </Text>
               <Text style={styles.summaryValue}>
-                {paymentContext === 'subscription' ? subscriptionName : bookingReference}
+                {isSubscriptionPayment ? subscriptionName : isEmergencyPayment ? emergencyTitle : bookingReference}
               </Text>
             </View>
             <View style={styles.divider} />
@@ -553,6 +617,17 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
             </>
           )}
         </TouchableOpacity>
+
+        {isEmergencyPayment && user?.userType === 'transporter' && (
+          <TouchableOpacity
+            style={[styles.freightButton, processing && styles.payButtonDisabled]}
+            onPress={handleUseFreightAllocation}
+            disabled={processing}
+          >
+            <MaterialIcons name="local-shipping" size={20} color="#0C2D48" />
+            <Text style={styles.freightButtonText}>Use freight allocation</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </KeyboardAvoidingView>
   );
@@ -587,10 +662,14 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
         </TouchableOpacity>
         <View style={styles.headerContent}>
           <Text style={styles.headerTitle}>
-            {paymentContext === 'subscription' ? 'Subscription Payment' : 'ClicknPay Payment'}
+            {isSubscriptionPayment ? 'Subscription Payment' : isEmergencyPayment ? 'SOS Assistance Payment' : 'ClicknPay Payment'}
           </Text>
           <Text style={styles.headerSubtitle}>
-            {paymentContext === 'subscription' ? 'Pay to activate your subscription' : 'Choose your payment method in ClicknPay'}
+            {isSubscriptionPayment
+              ? 'Pay to activate your subscription'
+              : isEmergencyPayment
+                ? 'Pay the roadside assistance charge'
+                : 'Choose your payment method in ClicknPay'}
           </Text>
         </View>
       </View>
@@ -755,6 +834,7 @@ const styles = StyleSheet.create({
   },
   bottomActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 12,
     padding: 16,
     backgroundColor: 'white',
@@ -791,6 +871,23 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: 'white',
+  },
+  freightButton: {
+    flexBasis: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 12,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: '#F37021',
+    backgroundColor: '#fff7ed'
+  },
+  freightButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0C2D48'
   },
   // Polling State Styles
   pollingContainer: {

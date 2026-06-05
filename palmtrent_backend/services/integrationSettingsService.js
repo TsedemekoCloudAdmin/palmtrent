@@ -29,6 +29,25 @@ const definitions = {
       currency: 'OPENAPI_AFRICA_CURRENCY'
     }
   },
+  ecocashOpenApi: {
+    provider: 'ecocashOpenApi',
+    label: 'EcoCash Open API Agent Lookup',
+    category: 'payments',
+    requiredFields: ['apiKey', 'merchantCode'],
+    secretFields: ['apiKey', 'bearerToken', 'webhookSecret'],
+    envMap: {
+      mode: 'ECOCASH_OPENAPI_MODE',
+      baseUrl: 'ECOCASH_OPENAPI_BASE_URL',
+      statusEndpoint: 'ECOCASH_OPENAPI_STATUS_ENDPOINT',
+      apiKey: 'ECOCASH_OPENAPI_API_KEY',
+      bearerToken: 'ECOCASH_OPENAPI_BEARER_TOKEN',
+      merchantCode: 'ECOCASH_MERCHANT_CODE',
+      webhookSecret: 'ECOCASH_WEBHOOK_SECRET',
+      reconcileLimit: 'ECOCASH_RECONCILE_LIMIT',
+      reconcileMinIntervalMs: 'ECOCASH_RECONCILE_MIN_INTERVAL_MS',
+      reconcileDelayMs: 'ECOCASH_RECONCILE_DELAY_MS'
+    }
+  },
   mapbox: {
     provider: 'mapbox',
     label: 'Mapbox',
@@ -62,6 +81,14 @@ const definitions = {
     envMap: {
       serviceAccountJson: 'FIREBASE_SERVICE_ACCOUNT'
     }
+  },
+  emergencyDispatch: {
+    provider: 'emergencyDispatch',
+    label: 'External Ambulance / Emergency Dispatch',
+    category: 'notifications',
+    requiredFields: ['baseUrl', 'apiKey'],
+    secretFields: ['apiKey'],
+    envMap: {}
   },
   storage: {
     provider: 'storage',

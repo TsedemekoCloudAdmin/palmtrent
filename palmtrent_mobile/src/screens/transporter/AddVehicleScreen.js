@@ -201,7 +201,7 @@ const AddVehicleScreen = () => {
     capacity: {
       weight: {
         value: '',
-        unit: 'kg'
+        unit: 'tonnes'
       }
     },
     
@@ -652,6 +652,7 @@ const AddVehicleScreen = () => {
                     // Set capacity from type
                     if (type.capacity?.weight?.max) {
                       updateField('capacity.weight.value', type.capacity.weight.max.toString());
+                      updateField('capacity.weight.unit', type.capacity.weight.unit || 'tonnes');
                     }
                     setStep(4);
                   }}

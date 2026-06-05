@@ -14,13 +14,13 @@ const commissionRuleSchema = new mongoose.Schema({
   },
   target: {
     type: String,
-    enum: ['shipment', 'rental', 'subscription'],
+    enum: ['shipment', 'rental', 'subscription', 'roadside_assistance'],
     required: true,
     index: true
   },
   audience: {
     type: String,
-    enum: ['shipper', 'transporter', 'trailer_owner', 'corporate', 'all'],
+    enum: ['shipper', 'transporter', 'trailer_owner', 'rental_owner', 'driver', 'roadside_provider', 'corporate', 'all'],
     default: 'all',
     index: true
   },

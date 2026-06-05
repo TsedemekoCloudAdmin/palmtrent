@@ -28,6 +28,12 @@ const VehicleDetailsScreen = () => {
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedDriver, setSelectedDriver] = useState('');
 
+  const getRecordLabel = (value, fallback = 'N/A') => {
+    if (!value) return fallback;
+    if (typeof value === 'object') return value.name || value.label || fallback;
+    return String(value);
+  };
+
   useEffect(() => {
     loadVehicleDetails();
     loadAvailableDrivers();
@@ -37,7 +43,13 @@ const VehicleDetailsScreen = () => {
     try {
       const response = await apiService.getVehicle(vehicleId);
       if (response.success) {
-        setVehicle(response.data);
+        const record = response.data || {};
+        setVehicle({
+          ...record,
+          make: record.makeName || getRecordLabel(record.make),
+          model: record.modelName || getRecordLabel(record.model),
+          vehicleType: record.vehicleTypeName || getRecordLabel(record.vehicleType, record.vehicleType)
+        });
       } else {
         Alert.alert('Error', 'Failed to load vehicle details');
       }
@@ -51,10 +63,25 @@ const VehicleDetailsScreen = () => {
 
   const loadAvailableDrivers = async () => {
     try {
-      const response = await apiService.getDrivers('status=available');
-      if (response.success) {
-        setDrivers(response.data);
-      }
+      const [managedResponse, marketplaceResponse] = await Promise.all([
+        apiService.getDrivers('status=available'),
+        apiService.searchMarketplaceDrivers({ availableOnly: 'true' })
+      ]);
+
+      const managedDrivers = (managedResponse.data || []).map(driver => ({
+        ...driver,
+        driverSource: 'managed'
+      }));
+      const marketplaceDrivers = (marketplaceResponse.data || []).map(driver => ({
+        ...driver,
+        driverSource: 'marketplace'
+      }));
+
+      const uniqueDrivers = new Map();
+      [...managedDrivers, ...marketplaceDrivers].forEach(driver => {
+        if (driver?._id) uniqueDrivers.set(driver._id, driver);
+      });
+      setDrivers(Array.from(uniqueDrivers.values()));
     } catch (error) {
       console.error('Load drivers error:', error);
     }
@@ -98,10 +125,7 @@ const VehicleDetailsScreen = () => {
     }
 
     try {
-      const response = await apiService.request(`/vehicles/${vehicleId}/assign-driver`, {
-        method: 'PUT',
-        body: JSON.stringify({ driverId: selectedDriver })
-      });
+      const response = await apiService.assignDriverToVehicle(vehicleId, selectedDriver);
 
       if (response.success) {
         Alert.alert('Success', 'Driver assigned successfully');
@@ -134,10 +158,7 @@ const VehicleDetailsScreen = () => {
 
   const unassignDriver = async () => {
     try {
-      const response = await apiService.request(`/vehicles/${vehicleId}/assign-driver`, {
-        method: 'PUT',
-        body: JSON.stringify({ driverId: null })
-      });
+      const response = await apiService.unassignDriverFromVehicle(vehicleId);
 
       if (response.success) {
         Alert.alert('Success', 'Driver unassigned successfully');
@@ -422,6 +443,16 @@ const VehicleDetailsScreen = () => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Assign Driver</Text>
+            <TouchableOpacity
+              style={styles.marketplaceLink}
+              onPress={() => {
+                setShowAssignModal(false);
+                navigation.navigate('DriverMarketplace', { vehicleId });
+              }}
+            >
+              <MaterialIcons name="person-search" size={18} color="#0C2D48" />
+              <Text style={styles.marketplaceLinkText}>Search driver marketplace</Text>
+            </TouchableOpacity>
             
             <FlatList
               data={drivers}
@@ -437,8 +468,19 @@ const VehicleDetailsScreen = () => {
                   <View style={styles.driverOptionInfo}>
                     <Text style={styles.driverOptionName}>{item.fullName}</Text>
                     <Text style={styles.driverOptionDetails}>
-                      {item.licenseNumber} • Class {item.licenseClass}
+                      {item.licenseNumber || 'License pending'} - Class {item.licenseClass || 'N/A'}
                     </Text>
+                    <View style={[
+                      styles.sourceBadge,
+                      item.driverSource === 'marketplace' && styles.marketplaceBadge
+                    ]}>
+                      <Text style={[
+                        styles.sourceBadgeText,
+                        item.driverSource === 'marketplace' && styles.marketplaceBadgeText
+                      ]}>
+                        {item.driverSource === 'marketplace' ? 'Marketplace' : 'Managed'}
+                      </Text>
+                    </View>
                   </View>
                   {selectedDriver === item._id && (
                     <MaterialIcons name="check-circle" size={24} color="#0C2D48" />
@@ -446,6 +488,12 @@ const VehicleDetailsScreen = () => {
                 </TouchableOpacity>
               )}
               style={styles.driversList}
+              ListEmptyComponent={
+                <View style={styles.emptyDrivers}>
+                  <MaterialIcons name="person-search" size={34} color="#94a3b8" />
+                  <Text style={styles.emptyDriversText}>No available drivers found.</Text>
+                </View>
+              }
             />
 
             <View style={styles.modalActions}>
@@ -735,6 +783,23 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     textAlign: 'center',
   },
+  marketplaceLink: {
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    backgroundColor: '#eff6ff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  marketplaceLinkText: {
+    color: '#0C2D48',
+    fontSize: 14,
+    fontWeight: '700',
+  },
   driversList: {
     maxHeight: 300,
   },
@@ -761,6 +826,34 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6b7280',
     marginTop: 4,
+  },
+  sourceBadge: {
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: '#e0f2fe',
+  },
+  marketplaceBadge: {
+    backgroundColor: '#fff7ed',
+  },
+  sourceBadgeText: {
+    color: '#075985',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  marketplaceBadgeText: {
+    color: '#9a3412',
+  },
+  emptyDrivers: {
+    alignItems: 'center',
+    paddingVertical: 26,
+  },
+  emptyDriversText: {
+    color: '#64748b',
+    marginTop: 8,
+    fontSize: 14,
   },
   modalActions: {
     flexDirection: 'row',

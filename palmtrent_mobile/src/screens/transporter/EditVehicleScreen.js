@@ -41,7 +41,7 @@ const EditVehicleScreen = () => {
     capacity: {
       weight: {
         value: '',
-        unit: 'kg'
+        unit: 'tonnes'
       }
     },
     

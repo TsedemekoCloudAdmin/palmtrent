@@ -8,6 +8,8 @@ import useAuth from '../hook/useAuth';
 import ShipperTabs from './ShipperTabs';
 import TransporterTabs from './TransporterTabs';
 import TrailerOwnerTabs from './TrailerOwnerTabs';
+import DriverTabs from './DriverTabs';
+import ResponderTabs from './ResponderTabs';
 
 // Import other screens
 import HomeScreen from '../screens/HomeScreen';
@@ -45,6 +47,10 @@ import DriverDetailsScreen from '../screens/transporter/DriverDetailsScreen';
 import EditVehicleScreen from '../screens/transporter/EditVehicleScreen';
 import EditDriverScreen from '../screens/transporter/EditDriverScreen';
 import VehicleRentalScreen from '../screens/transporter/VehicleRentalScreen';
+import DriverMarketplaceScreen from '../screens/transporter/DriverMarketplaceScreen';
+import DriverPortalScreen from '../screens/driver/DriverPortalScreen';
+import RentalStaffScreen from '../screens/trailerOwner/RentalStaffScreen';
+import ResponderPortalScreen from '../screens/emergency/ResponderPortalScreen';
 import MobileMoneyPaymentScreen from '../screens/MobileMoneyPaymentScreen';
 import CardPaymentScreen from '../screens/CardPaymentScreen';
 import AgentPaymentScreen from '../screens/AgentPaymentScreen';
@@ -65,7 +71,9 @@ const Stack = createStackNavigator();
 
 const getMainTabs = (userType) => {
   if (userType === 'transporter') return TransporterTabs;
-  if (userType === 'trailer_owner') return TrailerOwnerTabs;
+  if (userType === 'trailer_owner' || userType === 'rental_owner') return TrailerOwnerTabs;
+  if (userType === 'driver') return DriverTabs;
+  if (userType === 'roadside_provider') return ResponderTabs;
   return ShipperTabs;
 };
 
@@ -136,6 +144,7 @@ const AppNavigator = () => {
         <Stack.Screen name="EditTrailer" component={EditTrailerScreen} />
         <Stack.Screen name="AddFleetAsset" component={FleetAssetFormScreen} />
         <Stack.Screen name="FleetRentalRequests" component={FleetRentalRequestsScreen} />
+        <Stack.Screen name="RentalStaff" component={RentalStaffScreen} />
       
       {/* Transporter specific screens */}
       <Stack.Screen name="AvailableJobs" component={AvailableJobsScreen} />
@@ -154,6 +163,9 @@ const AppNavigator = () => {
       <Stack.Screen name="EditVehicle" component={EditVehicleScreen} />
       <Stack.Screen name="EditDriver" component={EditDriverScreen} />
       <Stack.Screen name="VehicleRental" component={VehicleRentalScreen} />
+      <Stack.Screen name="DriverMarketplace" component={DriverMarketplaceScreen} />
+      <Stack.Screen name="DriverPortal" component={DriverPortalScreen} />
+      <Stack.Screen name="ResponderPortal" component={ResponderPortalScreen} />
       <Stack.Screen name="MyRentals" component={FleetRentalRequestsScreen} />
 
       {/* Payment screens */}

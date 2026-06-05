@@ -2,6 +2,8 @@
 const Payment = require('../models/Payment');
 const Booking = require('../models/Booking');
 const Subscription = require('../models/Subscription');
+const Emergency = require('../models/Emergency');
+const Payout = require('../models/Payout');
 const escrowService = require('./escrowService');
 
 class PaymentService {
@@ -87,7 +89,8 @@ class PaymentService {
       'corporate': 'none',
       'cash_agent': 'cash',
       'cash_on_pickup': 'cash',
-      'cash_on_delivery': 'cash'
+      'cash_on_delivery': 'cash',
+      'freight_allocation': 'none'
     };
     return gatewayMap[paymentMethod] || 'openapi_africa';
   }
@@ -121,6 +124,8 @@ class PaymentService {
 
       if (payment.subscription) {
         await this.finalizeConfirmedSubscriptionPayment(payment);
+      } else if (payment.emergency) {
+        await this.finalizeConfirmedEmergencyPayment(payment);
       } else {
         await this.finalizeConfirmedBookingPayment(payment);
       }
@@ -172,6 +177,10 @@ class PaymentService {
       }
 
       await payment.save();
+
+      if (payment.emergency) {
+        await this.updateEmergencyPaymentStatus(payment);
+      }
 
       return payment;
     } catch (error) {
@@ -227,6 +236,85 @@ class PaymentService {
     };
     subscription.status = 'active';
     await subscription.save();
+  }
+
+  async finalizeConfirmedEmergencyPayment(payment) {
+    const emergency = await Emergency.findById(payment.emergency);
+    if (!emergency) {
+      throw new Error('Emergency not found for confirmed payment');
+    }
+
+    const acceptedResponder = (emergency.response?.responders || []).find(item =>
+      ['accepted', 'on_scene', 'completed'].includes(item.status) && item.user
+    );
+
+    emergency.billing = {
+      ...(emergency.billing || {}),
+      payment: payment._id,
+      paymentReference: payment.paymentReference,
+      paymentStatus: 'paid',
+      paidAt: emergency.billing?.paidAt || payment.confirmedAt || new Date()
+    };
+    emergency.timeline.push({
+      event: 'Roadside assistance payment confirmed',
+      timestamp: new Date(),
+      notes: `Payment ${payment.paymentReference} confirmed.`
+    });
+    await emergency.save();
+
+    if (!acceptedResponder?.user) return;
+
+    const providerEarnings = Number(
+      emergency.billing?.providerEarnings ||
+      payment.metadata?.providerEarnings ||
+      payment.amount
+    );
+
+    if (!Number.isFinite(providerEarnings) || providerEarnings <= 0) return;
+
+    await Payout.findOneAndUpdate(
+      {
+        recipient: acceptedResponder.user,
+        sourceType: 'emergency',
+        sourceId: emergency._id
+      },
+      {
+        $setOnInsert: {
+          recipient: acceptedResponder.user,
+          sourceType: 'emergency',
+          sourceId: emergency._id,
+          amount: Number(providerEarnings.toFixed(2)),
+          currency: payment.currency || 'USD',
+          status: 'pending',
+          metadata: {
+            paymentReference: payment.paymentReference,
+            emergencyType: emergency.emergencyType,
+            platformFee: emergency.billing?.platformFee || payment.metadata?.platformFee || 0
+          }
+        }
+      },
+      { upsert: true, new: true }
+    );
+  }
+
+  async updateEmergencyPaymentStatus(payment) {
+    const statusMap = {
+      pending: 'pending',
+      initiated: 'initiated',
+      processing: 'processing',
+      failed: 'failed',
+      cancelled: 'failed'
+    };
+    const paymentStatus = statusMap[payment.status];
+    if (!paymentStatus) return;
+
+    await Emergency.findByIdAndUpdate(payment.emergency, {
+      $set: {
+        'billing.payment': payment._id,
+        'billing.paymentReference': payment.paymentReference,
+        'billing.paymentStatus': paymentStatus
+      }
+    });
   }
 
   /**

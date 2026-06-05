@@ -18,7 +18,7 @@ const payoutSchema = new mongoose.Schema({
   },
   sourceType: {
     type: String,
-    enum: ['booking', 'rental', 'manual'],
+    enum: ['booking', 'rental', 'emergency', 'manual'],
     required: true
   },
   sourceId: {

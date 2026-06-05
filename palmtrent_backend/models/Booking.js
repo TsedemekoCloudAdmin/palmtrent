@@ -394,6 +394,38 @@ const bookingSchema = new mongoose.Schema({
     ref: 'Escrow'
   },
 
+  roadsideAssistanceAllocations: [{
+    emergency: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Emergency'
+    },
+    payment: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Payment'
+    },
+    escrow: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Escrow'
+    },
+    amount: {
+      type: Number,
+      default: 0
+    },
+    providerEarnings: {
+      type: Number,
+      default: 0
+    },
+    platformFee: {
+      type: Number,
+      default: 0
+    },
+    allocatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    allocatedAt: Date
+  }],
+
   // Matching timestamp
   matchedAt: {
     type: Date

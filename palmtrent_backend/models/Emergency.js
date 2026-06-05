@@ -9,7 +9,7 @@ const emergencySchema = new mongoose.Schema({
   },
   userType: {
     type: String,
-    enum: ['shipper', 'transporter', 'driver'],
+    enum: ['shipper', 'transporter', 'driver', 'trailer_owner', 'rental_owner', 'roadside_provider', 'corporate'],
     required: true
   },
   // Related booking/shipment
@@ -65,6 +65,66 @@ const emergencySchema = new mongoose.Schema({
   // Contact info at time of emergency
   contactPhone: String,
   alternatePhone: String,
+  billing: {
+    payer: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    payment: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Payment'
+    },
+    paymentReference: String,
+    paymentStatus: {
+      type: String,
+      enum: ['not_required', 'pending', 'initiated', 'processing', 'paid', 'failed', 'waived'],
+      default: 'pending'
+    },
+    amount: {
+      type: Number,
+      default: 0
+    },
+    currency: {
+      type: String,
+      default: 'USD'
+    },
+    platformFee: {
+      type: Number,
+      default: 0
+    },
+    providerEarnings: {
+      type: Number,
+      default: 0
+    },
+    pricingSource: {
+      type: String,
+      enum: ['default', 'admin_override', 'provider_quote'],
+      default: 'default'
+    },
+    paymentSource: {
+      type: String,
+      enum: ['separate_payment', 'freight_allocation'],
+      default: 'separate_payment'
+    },
+    freightAllocation: {
+      booking: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Booking'
+      },
+      escrow: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Escrow'
+      },
+      allocatedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+      },
+      allocatedAt: Date,
+      amount: Number
+    },
+    paidAt: Date,
+    notes: String
+  },
   // Status tracking
   status: {
     type: String,
@@ -89,12 +149,105 @@ const emergencySchema = new mongoose.Schema({
     responders: [{
       type: {
         type: String,
-        enum: ['police', 'ambulance', 'fire', 'tow_truck', 'support_team', 'other']
+        enum: ['police', 'ambulance', 'fire', 'tow_truck', 'mechanic', 'support_team', 'other']
+      },
+      responder: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'EmergencyResponder'
+      },
+      user: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
       },
       dispatchedAt: Date,
       arrivedAt: Date,
+      acceptedAt: Date,
+      declinedAt: Date,
+      status: {
+        type: String,
+        enum: ['notified', 'quote_submitted', 'quote_accepted', 'quote_rejected', 'accepted', 'declined', 'on_scene', 'completed'],
+        default: 'notified'
+      },
+      quote: {
+        quoteReference: String,
+        serviceType: {
+          type: String,
+          enum: ['tow_truck', 'mechanic', 'battery', 'fuel', 'tyre', 'lockout', 'accident_recovery', 'other']
+        },
+        pricingMode: {
+          type: String,
+          enum: ['base', 'custom'],
+          default: 'base'
+        },
+        destination: {
+          address: String,
+          coordinates: {
+            type: [Number]
+          }
+        },
+        distanceKm: {
+          type: Number,
+          default: 0
+        },
+        baseFee: {
+          type: Number,
+          default: 0
+        },
+        distanceFee: {
+          type: Number,
+          default: 0
+        },
+        calloutFee: {
+          type: Number,
+          default: 0
+        },
+        labourFee: {
+          type: Number,
+          default: 0
+        },
+        partsEstimate: {
+          type: Number,
+          default: 0
+        },
+        towingFee: {
+          type: Number,
+          default: 0
+        },
+        total: {
+          type: Number,
+          default: 0
+        },
+        currency: {
+          type: String,
+          default: 'USD'
+        },
+        notes: String,
+        submittedAt: Date,
+        acceptedAt: Date,
+        acceptedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User'
+        },
+        rejectedAt: Date,
+        rejectedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User'
+        }
+      },
       notes: String
     }],
+    externalDispatch: {
+      provider: String,
+      requestedAt: Date,
+      status: {
+        type: String,
+        enum: ['not_configured', 'sent', 'failed', 'not_required'],
+        default: 'not_required'
+      },
+      reference: String,
+      response: mongoose.Schema.Types.Mixed,
+      error: String
+    },
     resolvedAt: Date,
     resolvedBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -162,6 +315,7 @@ emergencySchema.index({ location: '2dsphere' });
 emergencySchema.index({ status: 1, createdAt: -1 });
 emergencySchema.index({ triggeredBy: 1, createdAt: -1 });
 emergencySchema.index({ priority: 1, status: 1 });
+emergencySchema.index({ emergencyType: 1, status: 1, createdAt: -1 });
 
 // Pre-save: Add to timeline
 emergencySchema.pre('save', function(next) {
@@ -200,11 +354,15 @@ emergencySchema.methods.acknowledge = async function(userId) {
 };
 
 // Method: Dispatch responder
-emergencySchema.methods.dispatchResponder = function(type, userId) {
+emergencySchema.methods.dispatchResponder = function(type, userId, responder = null, notes = '') {
   this.status = 'responding';
   this.response.responders.push({
     type,
-    dispatchedAt: new Date()
+    responder: responder?._id,
+    user: responder?.user,
+    dispatchedAt: new Date(),
+    status: 'notified',
+    notes
   });
   this.timeline.push({
     event: `${type} dispatched`,
@@ -236,6 +394,8 @@ emergencySchema.statics.getActiveEmergencies = function() {
   })
     .populate('triggeredBy', 'fullName phone')
     .populate('booking', 'bookingReference')
+    .populate('response.responders.user', 'fullName phone')
+    .populate('response.responders.responder', 'businessName serviceTypes availability')
     .sort({ priority: 1, createdAt: 1 });
 };
 

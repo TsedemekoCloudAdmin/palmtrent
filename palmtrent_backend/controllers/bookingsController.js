@@ -1,3 +1,4 @@
+const { randomUUID } = require('crypto');
 const pricingService = require('../services/pricingService');
 const distanceService = require('../services/distanceService');
 const PricingConfig = require('../models/PricingConfig');
@@ -7,6 +8,7 @@ const User = require('../models/User');
 const { validationResult } = require('express-validator');
 const whatsappController = require('./whatsappController');
 const { recordAudit } = require('../services/auditService');
+const ecocashOpenApiService = require('../services/ecocashOpenApiService');
 const {
   assertBookingTransition,
   assertBookingReadyForMatching,
@@ -541,10 +543,17 @@ exports.createBookingWithPayment = async (req, res) => {
 
       if (req.body.paymentMethod === 'cash_agent') {
         const agentCode = generateAgentCode();
+        const ecocashSourceReference = randomUUID();
+        const ecocashSourceMobileNumber = normalizeEcocashPhone(req.body.customer?.phone || req.user?.phone);
         payment.metadata = {
           ...(payment.metadata || {}),
           agentCode,
-          agentCodeGeneratedAt: new Date()
+          agentCodeGeneratedAt: new Date(),
+          ecocashLookup: {
+            sourceReference: ecocashSourceReference,
+            sourceMobileNumber: ecocashSourceMobileNumber,
+            mode: process.env.ECOCASH_OPENAPI_MODE || process.env.ECOCASH_MODE || 'sandbox'
+          }
         };
         await payment.save();
       }
@@ -563,7 +572,7 @@ exports.createBookingWithPayment = async (req, res) => {
           currency: payment.currency,
           expiresAt: payment.expiresAt,
           agentPayment: payment.paymentMethod === 'cash_agent'
-            ? buildAgentPaymentDetails(payment)
+            ? await buildAgentPaymentDetails(payment)
             : null
         } : null
       }
@@ -596,14 +605,23 @@ function generateAgentCode() {
   return `PT${numbers}`;
 }
 
-function buildAgentPaymentDetails(payment) {
+function normalizeEcocashPhone(value) {
+  return ecocashOpenApiService.normalizeMsisdn
+    ? ecocashOpenApiService.normalizeMsisdn(value)
+    : String(value || '').replace(/[^\d]/g, '').replace(/^0/, '263');
+}
+
+async function buildAgentPaymentDetails(payment) {
   const agentCode = payment.metadata?.agentCode;
+  const ecocashSourceReference = payment.metadata?.ecocashLookup?.sourceReference;
   const expiresAt = payment.expiresAt || new Date(Date.now() + 2 * 60 * 60 * 1000);
+  const ecocashConfig = await ecocashOpenApiService.getConfig();
 
   return {
     paymentId: payment._id,
     paymentReference: payment.paymentReference,
     agentCode,
+    ecocashSourceReference,
     amount: payment.amount,
     currency: payment.currency || 'USD',
     expiresAt,
@@ -612,11 +630,12 @@ function buildAgentPaymentDetails(payment) {
       steps: [
         'Visit any EcoCash Agent near you',
         `Quote reference: ${agentCode}`,
+        ...(ecocashSourceReference ? [`If the agent asks for the EcoCash source reference, use: ${ecocashSourceReference}`] : []),
         `Pay USD $${Number(payment.amount || 0).toFixed(2)}`,
         'Keep your receipt',
         'Payment will be confirmed automatically'
       ],
-      merchantCode: process.env.ECOCASH_MERCHANT_CODE || 'PALMTRENT',
+      merchantCode: ecocashConfig.merchantCode || 'PALMTRENT',
       supportPhone: process.env.SUPPORT_PHONE || '+263 77 123 4567',
       validUntil: expiresAt.toISOString ? expiresAt.toISOString() : expiresAt,
       note: 'Please ensure you quote the exact reference number to the agent'

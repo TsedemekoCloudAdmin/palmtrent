@@ -15,6 +15,12 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation } from '@react-navigation/native';
 import apiService from '../../services/apiService';
 
+const getRecordLabel = (value, fallback = 'N/A') => {
+  if (!value) return fallback;
+  if (typeof value === 'object') return value.name || value.label || fallback;
+  return String(value);
+};
+
 const FleetDashboardScreen = () => {
   const navigation = useNavigation();
   const [activeTab, setActiveTab] = useState('overview');
@@ -104,7 +110,9 @@ const FleetDashboardScreen = () => {
           <Text style={styles.vehicleIcon}>{getCategoryIcon(item.category)}</Text>
           <View>
             <Text style={styles.vehicleReg}>{item.registrationNumber}</Text>
-            <Text style={styles.vehicleType}>{item.make} {item.model}</Text>
+            <Text style={styles.vehicleType}>
+              {item.makeName || getRecordLabel(item.make)} {item.modelName || getRecordLabel(item.model)}
+            </Text>
           </View>
         </View>
         <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) + '20' }]}>
@@ -117,7 +125,7 @@ const FleetDashboardScreen = () => {
       <View style={styles.vehicleDetails}>
         <View style={styles.detailRow}>
           <Text style={styles.detailLabel}>Capacity:</Text>
-          <Text style={styles.detailValue}>{item.capacity?.weight?.value} {item.capacity?.weight?.unit}</Text>
+          <Text style={styles.detailValue}>{item.capacity?.weight?.value} {item.capacity?.weight?.unit || 'tonnes'}</Text>
         </View>
         <View style={styles.detailRow}>
           <Text style={styles.detailLabel}>Driver:</Text>
@@ -202,12 +210,12 @@ const FleetDashboardScreen = () => {
 
         <TouchableOpacity 
           style={styles.actionButton}
-          onPress={() => navigation.navigate('AddDriver')}
+          onPress={() => navigation.navigate('DriverMarketplace')}
         >
           <View style={[styles.actionIcon, { backgroundColor: '#dcfce7' }]}>
-            <MaterialIcons name="person-add" size={24} color="#16a34a" />
+            <MaterialIcons name="person-search" size={24} color="#16a34a" />
           </View>
-          <Text style={styles.actionText}>Add Driver</Text>
+          <Text style={styles.actionText}>Find Drivers</Text>
         </TouchableOpacity>
 
         <TouchableOpacity 
@@ -305,13 +313,22 @@ const FleetDashboardScreen = () => {
       ListHeaderComponent={
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>My Drivers</Text>
-          <TouchableOpacity 
-            style={styles.addButton}
-            onPress={() => navigation.navigate('AddDriver')}
-          >
-            <MaterialIcons name="add" size={20} color="white" />
-            <Text style={styles.addButtonText}>Add Driver</Text>
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={[styles.addButton, styles.secondaryAddButton]}
+              onPress={() => navigation.navigate('DriverMarketplace')}
+            >
+              <MaterialIcons name="person-search" size={20} color="white" />
+              <Text style={styles.addButtonText}>Find</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.addButton}
+              onPress={() => navigation.navigate('AddDriver')}
+            >
+              <MaterialIcons name="add" size={20} color="white" />
+              <Text style={styles.addButtonText}>Add</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       }
       contentContainerStyle={styles.flatListContent}
@@ -556,6 +573,13 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
     gap: 4,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  secondaryAddButton: {
+    backgroundColor: '#F37021',
   },
   addButtonText: {
     color: 'white',

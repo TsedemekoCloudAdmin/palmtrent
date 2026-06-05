@@ -36,7 +36,9 @@ function serializePlan(plan) {
 
 function isPlanCompatibleWithUser(planAudience, userType) {
   if (planAudience === userType) return true;
-  return planAudience === 'trailer_owner' && userType === 'transporter';
+  if (planAudience === 'trailer_owner' && ['transporter', 'rental_owner'].includes(userType)) return true;
+  if (planAudience === 'rental_owner' && ['trailer_owner', 'rental_owner'].includes(userType)) return true;
+  return false;
 }
 
 async function getPublicPlans(req, res) {

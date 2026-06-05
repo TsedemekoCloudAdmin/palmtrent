@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const Driver = require('../models/Driver');
 const VerificationCode = require('../models/VerificationCode');
 const PasswordReset = require('../models/PasswordReset');
 const { generateToken } = require('../middleware/auth');
@@ -100,15 +101,38 @@ const register = async (req, res) => {
       });
     }
 
+    const allowedUserTypes = ['shipper', 'transporter', 'trailer_owner', 'rental_owner', 'driver', 'roadside_provider', 'corporate'];
+    const safeUserType = allowedUserTypes.includes(userType) ? userType : 'shipper';
+
     // Create user
     const user = await User.create({
       fullName,
       email,
       phone: normalizedPhone,
       password,
-      userType,
+      userType: safeUserType,
+      roles: [safeUserType],
       isPhoneVerified: skipPhoneVerification || Boolean(verifiedCode)
     });
+
+    if (safeUserType === 'driver') {
+      await Driver.create({
+        owner: user._id,
+        user: user._id,
+        profileType: 'marketplace',
+        fullName: user.fullName,
+        phone: user.phone,
+        email: user.email,
+        status: 'available',
+        availability: { isAvailable: true },
+        marketplace: {
+          visible: false,
+          lookingForWork: true,
+          availableImmediately: true,
+          headline: 'Driver looking for work'
+        }
+      });
+    }
 
     // Generate JWT token
     const token = generateToken(user._id);

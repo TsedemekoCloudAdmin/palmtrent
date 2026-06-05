@@ -5,6 +5,7 @@ const {
   getRentalOwnerSubscriptionIssues,
   getUsableRentalOwnerIds
 } = require('../services/flowControlService');
+const { canAccessRentalOwnerResource, getRentalOwnerScopeId } = require('../services/resourceAccessService');
 
 const RENTAL_SUBSCRIPTION_NOTICE = 'Fleet asset registered, but rental marketplace listing is disabled until you activate a paid owner subscription.';
 
@@ -26,7 +27,8 @@ exports.getMyTrailers = async (req, res) => {
   try {
     const { status, search, assetType } = req.query;
 
-    let query = { owner: req.user.id };
+    const ownerScopeId = getRentalOwnerScopeId(req.user);
+    let query = { owner: ownerScopeId };
 
     // Filter by status
     if (status && status !== 'all') {
@@ -51,20 +53,20 @@ exports.getMyTrailers = async (req, res) => {
 
     // Get stats
     const stats = {
-      total: await Trailer.countDocuments({ owner: req.user.id }),
-      trailers: await Trailer.countDocuments({ owner: req.user.id, assetType: 'trailer' }),
-      tractorUnits: await Trailer.countDocuments({ owner: req.user.id, assetType: 'tractor_unit' }),
-      trucks: await Trailer.countDocuments({ owner: req.user.id, assetType: 'truck' }),
-      fullRigs: await Trailer.countDocuments({ owner: req.user.id, assetType: 'full_rig' }),
-      available: await Trailer.countDocuments({ owner: req.user.id, status: 'available' }),
-      rented: await Trailer.countDocuments({ owner: req.user.id, status: 'rented' }),
-      inUse: await Trailer.countDocuments({ owner: req.user.id, status: 'in_use' }),
-      maintenance: await Trailer.countDocuments({ owner: req.user.id, status: 'maintenance' })
+      total: await Trailer.countDocuments({ owner: ownerScopeId }),
+      trailers: await Trailer.countDocuments({ owner: ownerScopeId, assetType: 'trailer' }),
+      tractorUnits: await Trailer.countDocuments({ owner: ownerScopeId, assetType: 'tractor_unit' }),
+      trucks: await Trailer.countDocuments({ owner: ownerScopeId, assetType: 'truck' }),
+      fullRigs: await Trailer.countDocuments({ owner: ownerScopeId, assetType: 'full_rig' }),
+      available: await Trailer.countDocuments({ owner: ownerScopeId, status: 'available' }),
+      rented: await Trailer.countDocuments({ owner: ownerScopeId, status: 'rented' }),
+      inUse: await Trailer.countDocuments({ owner: ownerScopeId, status: 'in_use' }),
+      maintenance: await Trailer.countDocuments({ owner: ownerScopeId, status: 'maintenance' })
     };
-    const subscriptionIssues = await getRentalOwnerSubscriptionIssues(req.user.id);
+    const subscriptionIssues = await getRentalOwnerSubscriptionIssues(ownerScopeId);
     const rentalListingsBlocked = subscriptionIssues.length
       ? await Trailer.countDocuments({
-          owner: req.user.id,
+          owner: ownerScopeId,
           'rentalSettings.availableForRental': true
         })
       : 0;
@@ -137,7 +139,7 @@ exports.getTrailerById = async (req, res) => {
 exports.createTrailer = async (req, res) => {
   try {
     // Add owner to request body
-    req.body.owner = req.user.id;
+    req.body.owner = getRentalOwnerScopeId(req.user);
     req.body.createdBy = req.user.id;
 
     const payload = {
@@ -151,7 +153,7 @@ exports.createTrailer = async (req, res) => {
 
     let message = 'Fleet asset registered successfully';
     if (wantsTrailerRentalListing(payload)) {
-      const subscriptionIssues = await getRentalOwnerSubscriptionIssues(req.user.id);
+      const subscriptionIssues = await getRentalOwnerSubscriptionIssues(getRentalOwnerScopeId(req.user));
       if (subscriptionIssues.length) {
         disableTrailerRentalListing(payload);
         message = RENTAL_SUBSCRIPTION_NOTICE;
@@ -199,7 +201,7 @@ exports.updateTrailer = async (req, res) => {
     }
 
     // Make sure user is trailer owner
-    if (trailer.owner.toString() !== req.user.id) {
+    if (!canAccessRentalOwnerResource(req.user, trailer.owner)) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to update this trailer'
@@ -213,7 +215,7 @@ exports.updateTrailer = async (req, res) => {
     };
 
     if (payload.rentalSettings?.availableForRental === true) {
-      await assertRentalOwnerCanList(req.user.id);
+      await assertRentalOwnerCanList(getRentalOwnerScopeId(req.user));
     }
 
     trailer = await Trailer.findByIdAndUpdate(req.params.id, payload, {
@@ -252,7 +254,7 @@ exports.deleteTrailer = async (req, res) => {
     }
 
     // Make sure user is trailer owner
-    if (trailer.owner.toString() !== req.user.id) {
+    if (!canAccessRentalOwnerResource(req.user, trailer.owner)) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to delete this trailer'
@@ -308,7 +310,7 @@ exports.updateTrailerStatus = async (req, res) => {
     }
 
     // Make sure user is trailer owner
-    if (trailer.owner.toString() !== req.user.id) {
+    if (!canAccessRentalOwnerResource(req.user, trailer.owner)) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to update this trailer'
@@ -357,7 +359,7 @@ exports.updateRentalSettings = async (req, res) => {
     }
 
     // Make sure user is trailer owner
-    if (trailer.owner.toString() !== req.user.id) {
+    if (!canAccessRentalOwnerResource(req.user, trailer.owner)) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to update this trailer'
@@ -365,7 +367,7 @@ exports.updateRentalSettings = async (req, res) => {
     }
 
     if (req.body.availableForRental === true) {
-      await assertRentalOwnerCanList(req.user.id);
+      await assertRentalOwnerCanList(getRentalOwnerScopeId(req.user));
     }
 
     trailer.rentalSettings = {
@@ -406,7 +408,7 @@ exports.getTrailerRentals = async (req, res) => {
     }
 
     // Make sure user is trailer owner
-    if (trailer.owner.toString() !== req.user.id) {
+    if (!canAccessRentalOwnerResource(req.user, trailer.owner)) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to view this trailer\'s rentals'

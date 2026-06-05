@@ -18,7 +18,7 @@ const subscriptionSchema = new mongoose.Schema({
   },
   audience: {
     type: String,
-    enum: ['transporter', 'trailer_owner', 'corporate', 'shipper'],
+    enum: ['transporter', 'trailer_owner', 'rental_owner', 'driver', 'roadside_provider', 'corporate', 'shipper'],
     required: true
   },
   status: {

@@ -3,6 +3,7 @@ const Booking = require('../models/Booking');
 const Escrow = require('../models/Escrow');
 const User = require('../models/User');
 const Rental = require('../models/Rental');
+const Vehicle = require('../models/Vehicle');
 const escrowService = require('../services/escrowService');
 const notificationService = require('../services/notificationService');
 const whatsappController = require('./whatsappController');
@@ -347,6 +348,7 @@ exports.getMyJobs = async (req, res) => {
       .skip(skip)
       .limit(parseInt(limit))
       .populate('shipper', 'fullName email phone')
+      .populate('assignedDriver', 'fullName phone licenseNumber licenseClass')
       .lean();
 
     const total = await Shipment.countDocuments(query);
@@ -519,6 +521,17 @@ exports.acceptJob = async (req, res) => {
     // Create or update shipment(s). Multiple-vehicle bookings create one shipment per vehicle.
     let shipments = await Shipment.find({ booking: booking._id });
     const earningsSplit = await calculateEarningsSplit(booking, linkedRentals);
+    const selectedVehicles = requestedVehicleIds.length
+      ? await Vehicle.find({ _id: { $in: requestedVehicleIds }, owner: transporterId }).select('_id assignedDriver')
+      : [];
+    const assignedDriverByVehicle = new Map(
+      selectedVehicles
+        .filter(vehicle => vehicle.assignedDriver)
+        .map(vehicle => [vehicle._id.toString(), vehicle.assignedDriver])
+    );
+    const getAssignedDriverForVehicle = (vehicleId) => (
+      vehicleId ? assignedDriverByVehicle.get(vehicleId.toString()) : undefined
+    );
 
     if (shipments.length > 0) {
       shipments = await Promise.all(shipments.map(async (shipment, index) => {
@@ -526,6 +539,7 @@ exports.acceptJob = async (req, res) => {
         assertShipmentTransition(shipment.status, 'assigned');
         shipment.transporter = transporterId;
         if (assignedVehicle) shipment.vehicle = assignedVehicle;
+        shipment.assignedDriver = getAssignedDriverForVehicle(assignedVehicle) || shipment.assignedDriver;
         shipment.rentedAssets = linkedRentals.map(rental => ({
           rental: rental._id,
           asset: rental.trailer?._id,
@@ -550,6 +564,7 @@ exports.acceptJob = async (req, res) => {
         shipper: booking.user,
         transporter: transporterId,
         vehicle: requestedVehicleIds[index] || vehicleRow?.vehicle,
+        assignedDriver: getAssignedDriverForVehicle(requestedVehicleIds[index] || vehicleRow?.vehicle),
         status: 'assigned',
         cargoDetails: vehicleRow ? {
           type: booking.cargoDetails?.type || vehicleRow.vehicleType || 'cargo',

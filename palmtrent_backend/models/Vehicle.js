@@ -40,7 +40,7 @@ const vehicleSchema = new mongoose.Schema({
   capacity: {
     weight: {
       value: { type: Number, required: true },
-      unit: { type: String, default: 'kg' }
+      unit: { type: String, enum: ['kg', 'tonnes'], default: 'tonnes' }
     },
     volume: {
       value: Number,
