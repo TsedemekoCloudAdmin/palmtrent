@@ -5,7 +5,8 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView
+  SafeAreaView,
+  ScrollView
 } from 'react-native';
 
 const PHONE_VERIFICATION_DISABLED = process.env.EXPO_PUBLIC_DISABLE_PHONE_VERIFICATION === 'true';
@@ -45,13 +46,20 @@ const UserTypeScreen = ({ navigation }) => {
     }
   ];
 
-  const handleContinue = () => {
-    if (!selectedType) return;
+  const navigateWithType = (type) => {
+    if (!type) return;
     
     navigation.navigate(PHONE_VERIFICATION_DISABLED ? 'RegisterDetails' : 'PhoneVerify', {
-      userType: selectedType
+      userType: type
     });
   };
+
+  const handleSelectType = (type) => {
+    setSelectedType(type);
+    navigateWithType(type);
+  };
+
+  const handleContinue = () => navigateWithType(selectedType);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -64,7 +72,7 @@ const UserTypeScreen = ({ navigation }) => {
         <Text style={styles.subtitle}>Choose how you'll use Palmtrent</Text>
       </View>
 
-      <View style={styles.cardsContainer}>
+      <ScrollView style={styles.cardsContainer} contentContainerStyle={styles.cardsContent}>
         {accountTypes.map((type) => (
           <TouchableOpacity
             key={type.value}
@@ -72,13 +80,13 @@ const UserTypeScreen = ({ navigation }) => {
               styles.simpleCard,
               selectedType === type.value && styles.simpleCardSelected
             ]}
-            onPress={() => setSelectedType(type.value)}
+            onPress={() => handleSelectType(type.value)}
           >
             <Text style={styles.simpleCardText}>{type.title}</Text>
             <Text style={styles.simpleCardSubtext}>{type.description}</Text>
           </TouchableOpacity>
         ))}
-      </View>
+      </ScrollView>
 
       {selectedType && (
         <View style={styles.footer}>
@@ -121,7 +129,11 @@ const styles = StyleSheet.create({
     color: '#6b7280',
   },
   cardsContainer: {
+    flex: 1,
     paddingHorizontal: 24,
+  },
+  cardsContent: {
+    paddingBottom: 16,
   },
   simpleCard: {
     backgroundColor: 'white',

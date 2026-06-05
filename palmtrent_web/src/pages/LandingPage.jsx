@@ -576,65 +576,6 @@ const LandingPage = () => {
               </form>
             </div>
 
-            {/* User Type Selection */}
-            <div className="user-toggle" role="radiogroup" aria-label="Choose account type">
-              <label className={`toggle-option ${userType === 'shipper' ? 'active' : ''}`}>
-                <input
-                  type="radio"
-                  name="heroUserType"
-                  value="shipper"
-                  checked={userType === 'shipper'}
-                  onChange={() => handleHeroUserTypeChange('shipper')}
-                />
-                <Package className="icon" />
-                <span>Book transport</span>
-              </label>
-              <label className={`toggle-option ${userType === 'transporter' ? 'active' : ''}`}>
-                <input
-                  type="radio"
-                  name="heroUserType"
-                  value="transporter"
-                  checked={userType === 'transporter'}
-                  onChange={() => handleHeroUserTypeChange('transporter')}
-                />
-                <Truck className="icon" />
-                <span>Move goods / rent vehicles</span>
-              </label>
-              <label className={`toggle-option ${userType === 'rental_owner' ? 'active' : ''}`}>
-                <input
-                  type="radio"
-                  name="heroUserType"
-                  value="rental_owner"
-                  checked={userType === 'rental_owner'}
-                  onChange={() => handleHeroUserTypeChange('rental_owner')}
-                />
-                <Building className="icon" />
-                <span>Vehicle rental owner</span>
-              </label>
-              <label className={`toggle-option ${userType === 'trailer_owner' ? 'active' : ''}`}>
-                <input
-                  type="radio"
-                  name="heroUserType"
-                  value="trailer_owner"
-                  checked={userType === 'trailer_owner'}
-                  onChange={() => handleHeroUserTypeChange('trailer_owner')}
-                />
-                <Truck className="icon" />
-                <span>Trailer rental owner</span>
-              </label>
-              <label className={`toggle-option ${userType === 'driver' ? 'active' : ''}`}>
-                <input
-                  type="radio"
-                  name="heroUserType"
-                  value="driver"
-                  checked={userType === 'driver'}
-                  onChange={() => handleHeroUserTypeChange('driver')}
-                />
-                <User className="icon" />
-                <span>Driver looking for work</span>
-              </label>
-            </div>
-
             {/* Trust Indicators */}
             <div className="trust-indicators">
               <div className="trust-item">

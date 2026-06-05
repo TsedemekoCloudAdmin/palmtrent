@@ -412,6 +412,7 @@ class StorageService {
       documents: 'document',
       pod: 'cargo_photo',
       profiles: 'profile',
+      'rental-inspections': 'vehicle',
       signatures: 'signature',
       vehicles: 'vehicle',
       verification: 'document'

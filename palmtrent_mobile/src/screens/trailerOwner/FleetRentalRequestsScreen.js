@@ -17,6 +17,7 @@ import {
   View
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import * as ImagePicker from 'expo-image-picker';
 import apiService from '../../services/apiService';
 
 const FleetRentalRequestsScreen = ({ navigation }) => {
@@ -26,6 +27,7 @@ const FleetRentalRequestsScreen = ({ navigation }) => {
   const [assets, setAssets] = useState([]);
   const [inspectionModal, setInspectionModal] = useState(null);
   const [walkInVisible, setWalkInVisible] = useState(false);
+  const [uploadingInspectionPhoto, setUploadingInspectionPhoto] = useState(false);
   const [walkInForm, setWalkInForm] = useState({
     itemId: '',
     itemType: 'vehicle',
@@ -47,6 +49,7 @@ const FleetRentalRequestsScreen = ({ navigation }) => {
     notes: '',
     signature: '',
     photos: '',
+    uploadedPhotos: [],
     damageDescription: '',
     damageFees: '',
     cleaningFees: '',
@@ -110,6 +113,7 @@ const FleetRentalRequestsScreen = ({ navigation }) => {
       notes: '',
       signature: '',
       photos: '',
+      uploadedPhotos: [],
       damageDescription: '',
       damageFees: '',
       cleaningFees: '',
@@ -155,12 +159,14 @@ const FleetRentalRequestsScreen = ({ navigation }) => {
   const submitInspection = async () => {
     if (!inspectionModal) return;
     const { rental, type } = inspectionModal;
+    const manualPhotos = inspectionForm.photos.split(',').map(item => item.trim()).filter(Boolean);
+    const uploadedPhotos = inspectionForm.uploadedPhotos.map(photo => photo.url).filter(Boolean);
     const payload = {
       odometerReading: inspectionForm.odometerReading ? Number(inspectionForm.odometerReading) : undefined,
       fuelLevel: inspectionForm.fuelLevel,
       notes: inspectionForm.notes,
       signature: inspectionForm.signature,
-      photos: inspectionForm.photos.split(',').map(item => item.trim()).filter(Boolean),
+      photos: [...uploadedPhotos, ...manualPhotos],
       conditionChecklist: [
         { item: 'Exterior', status: inspectionForm.damageDescription ? 'issue' : 'ok', notes: inspectionForm.damageDescription },
         { item: 'Fuel', status: inspectionForm.fuelLevel ? 'ok' : 'issue', notes: inspectionForm.fuelLevel },
@@ -187,6 +193,75 @@ const FleetRentalRequestsScreen = ({ navigation }) => {
     } catch (error) {
       Alert.alert('Inspection failed', error.message || 'Could not submit inspection.');
     }
+  };
+
+  const uploadInspectionPhoto = async (asset) => {
+    if (!inspectionModal || !asset?.uri) return;
+    try {
+      setUploadingInspectionPhoto(true);
+      const response = await apiService.uploadRentalInspectionPhoto(
+        asset.uri,
+        inspectionModal.rental._id,
+        inspectionModal.type
+      );
+      if (!response.success) throw new Error(response.message || 'Could not upload inspection photo.');
+      const uploaded = response.data || {};
+      setInspectionForm(prev => ({
+        ...prev,
+        uploadedPhotos: [
+          ...prev.uploadedPhotos,
+          {
+            url: uploaded.url,
+            filename: uploaded.filename,
+            localUri: asset.uri
+          }
+        ]
+      }));
+    } catch (error) {
+      Alert.alert('Photo Upload Failed', error.message || 'Could not upload the inspection photo.');
+    } finally {
+      setUploadingInspectionPhoto(false);
+    }
+  };
+
+  const pickInspectionPhoto = async (source) => {
+    try {
+      if (source === 'camera') {
+        const permission = await ImagePicker.requestCameraPermissionsAsync();
+        if (!permission.granted) {
+          Alert.alert('Camera Permission', 'Allow camera access to capture inspection photos.');
+          return;
+        }
+      } else {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) {
+          Alert.alert('Photo Permission', 'Allow photo library access to attach inspection photos.');
+          return;
+        }
+      }
+
+      const result = source === 'camera'
+        ? await ImagePicker.launchCameraAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            quality: 0.75
+          })
+        : await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            quality: 0.75
+          });
+
+      if (result.canceled || !result.assets?.length) return;
+      await uploadInspectionPhoto(result.assets[0]);
+    } catch (error) {
+      Alert.alert('Photo Error', error.message || 'Could not attach inspection photo.');
+    }
+  };
+
+  const removeInspectionPhoto = (index) => {
+    setInspectionForm(prev => ({
+      ...prev,
+      uploadedPhotos: prev.uploadedPhotos.filter((_, currentIndex) => currentIndex !== index)
+    }));
   };
 
   const runAction = async (rental, action) => {
@@ -373,7 +448,29 @@ const FleetRentalRequestsScreen = ({ navigation }) => {
             <Input label="Fuel Level" value={inspectionForm.fuelLevel} onChangeText={(value) => updateInspection('fuelLevel', value)} placeholder="empty, quarter, half, three_quarters, full" />
             <Input label="Inspection Notes" value={inspectionForm.notes} onChangeText={(value) => updateInspection('notes', value)} multiline />
             <Input label="Signature / Name" value={inspectionForm.signature} onChangeText={(value) => updateInspection('signature', value)} />
-            <Input label="Photo URLs (comma separated)" value={inspectionForm.photos} onChangeText={(value) => updateInspection('photos', value)} />
+            <Text style={styles.label}>Inspection Photos</Text>
+            <View style={styles.photoActions}>
+              <Action label="Camera" onPress={() => pickInspectionPhoto('camera')} primary />
+              <Action label="Gallery" onPress={() => pickInspectionPhoto('library')} />
+            </View>
+            {uploadingInspectionPhoto && (
+              <View style={styles.uploadingRow}>
+                <ActivityIndicator size="small" color="#0C2D48" />
+                <Text style={styles.metaText}>Uploading photo...</Text>
+              </View>
+            )}
+            <View style={styles.photoList}>
+              {inspectionForm.uploadedPhotos.map((photo, index) => (
+                <View key={`${photo.url}-${index}`} style={styles.photoPill}>
+                  <MaterialIcons name="photo-camera" size={16} color="#0C2D48" />
+                  <Text style={styles.photoPillText} numberOfLines={1}>{photo.filename || `Photo ${index + 1}`}</Text>
+                  <TouchableOpacity onPress={() => removeInspectionPhoto(index)}>
+                    <MaterialIcons name="close" size={16} color="#991b1b" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+            <Input label="Photo URLs (optional, comma separated)" value={inspectionForm.photos} onChangeText={(value) => updateInspection('photos', value)} />
             {inspectionModal?.type === 'return' && (
               <>
                 <Input label="Damage Description" value={inspectionForm.damageDescription} onChangeText={(value) => updateInspection('damageDescription', value)} multiline />
@@ -457,6 +554,11 @@ const styles = StyleSheet.create({
   label: { color: '#334155', fontSize: 13, fontWeight: '800', marginBottom: 6 },
   input: { minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: '#cbd5e1', paddingHorizontal: 12, color: '#0f172a', fontSize: 15 },
   modalActions: { flexDirection: 'row', gap: 10, marginTop: 8, flexWrap: 'wrap' },
+  photoActions: { flexDirection: 'row', gap: 10, marginBottom: 10, flexWrap: 'wrap' },
+  uploadingRow: { flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 10 },
+  photoList: { gap: 8, marginBottom: 12 },
+  photoPill: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 999, paddingVertical: 8, paddingHorizontal: 10, backgroundColor: '#f8fafc' },
+  photoPillText: { flex: 1, color: '#334155', fontWeight: '700', fontSize: 12 },
   assetPicker: { gap: 8, marginBottom: 12 },
   assetOption: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 12, padding: 11 },
   assetOptionActive: { backgroundColor: '#0C2D48', borderColor: '#0C2D48' },

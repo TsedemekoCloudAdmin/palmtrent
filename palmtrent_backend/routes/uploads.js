@@ -29,6 +29,7 @@ const uploadDirs = [
   'uploads/signatures',
   'uploads/claims',
   'uploads/verification',
+  'uploads/rental-inspections',
   'uploads/pod',
   'uploads/pod-documents',
   'uploads/temp'
@@ -154,6 +155,7 @@ const uploadPresets = {
   signatures: createMulterConfig('signatures', 2 * 1024 * 1024),
   claims: createMulterConfig('claims', 15 * 1024 * 1024),
   verification: createMulterConfig('verification', 10 * 1024 * 1024),
+  'rental-inspections': createMulterConfig('rental-inspections', 10 * 1024 * 1024),
   pod: createMulterConfig('pod', 10 * 1024 * 1024)
 };
 
@@ -355,6 +357,7 @@ router.post('/profiles', uploadPresets.profiles.single('file'), handleUpload('pr
 router.post('/signatures', uploadPresets.signatures.single('file'), handleUpload('signatures'));
 router.post('/claims', uploadPresets.claims.single('file'), handleUpload('claims'));
 router.post('/verification', uploadPresets.verification.single('file'), handleUpload('verification'));
+router.post('/rental-inspections', uploadPresets['rental-inspections'].single('file'), handleUpload('rental-inspections'));
 router.post('/pod', uploadPresets.pod.single('file'), handleUpload('pod'));
 
 // Multiple files upload routes (up to 10 files)
@@ -363,6 +366,7 @@ router.post('/documents/multiple', uploadPresets.documents.array('files', 10), h
 router.post('/vehicles/multiple', uploadPresets.vehicles.array('files', 10), handleMultipleUpload('vehicles'));
 router.post('/claims/multiple', uploadPresets.claims.array('files', 10), handleMultipleUpload('claims'));
 router.post('/verification/multiple', uploadPresets.verification.array('files', 10), handleMultipleUpload('verification'));
+router.post('/rental-inspections/multiple', uploadPresets['rental-inspections'].array('files', 10), handleMultipleUpload('rental-inspections'));
 router.post('/pod/multiple', uploadPresets.pod.array('files', 5), handleMultipleUpload('pod'));
 
 router.get('/signed-url/:type/:filename', async (req, res) => {

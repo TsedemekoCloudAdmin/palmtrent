@@ -1432,6 +1432,12 @@ async uploadPODPhoto(fileUri, bookingId) {
   return this.uploadRequest('/uploads/pod', formData);
 }
 
+// Upload rental inspection evidence
+async uploadRentalInspectionPhoto(fileUri, rentalId, inspectionType) {
+  const formData = this.createFileFormData(fileUri, 'file', { rentalId, inspectionType });
+  return this.uploadRequest('/uploads/rental-inspections', formData);
+}
+
 // Upload signature
 async uploadSignature(fileUri, bookingId) {
   const formData = this.createFileFormData(fileUri, 'file', { bookingId });

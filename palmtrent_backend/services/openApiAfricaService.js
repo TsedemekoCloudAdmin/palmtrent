@@ -5,6 +5,24 @@ const { getIntegrationConfig } = require('./integrationSettingsService');
 
 const DEFAULT_BASE_URL = 'https://backendservices.clicknpay.africa:2081';
 
+function buildGatewayError(error, config, action) {
+  const status = error.response?.status;
+  const providerMessage = error.response?.data?.message || error.response?.data?.error;
+  const networkCodes = ['ENOTFOUND', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN'];
+
+  const message = networkCodes.includes(error.code)
+    ? `ClicknPay/OpenAPI Africa is unreachable from the server (${error.code}) at ${config.baseUrl}. Check the OpenAPI Africa base URL in Admin Settings or try again when the gateway is available.`
+    : status
+      ? `ClicknPay/OpenAPI Africa rejected the ${action} request with HTTP ${status}${providerMessage ? `: ${providerMessage}` : ''}.`
+      : `ClicknPay/OpenAPI Africa ${action} request failed: ${error.message}`;
+
+  const gatewayError = new Error(message);
+  gatewayError.statusCode = status && status < 500 ? 400 : 502;
+  gatewayError.code = error.code;
+  gatewayError.gateway = 'openapi_africa';
+  return gatewayError;
+}
+
 class OpenApiAfricaService {
   async getConfig() {
     const config = await getIntegrationConfig('openapiAfrica');
@@ -58,10 +76,15 @@ class OpenApiAfricaService {
       returnUrl: config.returnUrl
     };
 
-    const response = await axios.post(`${config.baseUrl}/payme/orders`, payload, {
-      headers: { 'Content-Type': 'application/json' },
-      timeout: 30000
-    });
+    let response;
+    try {
+      response = await axios.post(`${config.baseUrl}/payme/orders`, payload, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 30000
+      });
+    } catch (error) {
+      throw buildGatewayError(error, config, 'order creation');
+    }
 
     payment.status = 'initiated';
     payment.initiatedAt = new Date();
@@ -121,10 +144,15 @@ class OpenApiAfricaService {
       returnUrl: config.returnUrl
     };
 
-    const response = await axios.post(`${config.baseUrl}/payme/orders`, payload, {
-      headers: { 'Content-Type': 'application/json' },
-      timeout: 30000
-    });
+    let response;
+    try {
+      response = await axios.post(`${config.baseUrl}/payme/orders`, payload, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 30000
+      });
+    } catch (error) {
+      throw buildGatewayError(error, config, 'order creation');
+    }
 
     payment.status = 'initiated';
     payment.initiatedAt = new Date();
@@ -159,10 +187,15 @@ class OpenApiAfricaService {
     if (!payment) throw new Error('Payment not found');
 
     const config = await this.getConfig();
-    const response = await axios.get(
-      `${config.baseUrl}/payme/orders/top-paid/${encodeURIComponent(paymentReference)}`,
-      { headers: { 'Content-Type': 'application/json' }, timeout: 30000 }
-    );
+    let response;
+    try {
+      response = await axios.get(
+        `${config.baseUrl}/payme/orders/top-paid/${encodeURIComponent(paymentReference)}`,
+        { headers: { 'Content-Type': 'application/json' }, timeout: 30000 }
+      );
+    } catch (error) {
+      throw buildGatewayError(error, config, 'status lookup');
+    }
 
     const mappedStatus = this.mapStatus(response.data.status);
     const gatewayMetadata = {
