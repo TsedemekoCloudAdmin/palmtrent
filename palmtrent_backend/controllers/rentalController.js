@@ -3,6 +3,7 @@ const Vehicle = require('../models/Vehicle');
 const Trailer = require('../models/Trailer');
 const VehicleType = require('../models/VehicleType');
 const User = require('../models/User');
+const Driver = require('../models/Driver');
 const rentalPaymentService = require('../services/rentalPaymentService');
 const monetizationService = require('../services/monetizationService');
 const { getRentalOwnerScopeId, canAccessRentalOwnerResource, canReadRental } = require('../services/resourceAccessService');
@@ -721,6 +722,7 @@ exports.createWalkInRental = async (req, res) => {
       rateType = 'daily',
       customer = {},
       paymentMethod = 'cash',
+      assignedDriver,
       notes
     } = req.body;
 
@@ -771,6 +773,27 @@ exports.createWalkInRental = async (req, res) => {
       rateType
     });
     const cashPaid = paymentMethod === 'cash';
+    let driverAssignment;
+    if (assignedDriver) {
+      const driver = await Driver.findOne({ _id: assignedDriver, owner: ownerId });
+      if (!driver) {
+        return res.status(404).json({ success: false, message: 'Assigned driver was not found for this rental account' });
+      }
+      driverAssignment = {
+        rentalMode: item.rentalSettings?.rentalMode === 'operated_rental' ? 'operated_rental' : 'chauffeur_driven',
+        assignedDriver: driver._id,
+        assignedDriverUser: driver.user,
+        assignedAt: new Date(),
+        assignedBy: req.user.id,
+        driverSnapshot: {
+          fullName: driver.fullName,
+          phone: driver.phone,
+          licenseNumber: driver.licenseNumber,
+          licenseClass: driver.licenseClass
+        }
+      };
+    }
+
     const rentalData = {
       itemType: normalizedItemType,
       owner: ownerId,
@@ -816,6 +839,10 @@ exports.createWalkInRental = async (req, res) => {
         totalPaid: cashPaid ? quote.total : 0
       },
       status: cashPaid ? 'confirmed' : 'approved',
+      operation: {
+        rentalMode: item.rentalSettings?.rentalMode || 'dry_rental',
+        ...(driverAssignment || {})
+      },
       notes,
       agreement: {
         agreedAt: new Date(),
@@ -834,7 +861,15 @@ exports.createWalkInRental = async (req, res) => {
     if (isTrailerFleetItem(normalizedItemType)) rentalData.trailer = itemId;
     else rentalData.vehicle = itemId;
 
-    const rental = await Rental.create(rentalData);
+    let rental = await Rental.create(rentalData);
+    if (cashPaid) {
+      const result = await rentalPaymentService.recordCashRentalPayment(rental._id, {
+        confirmedBy: req.user.id,
+        source: 'walk_in_cash',
+        note: 'Walk-in rental cash payment collected at rental desk'
+      });
+      rental = result.rental;
+    }
 
     res.status(201).json({
       success: true,

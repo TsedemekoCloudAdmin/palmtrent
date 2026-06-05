@@ -99,6 +99,7 @@ const emptyStaffForm = {
 
 const emptyWalkInRentalForm = {
   assetId: '',
+  assignedDriver: '',
   fullName: '',
   phone: '',
   email: '',
@@ -119,6 +120,7 @@ const emptyInspectionForm = {
   notes: '',
   signature: '',
   photos: '',
+  uploadedPhotos: [],
   damageDescription: '',
   damageFees: '',
   cleaningFees: '',
@@ -195,6 +197,7 @@ const TrailerOwnerDashboard = () => {
   const [walkInForm, setWalkInForm] = useState(emptyWalkInRentalForm);
   const [inspectionDialog, setInspectionDialog] = useState(null);
   const [inspectionForm, setInspectionForm] = useState(emptyInspectionForm);
+  const [uploadingInspectionPhoto, setUploadingInspectionPhoto] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -611,17 +614,18 @@ const TrailerOwnerDashboard = () => {
   };
 
   const buildInspectionPayload = (type) => {
-    const photos = String(inspectionForm.photos || '')
+    const manualPhotos = String(inspectionForm.photos || '')
       .split(',')
       .map(value => value.trim())
       .filter(Boolean);
+    const uploadedPhotos = (inspectionForm.uploadedPhotos || []).map(item => item.url).filter(Boolean);
 
     const payload = {
       odometerReading: Number(inspectionForm.odometerReading) || 0,
       fuelLevel: inspectionForm.fuelLevel,
       notes: inspectionForm.notes,
       signature: inspectionForm.signature,
-      photos,
+      photos: [...uploadedPhotos, ...manualPhotos],
       conditionChecklist: [
         {
           item: type === 'pickup' ? 'Pickup inspection' : 'Return inspection',
@@ -642,6 +646,44 @@ const TrailerOwnerDashboard = () => {
     }
 
     return payload;
+  };
+
+  const uploadInspectionPhotos = async (event) => {
+    const files = Array.from(event.target.files || []);
+    if (!files.length || !inspectionDialog?.rental) return;
+
+    try {
+      setUploadingInspectionPhoto(true);
+      setMessage('');
+      const uploaded = [];
+      for (const file of files) {
+        const response = await fleetAPI.uploadRentalInspectionPhoto(
+          file,
+          inspectionDialog.rental._id,
+          inspectionDialog.type
+        );
+        uploaded.push({
+          url: response.data?.url || response.url,
+          name: file.name
+        });
+      }
+      updateInspectionForm('uploadedPhotos', [
+        ...(inspectionForm.uploadedPhotos || []),
+        ...uploaded.filter(item => item.url)
+      ]);
+    } catch (error) {
+      setMessage(error.message || 'Could not upload inspection photo');
+    } finally {
+      setUploadingInspectionPhoto(false);
+      event.target.value = '';
+    }
+  };
+
+  const removeInspectionPhoto = (url) => {
+    updateInspectionForm(
+      'uploadedPhotos',
+      (inspectionForm.uploadedPhotos || []).filter(item => item.url !== url)
+    );
   };
 
   const submitInspection = async (event) => {
@@ -686,6 +728,7 @@ const TrailerOwnerDashboard = () => {
         pickupLocation: { address: walkInForm.pickupAddress || 'Owner pickup point' },
         returnLocation: { address: walkInForm.returnAddress || walkInForm.pickupAddress || 'Owner return point' },
         paymentMethod: walkInForm.paymentMethod,
+        assignedDriver: walkInForm.assignedDriver || undefined,
         notes: walkInForm.notes,
         customer: {
           fullName: walkInForm.fullName,
@@ -1402,6 +1445,17 @@ const TrailerOwnerDashboard = () => {
                   </select>
                 </label>
                 {!rentalReadyAssets.length && <small className="fleet-form-hint">Mark a fleet asset as available for rental before creating a walk-in rental.</small>}
+                <label>Assigned Driver / Chauffeur
+                  <select value={walkInForm.assignedDriver} onChange={(event) => updateWalkInForm('assignedDriver', event.target.value)}>
+                    <option value="">No driver assigned</option>
+                    {drivers.map(driver => (
+                      <option key={driver._id} value={driver._id}>
+                        {driver.fullName} {driver.phone ? `- ${driver.phone}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <small className="fleet-form-hint">Use this for operated rentals, chauffeur-driven small vehicle rentals, or rentals where your company supplies the driver.</small>
                 <div className="form-row">
                   <label>Customer Full Name
                     <input value={walkInForm.fullName} onChange={(event) => updateWalkInForm('fullName', event.target.value)} required />
@@ -1480,7 +1534,7 @@ const TrailerOwnerDashboard = () => {
                   <label>Fuel Level
                     <select value={inspectionForm.fuelLevel} onChange={(event) => updateInspectionForm('fuelLevel', event.target.value)}>
                       <option value="full">Full</option>
-                      <option value="three_quarter">Three quarter</option>
+                      <option value="three_quarters">Three quarter</option>
                       <option value="half">Half</option>
                       <option value="quarter">Quarter</option>
                       <option value="empty">Empty</option>
@@ -1493,6 +1547,25 @@ const TrailerOwnerDashboard = () => {
                 <label>Photo URLs
                   <textarea value={inspectionForm.photos} onChange={(event) => updateInspectionForm('photos', event.target.value)} rows={2} placeholder="Comma separated photo URLs" />
                 </label>
+                <div className="fleet-upload-control">
+                  <label className="fleet-upload-button">
+                    Upload Inspection Photos
+                    <input type="file" accept="image/*" multiple onChange={uploadInspectionPhotos} disabled={uploadingInspectionPhoto || loading} />
+                  </label>
+                  {uploadingInspectionPhoto && <small>Uploading photos...</small>}
+                  {!!inspectionForm.uploadedPhotos?.length && (
+                    <div className="inspection-photo-list">
+                      {inspectionForm.uploadedPhotos.map(photo => (
+                        <span className="inspection-photo-pill" key={photo.url}>
+                          {photo.name || 'Photo'}
+                          <button type="button" aria-label="Remove photo" onClick={() => removeInspectionPhoto(photo.url)}>
+                            <X className="icon" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <label>Inspection Notes
                   <textarea value={inspectionForm.notes} onChange={(event) => updateInspectionForm('notes', event.target.value)} rows={3} />
                 </label>

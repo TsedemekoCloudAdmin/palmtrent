@@ -33,7 +33,7 @@ const paymentSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    enum: ['digital', 'ecocash', 'onemoney', 'card', 'bank_transfer', 'openapi_africa', 'clicknpay', 'cash_agent', 'cash_on_pickup', 'cash_on_delivery', 'corporate', 'freight_allocation'],
+    enum: ['digital', 'ecocash', 'onemoney', 'card', 'bank_transfer', 'openapi_africa', 'clicknpay', 'cash', 'cash_agent', 'cash_on_pickup', 'cash_on_delivery', 'corporate', 'freight_allocation'],
     required: true
   },
   status: {

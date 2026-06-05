@@ -56,9 +56,10 @@ const apiFetch = async (endpoint, options = {}) => {
   const { timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, ...fetchOptions } = options;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const isFormData = typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData;
 
   const headers = {
-    'Content-Type': 'application/json',
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...fetchOptions.headers,
   };
 
@@ -444,6 +445,18 @@ export const fleetAPI = {
     method: 'POST',
     body: JSON.stringify(data),
   }),
+
+  uploadRentalInspectionPhoto: (file, rentalId, inspectionType) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (rentalId) formData.append('rentalId', rentalId);
+    if (inspectionType) formData.append('inspectionType', inspectionType);
+    return apiFetch('/uploads/rental-inspections', {
+      method: 'POST',
+      body: formData,
+      timeoutMs: 60000,
+    });
+  },
 };
 
 export const driversAPI = {
@@ -723,6 +736,30 @@ export const adminAPI = {
     const queryString = new URLSearchParams(params).toString();
     return apiFetch(`/admin/rentals${queryString ? `?${queryString}` : ''}`);
   },
+
+  confirmRentalPayment: (id, data = {}) => apiFetch(`/admin/rentals/${id}/confirm-payment`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  cancelRental: (id, data = {}) => apiFetch(`/admin/rentals/${id}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  extendRental: (id, data = {}) => apiFetch(`/admin/rentals/${id}/extend`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  disputeRental: (id, data = {}) => apiFetch(`/admin/rentals/${id}/dispute`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  settleRental: (id) => apiFetch(`/admin/rentals/${id}/settle`, {
+    method: 'POST',
+  }),
 
   getRatings: (params = {}) => {
     const queryString = new URLSearchParams(params).toString();

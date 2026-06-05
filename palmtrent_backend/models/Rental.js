@@ -63,6 +63,34 @@ const rentalSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Trailer'
   },
+
+  operation: {
+    rentalMode: {
+      type: String,
+      enum: ['dry_rental', 'operated_rental', 'chauffeur_driven'],
+      default: 'dry_rental'
+    },
+    assignedDriver: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Driver'
+    },
+    assignedDriverUser: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    assignedAt: Date,
+    assignedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    driverSnapshot: {
+      fullName: String,
+      phone: String,
+      licenseNumber: String,
+      licenseClass: String
+    },
+    notes: String
+  },
   
   // Rental period
   rentalPeriod: {

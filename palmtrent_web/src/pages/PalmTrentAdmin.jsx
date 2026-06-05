@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Users, Truck, Package, DollarSign, TrendingUp, TrendingDown,
   AlertCircle, CheckCircle, Clock, MapPin, Star, Settings, Menu,
-  Search, Filter, Download, Eye, Edit, Ban, RefreshCw, XCircle,
+  Search, Filter, Download, Eye, Edit, Ban, RefreshCw, X, XCircle,
   ChevronLeft, ChevronRight, MoreVertical, Phone, Mail, Calendar,
   CreditCard, Building, MessageSquare, FileText, Shield, Check
 } from 'lucide-react';
@@ -1503,32 +1503,114 @@ const RentalsView = () => {
   const [rentals, setRentals] = useState([]);
   const [filterStatus, setFilterStatus] = useState('all');
   const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState('');
+  const [actionDialog, setActionDialog] = useState(null);
+  const [actionForm, setActionForm] = useState({
+    note: '',
+    reason: '',
+    paymentReference: '',
+    endDate: '',
+    additionalCost: ''
+  });
+
+  const fetchRentals = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await adminAPI.getRentals(filterStatus === 'all' ? {} : { status: filterStatus });
+      setRentals(response.data || []);
+    } catch (error) {
+      console.error('Error fetching rentals:', error);
+      setRentals([]);
+      setMessage(error.message || 'Unable to load rentals');
+    } finally {
+      setLoading(false);
+    }
+  }, [filterStatus]);
 
   useEffect(() => {
-    const fetchRentals = async () => {
-      try {
-        setLoading(true);
-        const response = await adminAPI.getRentals(filterStatus === 'all' ? {} : { status: filterStatus });
-        setRentals(response.data || []);
-      } catch (error) {
-        console.error('Error fetching rentals:', error);
-        setRentals([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchRentals();
-  }, [filterStatus]);
+  }, [fetchRentals]);
 
   const totalValue = rentals.reduce((sum, rental) => sum + Number(rental.pricing?.total || 0), 0);
   const pendingCount = rentals.filter(rental => ['pending', 'approved', 'payment_pending'].includes(rental.status)).length;
   const activeCount = rentals.filter(rental => ['confirmed', 'active'].includes(rental.status)).length;
   const settledCount = rentals.filter(rental => rental.settlement?.status === 'settled').length;
 
+  const rentalAssetName = (rental) => (
+    rental.trailer?.assetName ||
+    rental.trailer?.registrationNumber ||
+    [rental.vehicle?.make?.name, rental.vehicle?.model?.name].filter(Boolean).join(' ') ||
+    rental.vehicle?.registrationNumber ||
+    rental.itemType
+  );
+
   const getStatusBadge = (status) => {
     const normalized = status || 'pending';
     return <span className={`status-badge status-${normalized.replace(/_/g, '-')}`}>{normalized.replace(/_/g, ' ')}</span>;
+  };
+
+  const openRentalAction = (rental, action) => {
+    setMessage('');
+    setActionDialog({ rental, action });
+    setActionForm({
+      note: '',
+      reason: '',
+      paymentReference: rental.payment?.paymentReference || '',
+      endDate: rental.rentalPeriod?.endDate ? String(rental.rentalPeriod.endDate).slice(0, 10) : '',
+      additionalCost: ''
+    });
+  };
+
+  const closeRentalAction = () => {
+    setActionDialog(null);
+    setActionForm({ note: '', reason: '', paymentReference: '', endDate: '', additionalCost: '' });
+  };
+
+  const submitRentalAction = async (event) => {
+    event.preventDefault();
+    if (!actionDialog?.rental) return;
+
+    try {
+      setLoading(true);
+      const { rental, action } = actionDialog;
+      if (action === 'confirm-payment') {
+        await adminAPI.confirmRentalPayment(rental._id, {
+          paymentReference: actionForm.paymentReference || undefined,
+          note: actionForm.note
+        });
+        setMessage('Rental payment confirmed.');
+      }
+      if (action === 'cancel') {
+        await adminAPI.cancelRental(rental._id, {
+          reason: actionForm.reason || 'Cancelled from admin portal'
+        });
+        setMessage('Rental cancelled.');
+      }
+      if (action === 'extend') {
+        await adminAPI.extendRental(rental._id, {
+          endDate: actionForm.endDate,
+          additionalCost: Number(actionForm.additionalCost || 0),
+          reason: actionForm.reason || 'Extended from admin portal'
+        });
+        setMessage('Rental extended.');
+      }
+      if (action === 'dispute') {
+        await adminAPI.disputeRental(rental._id, {
+          reason: actionForm.reason || 'Marked disputed from admin portal'
+        });
+        setMessage('Rental marked disputed.');
+      }
+      if (action === 'settle') {
+        await adminAPI.settleRental(rental._id);
+        setMessage('Rental settlement updated.');
+      }
+      closeRentalAction();
+      await fetchRentals();
+    } catch (error) {
+      setMessage(error.message || 'Rental action failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -1555,6 +1637,7 @@ const RentalsView = () => {
       </div>
 
       <div className="admin-content">
+        {message && <div className="integration-message">{message}</div>}
         <div className="stats-grid stats-grid-4">
           <StatCard title="Rental Value" value={`$${totalValue.toLocaleString()}`} icon={<DollarSign className="icon" />} color="success" />
           <StatCard title="Pending Ops" value={pendingCount} icon={<Clock className="icon" />} color="accent" />
@@ -1577,6 +1660,7 @@ const RentalsView = () => {
                   <th>Payment</th>
                   <th>Settlement</th>
                   <th>Total</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1586,18 +1670,46 @@ const RentalsView = () => {
                       <span className="job-id">{rental.rentalReference}</span>
                       <div>{getStatusBadge(rental.status)}</div>
                     </td>
-                    <td>{rental.trailer?.assetName || rental.trailer?.registrationNumber || rental.vehicle?.registrationNumber || rental.itemType}</td>
+                    <td>
+                      {rentalAssetName(rental)}
+                      {rental.operation?.assignedDriver && <div className="payment-reference-mini">Driver: {rental.operation.assignedDriver.fullName}</div>}
+                    </td>
                     <td>{rental.owner?.fullName || 'Owner'}</td>
                     <td>{rental.renter?.fullName || 'Renter'}</td>
                     <td>{rental.linkedShipment?.booking?.bookingReference || '-'}</td>
-                    <td>{rental.payment?.rentalPayment?.status || 'pending'}</td>
-                    <td>{rental.settlement?.status || 'pending'}</td>
+                    <td>
+                      {rental.payment?.rentalPayment?.status || 'pending'}
+                      {rental.payment?.paymentReference && <div className="payment-reference-mini">{rental.payment.paymentReference}</div>}
+                    </td>
+                    <td>
+                      {rental.settlement?.status || 'pending'}
+                      {rental.settlement?.cashCollectedByOwner && <div className="payment-reference-mini">Cash collected by owner</div>}
+                    </td>
                     <td className="amount-cell">${rental.pricing?.total || 0}</td>
+                    <td>
+                      <div className="action-buttons admin-rental-actions">
+                        {['approved', 'payment_pending'].includes(rental.status) && (
+                          <button className="action-btn" title="Confirm payment" onClick={() => openRentalAction(rental, 'confirm-payment')}><CheckCircle className="icon" /></button>
+                        )}
+                        {['confirmed', 'active', 'overdue'].includes(rental.status) && (
+                          <button className="action-btn" title="Extend rental" onClick={() => openRentalAction(rental, 'extend')}><Clock className="icon" /></button>
+                        )}
+                        {!['completed', 'cancelled'].includes(rental.status) && (
+                          <button className="action-btn danger" title="Cancel rental" onClick={() => openRentalAction(rental, 'cancel')}><XCircle className="icon" /></button>
+                        )}
+                        {!['cancelled', 'completed', 'disputed'].includes(rental.status) && (
+                          <button className="action-btn" title="Mark disputed" onClick={() => openRentalAction(rental, 'dispute')}><AlertCircle className="icon" /></button>
+                        )}
+                        {['completed', 'disputed'].includes(rental.status) && rental.settlement?.status !== 'settled' && (
+                          <button className="action-btn" title="Settle rental" onClick={() => openRentalAction(rental, 'settle')}><DollarSign className="icon" /></button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
                 {!rentals.length && (
                   <tr>
-                    <td colSpan="8">No rentals found.</td>
+                    <td colSpan="9">No rentals found.</td>
                   </tr>
                 )}
               </tbody>
@@ -1606,6 +1718,54 @@ const RentalsView = () => {
         </div>
       </div>
 
+      {actionDialog && (
+        <div className="modal-overlay" role="presentation" onMouseDown={closeRentalAction}>
+          <div className="modal-content rental-action-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h2>{actionDialog.action.replace(/-/g, ' ')}</h2>
+              <button className="modal-close" type="button" aria-label="Close" onClick={closeRentalAction}><X className="icon" /></button>
+            </div>
+            <form className="modal-body settings-form" onSubmit={submitRentalAction}>
+              <p className="modal-kicker">{actionDialog.rental.rentalReference} - {rentalAssetName(actionDialog.rental)}</p>
+              {actionDialog.action === 'confirm-payment' && (
+                <>
+                  <label>Payment Reference
+                    <input value={actionForm.paymentReference} onChange={(event) => setActionForm({ ...actionForm, paymentReference: event.target.value })} placeholder="Leave blank to create cash confirmation" />
+                  </label>
+                  <label>Confirmation Note
+                    <textarea rows={3} value={actionForm.note} onChange={(event) => setActionForm({ ...actionForm, note: event.target.value })} />
+                  </label>
+                </>
+              )}
+              {actionDialog.action === 'extend' && (
+                <>
+                  <label>New End Date
+                    <input type="date" required value={actionForm.endDate} onChange={(event) => setActionForm({ ...actionForm, endDate: event.target.value })} />
+                  </label>
+                  <label>Additional Cost
+                    <input type="number" min="0" step="0.01" value={actionForm.additionalCost} onChange={(event) => setActionForm({ ...actionForm, additionalCost: event.target.value })} />
+                  </label>
+                  <label>Reason
+                    <textarea rows={3} value={actionForm.reason} onChange={(event) => setActionForm({ ...actionForm, reason: event.target.value })} />
+                  </label>
+                </>
+              )}
+              {['cancel', 'dispute'].includes(actionDialog.action) && (
+                <label>Reason
+                  <textarea rows={4} required value={actionForm.reason} onChange={(event) => setActionForm({ ...actionForm, reason: event.target.value })} />
+                </label>
+              )}
+              {actionDialog.action === 'settle' && (
+                <p>This will update the settlement ledger. Cash rentals will not create an owner payout because the owner already collected the rental cash.</p>
+              )}
+              <div className="modal-actions">
+                <button type="button" className="secondary-btn" onClick={closeRentalAction}>Cancel</button>
+                <button type="submit" className="primary-btn" disabled={loading}>Apply Action</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 };

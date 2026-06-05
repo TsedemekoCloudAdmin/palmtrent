@@ -12,7 +12,7 @@ const platformLedgerSchema = new mongoose.Schema({
   },
   sourceType: {
     type: String,
-    enum: ['booking', 'rental', 'subscription', 'manual_adjustment', 'payout'],
+    enum: ['booking', 'rental', 'subscription', 'emergency', 'manual_adjustment', 'payout'],
     required: true,
     index: true
   },

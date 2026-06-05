@@ -13,6 +13,11 @@ const {
   getPayments,
   confirmPayment,
   getRentals,
+  confirmRentalPayment,
+  cancelRental,
+  extendRental,
+  markRentalDisputed,
+  settleRental,
   getRatings,
   getReports,
   getPendingVerifications,
@@ -152,6 +157,11 @@ router.post('/payments/:id/confirm', confirmPayment);
 
 // Fleet rentals
 router.get('/rentals', getRentals);
+router.post('/rentals/:id/confirm-payment', confirmRentalPayment);
+router.post('/rentals/:id/cancel', cancelRental);
+router.post('/rentals/:id/extend', extendRental);
+router.post('/rentals/:id/dispute', markRentalDisputed);
+router.post('/rentals/:id/settle', settleRental);
 
 // Ratings
 router.get('/ratings', getRatings);

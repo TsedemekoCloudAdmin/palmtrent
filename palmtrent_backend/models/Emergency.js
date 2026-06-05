@@ -123,6 +123,12 @@ const emergencySchema = new mongoose.Schema({
       amount: Number
     },
     paidAt: Date,
+    settlementStatus: {
+      type: String,
+      enum: ['pending', 'payout_pending', 'settled', 'disputed'],
+      default: 'pending'
+    },
+    settledAt: Date,
     notes: String
   },
   // Status tracking

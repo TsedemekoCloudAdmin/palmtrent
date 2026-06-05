@@ -10,7 +10,8 @@ const Escrow = require('../models/Escrow');
 const notificationService = require('../services/notificationService');
 const { getIntegrationConfig } = require('../services/integrationSettingsService');
 const paymentService = require('../services/paymentService');
-const { getCommissionRule } = require('../services/monetizationService');
+const monetizationService = require('../services/monetizationService');
+const { getCommissionRule } = monetizationService;
 const { sendSMS } = require('../utils/sendSMS');
 const axios = require('axios');
 
@@ -61,6 +62,88 @@ function getEmergencyContacts(config = {}) {
   return {
     ...BASE_EMERGENCY_CONTACTS,
     support: config.supportPhone || DEFAULT_EMERGENCY_CONFIG.supportPhone
+  };
+}
+
+async function settleCompletedRoadsideAssistance(emergency, responseItem, responder, actorId) {
+  const amount = Number(emergency.billing?.amount || responseItem.quote?.total || 0);
+  const providerEarnings = Number(emergency.billing?.providerEarnings || Math.max(0, amount - Number(emergency.billing?.platformFee || 0)));
+  const platformFee = Number(emergency.billing?.platformFee || Math.max(0, amount - providerEarnings));
+
+  if (amount > 0 && !['paid', 'waived'].includes(emergency.billing?.paymentStatus)) {
+    const error = new Error('SOS assistance must be paid or waived before it can be completed.');
+    error.statusCode = 402;
+    throw error;
+  }
+
+  if (platformFee > 0) {
+    await monetizationService.recordLedgerEntryOnce(
+      { sourceType: 'emergency', sourceId: emergency._id, category: 'commission', status: 'posted' },
+      {
+        sourceType: 'emergency',
+        sourceId: emergency._id,
+        user: responder.user,
+        direction: 'credit',
+        category: 'commission',
+        amount: platformFee,
+        currency: emergency.billing?.currency || responseItem.quote?.currency || 'USD',
+        status: 'posted',
+        metadata: {
+          emergencyType: emergency.emergencyType,
+          responder: responder._id,
+          quoteReference: responseItem.quote?.quoteReference,
+          paymentReference: emergency.billing?.paymentReference,
+          paymentSource: emergency.billing?.paymentSource || 'separate_payment'
+        }
+      }
+    );
+  }
+
+  if (providerEarnings > 0) {
+    const payout = await monetizationService.createPayoutOnce(
+      { sourceType: 'emergency', sourceId: emergency._id, recipient: responder.user },
+      {
+        recipient: responder.user,
+        sourceType: 'emergency',
+        sourceId: emergency._id,
+        amount: providerEarnings,
+        currency: emergency.billing?.currency || responseItem.quote?.currency || 'USD',
+        method: 'openapi_africa',
+        status: 'pending',
+        metadata: {
+          emergencyType: emergency.emergencyType,
+          responder: responder._id,
+          quoteReference: responseItem.quote?.quoteReference,
+          paymentReference: emergency.billing?.paymentReference,
+          completedBy: actorId
+        }
+      }
+    );
+
+    await monetizationService.recordLedgerEntryOnce(
+      { sourceType: 'payout', sourceId: payout._id, category: 'payout', status: 'posted' },
+      {
+        sourceType: 'payout',
+        sourceId: payout._id,
+        user: responder.user,
+        direction: 'debit',
+        category: 'payout',
+        amount: payout.amount,
+        currency: payout.currency,
+        status: 'posted',
+        metadata: {
+          sourceType: 'emergency',
+          emergency: emergency._id,
+          responder: responder._id
+        }
+      }
+    );
+  }
+
+  emergency.billing = {
+    ...(emergency.billing || {}),
+    settlementStatus: providerEarnings > 0 ? 'payout_pending' : 'settled',
+    settledAt: new Date()
   };
 }
 
@@ -937,11 +1020,27 @@ exports.respondToEmergency = async (req, res) => {
       emergency.status = 'on_scene';
       emergency.timeline.push({ event: 'Roadside responder arrived on scene', actor: req.user.id, notes });
     } else if (action === 'complete') {
+      if (!['accepted', 'on_scene'].includes(responseItem.status)) {
+        return res.status(409).json({
+          success: false,
+          message: 'Responder must accept and arrive before completing assistance.'
+        });
+      }
+      await settleCompletedRoadsideAssistance(emergency, responseItem, responder, req.user.id);
       responseItem.status = 'completed';
       responder.availability.status = 'available';
       responder.availability.isAvailable = true;
       responder.stats.requestsCompleted += 1;
+      emergency.status = 'resolved';
+      emergency.response.resolvedAt = new Date();
+      emergency.response.resolvedBy = req.user.id;
+      emergency.response.resolutionNotes = notes || 'Roadside assistance completed by provider';
       emergency.timeline.push({ event: 'Roadside responder completed assistance', actor: req.user.id, notes });
+      await notificationService.notify(emergency.triggeredBy, 'emergency_alert', 'SOS assistance completed', `${responder.businessName || 'Roadside provider'} marked your SOS assistance complete.`, {
+        emergencyId: emergency._id.toString(),
+        responderId: responder._id.toString(),
+        settlementStatus: emergency.billing?.settlementStatus
+      });
     } else {
       return res.status(400).json({ success: false, message: 'Unsupported response action' });
     }
@@ -951,7 +1050,7 @@ exports.respondToEmergency = async (req, res) => {
     res.json({ success: true, data: emergency, message: 'SOS response updated' });
   } catch (error) {
     console.error('Respond to emergency error:', error);
-    res.status(500).json({ success: false, message: 'Failed to update SOS response' });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Failed to update SOS response' });
   }
 };
 
