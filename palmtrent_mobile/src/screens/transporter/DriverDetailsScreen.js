@@ -59,6 +59,43 @@ const DriverDetailsScreen = () => {
     }
   };
 
+  const handleInviteToApp = () => {
+    if (driver?.user) {
+      Alert.alert('App access', 'This driver already has an app login.');
+      return;
+    }
+    Alert.alert(
+      'Invite to App',
+      `Create a driver login for ${driver?.fullName || 'this driver'} and send their credentials by SMS?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Invite', onPress: inviteToApp }
+      ]
+    );
+  };
+
+  const inviteToApp = async () => {
+    try {
+      const response = await apiService.inviteDriverToApp(driverId);
+      if (response.success) {
+        if (response.createdAccount && response.credentials?.temporaryPassword) {
+          Alert.alert(
+            'Driver invited',
+            `Login: ${response.credentials.phone}\nTemporary password: ${response.credentials.temporaryPassword}\n\nThese were also sent to the driver by SMS.`
+          );
+        } else {
+          Alert.alert('Driver invited', response.message || 'The driver can now sign in.');
+        }
+        loadDriverDetails();
+      } else {
+        Alert.alert('Error', response.message || 'Failed to invite driver');
+      }
+    } catch (error) {
+      console.error('Invite driver error:', error);
+      Alert.alert('Error', 'Failed to invite driver');
+    }
+  };
+
   const handleDelete = () => {
     Alert.alert(
       'Delete Driver',
@@ -248,7 +285,7 @@ const DriverDetailsScreen = () => {
           </TouchableOpacity>
 
           {driver.assignedVehicle && (
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.actionButton, styles.unassignButton]}
               onPress={handleUnassignVehicle}
             >
@@ -257,6 +294,28 @@ const DriverDetailsScreen = () => {
                 Unassign Vehicle
               </Text>
             </TouchableOpacity>
+          )}
+        </View>
+
+        {/* App Access */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>App Access</Text>
+          {driver.user ? (
+            <View style={styles.appAccessRow}>
+              <MaterialIcons name="verified-user" size={20} color="#16a34a" />
+              <Text style={styles.appAccessText}>This driver has an app login and can manage their own availability.</Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.appAccessRow}>
+                <MaterialIcons name="info-outline" size={20} color="#6b7280" />
+                <Text style={styles.appAccessText}>No app login yet. Invite them to create a driver account and credentials.</Text>
+              </View>
+              <TouchableOpacity style={styles.inviteButton} onPress={handleInviteToApp}>
+                <MaterialIcons name="person-add-alt" size={20} color="white" />
+                <Text style={styles.inviteButtonText}>Invite to App</Text>
+              </TouchableOpacity>
+            </>
           )}
         </View>
 
@@ -590,6 +649,32 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: '#0C2D48',
+  },
+  appAccessRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  appAccessText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#374151',
+    lineHeight: 20,
+  },
+  inviteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0C2D48',
+    padding: 12,
+    borderRadius: 8,
+    gap: 8,
+    marginTop: 12,
+  },
+  inviteButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
   },
   section: {
     backgroundColor: 'white',

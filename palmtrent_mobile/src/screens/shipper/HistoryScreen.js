@@ -84,6 +84,24 @@ const HistoryScreen = ({ navigation }) => {
             shipper: shipment.shipper
           }));
         }
+      } else if (user?.userType === 'driver') {
+        // For drivers, fetch the shipments assigned to them (full history)
+        response = await apiService.getDriverShipments('all');
+        if (response.success) {
+          const shipments = response.data || [];
+          bookingData = shipments.map(shipment => ({
+            _id: shipment._id,
+            bookingReference: shipment.bookingReference,
+            status: shipment.status,
+            pickupLocation: { address: shipment.route?.pickup?.address || shipment.origin },
+            deliveryLocation: { address: shipment.route?.delivery?.address || shipment.destination },
+            cargoDetails: shipment.cargoDetails,
+            cargoType: shipment.cargoDetails?.type,
+            weight: shipment.cargoDetails?.weight,
+            createdAt: shipment.createdAt,
+            shipper: shipment.shipper
+          }));
+        }
       } else if (user?.userType === 'trailer_owner') {
         // For trailer owners, fetch their rentals
         response = await apiService.request('/rentals/my-rentals');

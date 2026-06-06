@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Booking = require('../models/Booking');
 const Shipment = require('../models/Shipment');
+const Driver = require('../models/Driver');
 const chatService = require('../services/chatService');
 
 // Store active connections
@@ -12,6 +13,15 @@ const connections = new Map();
 const transporterLocations = new Map();
 
 const isObjectId = (value) => /^[a-f\d]{24}$/i.test(String(value || ''));
+
+// Resolve (and cache on the socket) the Driver record id for a 'driver' user.
+const getSocketDriverId = async (socket) => {
+  if (socket.user.userType !== 'driver') return null;
+  if (socket.data.driverId !== undefined) return socket.data.driverId;
+  const driver = await Driver.findOne({ user: socket.user._id }).select('_id');
+  socket.data.driverId = driver?._id ? driver._id.toString() : null;
+  return socket.data.driverId;
+};
 
 const trackingLookupFor = (identifier) => ({
   $or: [
@@ -34,7 +44,7 @@ const resolveTrackingTarget = async (identifier) => {
       };
 
   const shipment = await Shipment.findOne(shipmentQuery)
-    .select('booking bookingReference shipper transporter status');
+    .select('booking bookingReference shipper transporter assignedDriver status');
 
   if (!booking && shipment?.booking) {
     booking = await Booking.findById(shipment.booking)
@@ -102,14 +112,37 @@ const setupSocketHandler = (io) => {
     // Join role-specific room
     socket.join(`role:${userRole}`);
 
-    // ============ LOCATION UPDATES (Transporter) ============
+    // ============ LOCATION UPDATES (Transporter or assigned Driver) ============
     socket.on('location:update', async (data) => {
       try {
         const { latitude, longitude, bookingId, heading, speed } = data;
 
-        if (userRole !== 'transporter') {
-          return socket.emit('error', { message: 'Only transporters can update location' });
+        if (userRole !== 'transporter' && userRole !== 'driver') {
+          return socket.emit('error', { message: 'Only transporters or drivers can update location' });
         }
+
+        // Resolve the booking/shipment up front so we can authorize drivers and
+        // broadcast to the right rooms.
+        let booking = null;
+        let shipment = null;
+        if (bookingId) {
+          ({ booking, shipment } = await resolveTrackingTarget(bookingId));
+        }
+
+        // A driver may only push location for a shipment they are assigned to.
+        if (userRole === 'driver') {
+          const driverId = await getSocketDriverId(socket);
+          const assignedDriverId = shipment?.assignedDriver?.toString();
+          if (!driverId || !assignedDriverId || assignedDriverId !== driverId) {
+            return socket.emit('error', { message: 'You are not assigned to this shipment' });
+          }
+        }
+
+        // Key the location by the shipment's transporter so subscribers (who look
+        // up the transporter's live position) see driver updates too.
+        const locationKey = userRole === 'driver'
+          ? (shipment?.transporter?.toString() || booking?.transporter?.toString() || userId)
+          : userId;
 
         const locationData = {
           latitude,
@@ -117,15 +150,14 @@ const setupSocketHandler = (io) => {
           heading: heading || 0,
           speed: speed || 0,
           timestamp: new Date(),
-          transporterId: userId
+          transporterId: locationKey
         };
 
         // Store latest location
-        transporterLocations.set(userId, locationData);
+        transporterLocations.set(locationKey, locationData);
 
         // If tracking a specific booking or shipment reference, notify the shipper
         if (bookingId) {
-          const { booking, shipment } = await resolveTrackingTarget(bookingId);
           if (booking && booking.shipper) {
             io.to(`user:${booking.shipper.toString()}`).emit('tracking:location', {
               bookingId,
@@ -171,8 +203,13 @@ const setupSocketHandler = (io) => {
         // Verify user has access to this booking
         const isShipper = booking?.shipper?.toString() === userId || shipment?.shipper?.toString() === userId;
         const isTransporter = booking?.transporter?.toString() === userId || shipment?.transporter?.toString() === userId;
+        let isDriver = false;
+        if (!isShipper && !isTransporter && userRole === 'driver') {
+          const driverId = await getSocketDriverId(socket);
+          isDriver = Boolean(driverId && shipment?.assignedDriver?.toString() === driverId);
+        }
 
-        if (!isShipper && !isTransporter) {
+        if (!isShipper && !isTransporter && !isDriver) {
           return socket.emit('error', { message: 'Access denied' });
         }
 

@@ -7,25 +7,7 @@ const { generateVerificationCode, generateRandomToken } = require('../utils/gene
 const { sendVerificationSMS } = require('../utils/sendSMS');
 const { sendPasswordResetEmail } = require('../utils/sendEmail');
 const { isSmsDeliveryDisabled } = require('../utils/smsSettings');
-
-function normalizeZimbabwePhone(phone) {
-  if (phone === undefined || phone === null || phone === '') return undefined;
-  const digits = String(phone).replace(/\D/g, '');
-
-  if (digits.startsWith('263') && digits.length === 12) {
-    return `+${digits}`;
-  }
-  if (digits.startsWith('0') && digits.length === 10) {
-    return `+263${digits.slice(1)}`;
-  }
-  if (!digits.startsWith('0') && digits.length === 9) {
-    return `+263${digits}`;
-  }
-  if (String(phone).startsWith('+263') && digits.length === 12) {
-    return `+${digits}`;
-  }
-  return String(phone).trim();
-}
+const { normalizeZimbabwePhone } = require('../utils/phone');
 
 function duplicateRegistrationPayload(existingUser, duplicateKey = null) {
   const duplicateEmail = duplicateKey === 'email' || Boolean(existingUser?.email);
@@ -116,22 +98,44 @@ const register = async (req, res) => {
     });
 
     if (safeUserType === 'driver') {
-      await Driver.create({
-        owner: user._id,
-        user: user._id,
-        profileType: 'marketplace',
-        fullName: user.fullName,
-        phone: user.phone,
-        email: user.email,
-        status: 'available',
-        availability: { isAvailable: true },
-        marketplace: {
-          visible: false,
-          lookingForWork: true,
-          availableImmediately: true,
-          headline: 'Driver looking for work'
-        }
+      // If a fleet owner already added this person to their roster (a managed
+      // driver with no login), link that existing record to the new account
+      // instead of creating a duplicate. The fleet owner stays as `owner`; the
+      // driver can now manage their own availability/marketplace visibility.
+      const existingManaged = await Driver.findOne({
+        phone: normalizedPhone,
+        user: null
       });
+
+      if (existingManaged) {
+        existingManaged.user = user._id;
+        existingManaged.email = existingManaged.email || user.email;
+        existingManaged.profileType = 'marketplace';
+        existingManaged.marketplace = {
+          ...(existingManaged.marketplace?.toObject?.() || existingManaged.marketplace || {}),
+          // Stay hidden until the driver opts in and holds a paid subscription.
+          visible: existingManaged.marketplace?.visible ?? false,
+          lookingForWork: existingManaged.marketplace?.lookingForWork ?? true
+        };
+        await existingManaged.save();
+      } else {
+        await Driver.create({
+          owner: user._id,
+          user: user._id,
+          profileType: 'marketplace',
+          fullName: user.fullName,
+          phone: user.phone,
+          email: user.email,
+          status: 'available',
+          availability: { isAvailable: true },
+          marketplace: {
+            visible: false,
+            lookingForWork: true,
+            availableImmediately: true,
+            headline: 'Driver looking for work'
+          }
+        });
+      }
     }
 
     // Generate JWT token
@@ -411,8 +415,9 @@ const changePassword = async (req, res) => {
       });
     }
 
-    // Update password
+    // Update password and clear any forced-change requirement
     user.password = newPassword;
+    user.mustChangePassword = false;
     await user.save();
 
     res.json({

@@ -31,6 +31,13 @@ const userSchema = new mongoose.Schema({
     minlength: [8, 'Password must be at least 8 characters long'],
     select: false
   },
+  // Set when an account is provisioned with a temporary password (e.g. a fleet
+  // owner inviting a roster driver). The user is blocked from all routes except
+  // changing their password until they replace the temporary one.
+  mustChangePassword: {
+    type: Boolean,
+    default: false
+  },
   userType: {
     type: String,
     required: true,

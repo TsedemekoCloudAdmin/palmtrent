@@ -12,7 +12,8 @@ const {
   searchMarketplaceDrivers,
   getMyDriverProfile,
   updateMyDriverProfile,
-  updateMyAvailability
+  updateMyAvailability,
+  inviteDriverToApp
 } = require('../controllers/driverController');
 
 router.route('/marketplace')
@@ -36,5 +37,8 @@ router.route('/:id')
 
 router.route('/:id/status')
   .put(protect, updateDriverStatus);
+
+router.route('/:id/invite')
+  .post(protect, inviteDriverToApp);
 
 module.exports = router;

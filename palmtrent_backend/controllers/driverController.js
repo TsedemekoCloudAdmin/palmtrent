@@ -1,7 +1,11 @@
 const Driver = require('../models/Driver');
 const Vehicle = require('../models/Vehicle');
 const Subscription = require('../models/Subscription');
+const User = require('../models/User');
 const { canAccessRentalOwnerResource, getRentalOwnerScopeId } = require('../services/resourceAccessService');
+const { generateRandomToken } = require('../utils/generateCode');
+const { sendSMS } = require('../utils/sendSMS');
+const { normalizeZimbabwePhone } = require('../utils/phone');
 
 const publicDriverFields = 'fullName phone email address licenseClass experience specialization employmentType status availability marketplace rating performance currentLocation updatedAt user';
 
@@ -25,6 +29,14 @@ async function activeDriverSubscriptionUserIds(userIds) {
     ]
   }).distinct('user');
   return new Set(ids.map(String));
+}
+
+// A driver only appears on the public marketplace once they hold an active,
+// paid annual subscription. This is the single source of truth for that gate.
+async function hasActiveDriverSubscription(userId) {
+  if (!userId) return false;
+  const ids = await activeDriverSubscriptionUserIds([userId]);
+  return ids.has(String(userId));
 }
 
 // Get all drivers for a transporter
@@ -118,7 +130,14 @@ exports.searchMarketplaceDrivers = async (req, res) => {
 exports.getMyDriverProfile = async (req, res) => {
   try {
     const driver = await Driver.findOne({ user: req.user._id });
-    res.status(200).json({ success: true, data: driver });
+    const marketplaceEligible = await hasActiveDriverSubscription(req.user._id);
+    const wantsMarket = Boolean(driver?.marketplace?.visible || driver?.marketplace?.lookingForWork);
+    res.status(200).json({
+      success: true,
+      data: driver,
+      marketplaceEligible,
+      requiresSubscription: wantsMarket && !marketplaceEligible
+    });
   } catch (error) {
     console.error('Get my driver profile error:', error);
     res.status(500).json({ success: false, message: 'Failed to load driver profile' });
@@ -137,17 +156,26 @@ exports.updateMyDriverProfile = async (req, res) => {
     allowed.forEach(field => {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
     });
-    updates.owner = req.user._id;
     updates.user = req.user._id;
     updates.profileType = 'marketplace';
 
     const driver = await Driver.findOneAndUpdate(
       { user: req.user._id },
-      { $set: updates },
+      // `owner` is only set when first creating a self-profile. For a driver
+      // linked from a fleet owner's roster, this preserves the fleet owner.
+      { $set: updates, $setOnInsert: { owner: req.user._id } },
       { new: true, runValidators: true, upsert: true, setDefaultsOnInsert: true }
     );
 
-    res.status(200).json({ success: true, data: driver, message: 'Driver profile saved' });
+    const marketplaceEligible = await hasActiveDriverSubscription(req.user._id);
+    const wantsMarket = Boolean(driver?.marketplace?.visible || driver?.marketplace?.lookingForWork);
+    res.status(200).json({
+      success: true,
+      data: driver,
+      marketplaceEligible,
+      requiresSubscription: wantsMarket && !marketplaceEligible,
+      message: 'Driver profile saved'
+    });
   } catch (error) {
     console.error('Update my driver profile error:', error);
     res.status(500).json({ success: false, message: error.message || 'Failed to save driver profile' });
@@ -168,7 +196,6 @@ exports.updateMyAvailability = async (req, res) => {
       expectedRate
     } = req.body;
     const update = {
-      owner: getRentalOwnerScopeId(req.user),
       user: req.user._id,
       profileType: 'marketplace',
       status: status || (isAvailable ? 'available' : 'inactive'),
@@ -183,11 +210,26 @@ exports.updateMyAvailability = async (req, res) => {
 
     const driver = await Driver.findOneAndUpdate(
       { user: req.user._id },
-      { $set: update, $setOnInsert: { fullName: req.user.fullName, phone: req.user.phone, email: req.user.email } },
+      {
+        $set: update,
+        // `owner` is only assigned on first creation so a roster-linked driver
+        // keeps their fleet owner instead of being reassigned to themselves.
+        $setOnInsert: { owner: getRentalOwnerScopeId(req.user), fullName: req.user.fullName, phone: req.user.phone, email: req.user.email }
+      },
       { new: true, runValidators: true, upsert: true, setDefaultsOnInsert: true }
     );
 
-    res.status(200).json({ success: true, data: driver, message: 'Availability updated' });
+    const marketplaceEligible = await hasActiveDriverSubscription(req.user._id);
+    const wantsMarket = Boolean(driver?.marketplace?.visible || driver?.marketplace?.lookingForWork);
+    res.status(200).json({
+      success: true,
+      data: driver,
+      marketplaceEligible,
+      requiresSubscription: wantsMarket && !marketplaceEligible,
+      message: wantsMarket && !marketplaceEligible
+        ? 'Availability saved. Pay your annual driver subscription to appear in the driver marketplace.'
+        : 'Availability updated'
+    });
   } catch (error) {
     console.error('Update my availability error:', error);
     res.status(500).json({ success: false, message: 'Failed to update availability' });
@@ -240,10 +282,21 @@ exports.createDriver = async (req, res) => {
       });
     }
 
+    // Drivers added by a fleet owner are roster-only. They must NOT be exposed on
+    // the public driver marketplace by default — the driver opts in later from
+    // their own account, and only shows once they hold an active annual
+    // subscription. Strip any client-supplied marketplace/account fields so the
+    // owner cannot (accidentally or otherwise) publish a driver to the market.
+    const { marketplace, profileType, user, ...safeBody } = req.body;
+
     const driverData = {
-      ...req.body,
+      ...safeBody,
+      // Normalize the phone on the way in so a future self-registration or owner
+      // invite can reliably match this roster record to a login account.
+      phone: normalizeZimbabwePhone(req.body.phone) || req.body.phone,
       owner: getRentalOwnerScopeId(req.user),
-      profileType: 'managed'
+      profileType: 'managed',
+      marketplace: { visible: false, lookingForWork: false }
     };
 
     const driver = new Driver(driverData);
@@ -260,6 +313,105 @@ exports.createDriver = async (req, res) => {
       success: false,
       message: 'Failed to create driver'
     });
+  }
+};
+
+// Invite a managed (roster) driver to the app: provision or link a login account
+// so they can sign in and manage their own availability / marketplace profile.
+exports.inviteDriverToApp = async (req, res) => {
+  try {
+    const driver = await Driver.findById(req.params.id);
+    if (!driver) {
+      return res.status(404).json({ success: false, message: 'Driver not found' });
+    }
+
+    // Only the fleet owner (or an admin) that owns this roster record can invite.
+    if (!canAccessRentalOwnerResource(req.user, driver.owner)) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    if (driver.user) {
+      return res.status(200).json({
+        success: true,
+        alreadyLinked: true,
+        message: 'This driver already has an app login.'
+      });
+    }
+
+    const phone = normalizeZimbabwePhone(driver.phone);
+    if (!phone || !/^\+263[0-9]{9}$/.test(phone)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Add a valid Zimbabwean phone number (+263) to this driver before inviting them.'
+      });
+    }
+
+    let user = await User.findOne({ phone });
+    let temporaryPassword = null;
+    let createdAccount = false;
+
+    if (user) {
+      // An account with this phone already exists — just grant the driver role.
+      if (!Array.isArray(user.roles) || !user.roles.includes('driver')) {
+        user.roles = [...(user.roles || []), 'driver'];
+        await user.save();
+      }
+    } else {
+      temporaryPassword = generateRandomToken(10);
+      const email = (driver.email && String(driver.email).trim().toLowerCase())
+        || `driver.${phone.replace('+', '')}@drivers.palmtrent.app`;
+      user = await User.create({
+        fullName: driver.fullName,
+        email,
+        phone,
+        password: temporaryPassword,
+        userType: 'driver',
+        roles: ['driver'],
+        isPhoneVerified: true,
+        profileCompleted: false,
+        mustChangePassword: true
+      });
+      createdAccount = true;
+    }
+
+    driver.user = user._id;
+    if (!driver.email && user.email && !user.email.endsWith('@drivers.palmtrent.app')) {
+      driver.email = user.email;
+    }
+    await driver.save();
+
+    const inviter = req.user.fullName || 'Your fleet operator';
+    if (createdAccount) {
+      await sendSMS(
+        phone,
+        `${inviter} added you as a driver on Palmtrent. Sign in with phone ${phone} and temporary password ${temporaryPassword}. Please change it after your first login.`
+      );
+    } else {
+      await sendSMS(
+        phone,
+        `${inviter} linked your Palmtrent account as a driver. Sign in with your existing credentials to manage your driving availability.`
+      );
+    }
+
+    res.status(200).json({
+      success: true,
+      createdAccount,
+      message: createdAccount
+        ? 'Driver account created and linked. Temporary credentials were sent by SMS.'
+        : 'An existing account with this phone was linked to this driver.',
+      credentials: createdAccount
+        ? { phone, temporaryPassword }
+        : { phone }
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: 'Another account already uses this phone or email.'
+      });
+    }
+    console.error('Invite driver error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to invite driver' });
   }
 };
 

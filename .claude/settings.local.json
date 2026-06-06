@@ -27,7 +27,14 @@
       "Bash(xargs:*)",
       "Bash(npm run build)",
       "Bash(npx expo doctor)",
-      "Bash(npm ls:*)"
+      "Bash(npm ls:*)",
+      "Bash(dir /s /b)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\sethm\\\\ngrok\\\\logs\\\\palmtrent\\\\palmtrent_mobile\" -Recurse -Depth 2)",
+      "Bash(Select-Object FullName)",
+      "Bash(cd /c/Users/sethm/ngrok/logs/palmtrent/palmtrent_mobile && ls -la)",
+      "Read(//c/c/Users/sethm/ngrok/logs/palmtrent/**)",
+      "Bash(grep -E \"\\\\.js$\")",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\sethm\\\\ngrok\\\\logs\\\\palmtrent\\\\palmtrent_backend\" -Recurse -Directory | Select-Object -First 30 | ForEach-Object { $_.Name })"
     ]
   }
 }

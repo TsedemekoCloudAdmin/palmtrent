@@ -2,6 +2,7 @@ import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
+import DriverDeliveriesScreen from '../screens/driver/DriverDeliveriesScreen';
 import DriverPortalScreen from '../screens/driver/DriverPortalScreen';
 import HistoryScreen from '../screens/shipper/HistoryScreen';
 import ProfileScreen from '../screens/ProfileScreen';
@@ -25,6 +26,14 @@ const DriverTabs = () => (
       tabBarInactiveTintColor: '#9ca3af',
     }}
   >
+    <Tab.Screen
+      name="DriverDeliveries"
+      component={DriverDeliveriesScreen}
+      options={{
+        title: 'Deliveries',
+        tabBarIcon: ({ color, size }) => <MaterialIcons name="local-shipping" size={size} color={color} />,
+      }}
+    />
     <Tab.Screen
       name="DriverWork"
       component={DriverPortalScreen}

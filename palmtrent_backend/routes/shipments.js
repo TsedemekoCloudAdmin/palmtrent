@@ -6,6 +6,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const {
   getActiveShipments,
+  getDriverShipments,
   getAllShipments,
   getShipmentById,
   trackShipment,
@@ -46,6 +47,9 @@ router.get('/', getAllShipments);
 
 // GET /api/v1/shipments/active - Get active shipments
 router.get('/active', getActiveShipments);
+
+// GET /api/v1/shipments/driver - Get shipments assigned to the current driver
+router.get('/driver', getDriverShipments);
 
 // GET /api/v1/shipments/analytics - Shipment analytics
 router.get('/analytics', getShipmentAnalytics);

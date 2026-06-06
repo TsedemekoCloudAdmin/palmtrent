@@ -162,6 +162,7 @@ const TrailerOwnerDashboard = () => {
   const [activeTab, setActiveTab] = useState('fleet');
   const [stats, setStats] = useState({});
   const [fleet, setFleet] = useState([]);
+  const [vehicles, setVehicles] = useState([]);
   const [listings, setListings] = useState([]);
   const [rentals, setRentals] = useState([]);
   const [market, setMarket] = useState([]);
@@ -194,6 +195,8 @@ const TrailerOwnerDashboard = () => {
   const [showDriverDialog, setShowDriverDialog] = useState(false);
   const [showStaffDialog, setShowStaffDialog] = useState(false);
   const [editingDriverId, setEditingDriverId] = useState('');
+  const [assignDriverTarget, setAssignDriverTarget] = useState(null);
+  const [assignVehicleId, setAssignVehicleId] = useState('');
   const [showWalkInDialog, setShowWalkInDialog] = useState(false);
   const [walkInForm, setWalkInForm] = useState(emptyWalkInRentalForm);
   const [inspectionDialog, setInspectionDialog] = useState(null);
@@ -231,8 +234,10 @@ const TrailerOwnerDashboard = () => {
         publicAPI.getMySubscription(),
         fleetAPI.getStaff()
       ]);
-      const smallVehicles = (vehicleResponse.data || []).filter(isSmallVehicleRecord).map(normalizeSmallVehicleAsset);
+      const rawSmallVehicles = (vehicleResponse.data || []).filter(isSmallVehicleRecord);
+      const smallVehicles = rawSmallVehicles.map(normalizeSmallVehicleAsset);
       setStats(dashboard.data || {});
+      setVehicles(rawSmallVehicles);
       setFleet([...(fleetResponse.data || []), ...smallVehicles]);
       setListings(listingResponse.data || []);
       setRentals(rentalResponse.data || []);
@@ -510,6 +515,75 @@ const TrailerOwnerDashboard = () => {
       await loadData();
     } catch (error) {
       setMessage(error.message || 'Could not update driver status');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const inviteDriver = async (driver) => {
+    if (driver.user) {
+      setMessage(`${driver.fullName} already has an app login.`);
+      return;
+    }
+    if (!window.confirm(`Create an app login for ${driver.fullName} and send their credentials by SMS?`)) return;
+    try {
+      setLoading(true);
+      setMessage('');
+      const response = await driversAPI.invite(driver._id);
+      if (response.createdAccount && response.credentials?.temporaryPassword) {
+        setMessage(`Account created for ${driver.fullName}. Login: ${response.credentials.phone} · temporary password: ${response.credentials.temporaryPassword} (also sent by SMS).`);
+      } else {
+        setMessage(response.message || `${driver.fullName} can now sign in as a driver.`);
+      }
+      await loadData();
+    } catch (error) {
+      setMessage(error.message || 'Could not invite driver');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openAssignVehicleDialog = (driver) => {
+    setAssignDriverTarget(driver);
+    setAssignVehicleId(driver.assignedVehicle?._id || '');
+  };
+
+  const closeAssignVehicleDialog = () => {
+    setAssignDriverTarget(null);
+    setAssignVehicleId('');
+  };
+
+  const assignVehicleToDriver = async (event) => {
+    event.preventDefault();
+    if (!assignDriverTarget || !assignVehicleId) {
+      setMessage('Select a vehicle to assign');
+      return;
+    }
+    try {
+      setLoading(true);
+      setMessage('');
+      await vehiclesAPI.assignDriver(assignVehicleId, assignDriverTarget._id);
+      setMessage(`Vehicle assigned to ${assignDriverTarget.fullName}`);
+      closeAssignVehicleDialog();
+      await loadData();
+    } catch (error) {
+      setMessage(error.message || 'Could not assign vehicle');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const unassignDriverVehicle = async (driver) => {
+    const vehicleId = driver.assignedVehicle?._id;
+    if (!vehicleId) return;
+    if (!window.confirm(`Unassign ${driver.assignedVehicle?.registrationNumber || 'vehicle'} from ${driver.fullName}?`)) return;
+    try {
+      setLoading(true);
+      await vehiclesAPI.assignDriver(vehicleId, null);
+      setMessage(`Vehicle unassigned from ${driver.fullName}`);
+      await loadData();
+    } catch (error) {
+      setMessage(error.message || 'Could not unassign vehicle');
     } finally {
       setLoading(false);
     }
@@ -816,6 +890,8 @@ const TrailerOwnerDashboard = () => {
     const isAvailable = driverProfile?.availability?.isAvailable !== false;
     const visible = driverProfile?.marketplace?.visible === true;
     const lookingForWork = driverProfile?.marketplace?.lookingForWork !== false;
+    const subscriptionActive = subscription?.status === 'active'
+      && ['paid', 'not_required', 'waived'].includes(subscription?.payment?.status);
 
     return (
       <div className="fleet-page">
@@ -859,6 +935,11 @@ const TrailerOwnerDashboard = () => {
                     Available now
                   </label>
                 </div>
+                {(visible || lookingForWork) && !subscriptionActive && (
+                  <p className="subscription-warning">
+                    You will only appear in the driver marketplace once your annual subscription is paid.
+                  </p>
+                )}
               </div>
             </section>
             <section className="fleet-panel">
@@ -1165,9 +1246,19 @@ const TrailerOwnerDashboard = () => {
                       <span>Class {driver.licenseClass}</span>
                       <span>Expires {formatDate(driver.licenseExpiry)}</span>
                       <span>{driver.assignedVehicle?.registrationNumber || 'Unassigned'}</span>
+                      <span>{driver.user ? 'App access linked' : 'No app login'}</span>
                     </div>
                     <div className="asset-actions">
                       <button onClick={() => openDriverDialog(driver)}>Edit</button>
+                      <button onClick={() => openAssignVehicleDialog(driver)}>
+                        <Truck className="icon" /> {driver.assignedVehicle ? 'Change Vehicle' : 'Assign Vehicle'}
+                      </button>
+                      {driver.assignedVehicle && (
+                        <button onClick={() => unassignDriverVehicle(driver)}>Unassign</button>
+                      )}
+                      {!driver.user && (
+                        <button onClick={() => inviteDriver(driver)}>Invite to App</button>
+                      )}
                       <button onClick={() => updateDriverStatus(driver, 'available')}>Available</button>
                       <button onClick={() => updateDriverStatus(driver, 'on_leave')}>On Leave</button>
                       <button onClick={() => deleteDriver(driver)}><Trash2 className="icon" /> Delete</button>
@@ -1237,6 +1328,46 @@ const TrailerOwnerDashboard = () => {
                       <input value={driverForm.notes} onChange={(e) => updateDriverForm('notes', e.target.value)} />
                     </label>
                     <button className="fleet-primary" disabled={loading}>{editingDriverId ? 'Save Driver' : 'Add Driver'}</button>
+                  </form>
+                </section>
+              </div>
+            )}
+
+            {assignDriverTarget && (
+              <div className="fleet-dialog-backdrop" role="presentation" onMouseDown={closeAssignVehicleDialog}>
+                <section
+                  className="fleet-dialog"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="assign-vehicle-dialog-title"
+                  onMouseDown={(event) => event.stopPropagation()}
+                >
+                  <div className="fleet-dialog-header">
+                    <div>
+                      <h2 id="assign-vehicle-dialog-title">Assign Vehicle</h2>
+                      <p>Link a vehicle to {assignDriverTarget.fullName}.</p>
+                    </div>
+                    <button className="dialog-close" type="button" aria-label="Close assign vehicle dialog" onClick={closeAssignVehicleDialog}>
+                      <X className="icon" />
+                    </button>
+                  </div>
+
+                  <form className="fleet-form" onSubmit={assignVehicleToDriver}>
+                    <label>Vehicle
+                      <select value={assignVehicleId} onChange={(e) => setAssignVehicleId(e.target.value)} required>
+                        <option value="">Select a vehicle</option>
+                        {vehicles.map(vehicle => (
+                          <option key={vehicle._id} value={vehicle._id}>
+                            {vehicle.registrationNumber} - {vehicle.make} {vehicle.model}
+                            {vehicle.assignedDriver && vehicle.assignedDriver !== assignDriverTarget._id ? ' (reassigning)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {!vehicles.length && (
+                      <p className="empty-state">No vehicles available. Add a vehicle to your fleet first.</p>
+                    )}
+                    <button className="fleet-primary" disabled={loading || !vehicles.length}>Assign Vehicle</button>
                   </form>
                 </section>
               </div>

@@ -2,11 +2,54 @@ const Shipment = require('../models/Shipment');
 const Booking = require('../models/Booking');
 const Rating = require('../models/Rating');
 const User = require('../models/User');
+const Driver = require('../models/Driver');
 const { validationResult } = require('express-validator');
 const { assertShipmentTransition } = require('../services/flowControlService');
 const { recordAudit } = require('../services/auditService');
 const { finalizeUploadedFiles } = require('../services/uploadFinalizationService');
 const podService = require('../services/podService');
+
+const idOf = (value) => {
+  if (!value) return null;
+  if (value._id) return value._id.toString();
+  return value.toString();
+};
+
+// Resolve the Driver record id for a 'driver' user (linked via Driver.user).
+const getDriverIdForUser = async (user) => {
+  if (!user || user.userType !== 'driver') return null;
+  const driver = await Driver.findOne({ user: user._id || user.id }).select('_id');
+  return driver?._id || null;
+};
+
+// A shipment is accessible to its shipper, its transporter, an admin, or the
+// driver assigned to carry it. The driver check requires a DB lookup so it is
+// async and should be awaited.
+const canAccessShipment = async (shipment, user) => {
+  if (!shipment || !user) return false;
+  if (user.userType === 'admin') return true;
+  const userId = idOf(user._id || user.id);
+  if ([shipment.shipper, shipment.transporter].some(party => idOf(party) === userId)) return true;
+  if (user.userType === 'driver' && shipment.assignedDriver) {
+    const driverId = await getDriverIdForUser(user);
+    if (driverId && idOf(shipment.assignedDriver) === idOf(driverId)) return true;
+  }
+  return false;
+};
+
+// Who may operate a shipment (push location, change status, upload POD): the
+// assigned transporter, the assigned driver, or an admin — not the shipper.
+const canOperateShipment = async (shipment, user) => {
+  if (!shipment || !user) return false;
+  if (user.userType === 'admin') return true;
+  const userId = idOf(user._id || user.id);
+  if (idOf(shipment.transporter) === userId) return true;
+  if (user.userType === 'driver' && shipment.assignedDriver) {
+    const driverId = await getDriverIdForUser(user);
+    if (driverId && idOf(shipment.assignedDriver) === idOf(driverId)) return true;
+  }
+  return false;
+};
 
 const canReadShipment = (shipment, user) => {
   if (user.userType === 'admin') return true;
@@ -80,6 +123,46 @@ exports.getActiveShipments = async (req, res) => {
   }
 };
 
+// Get shipments assigned to the current driver (the person physically carrying
+// the load), filtered to active jobs by default.
+exports.getDriverShipments = async (req, res) => {
+  try {
+    if (req.user.userType !== 'driver') {
+      return res.status(403).json({ success: false, message: 'Driver account required' });
+    }
+
+    const driverId = await getDriverIdForUser(req.user);
+    if (!driverId) {
+      return res.status(404).json({ success: false, message: 'Driver profile not found' });
+    }
+
+    const scope = req.query.scope || 'active';
+    const activeStatuses = ['assigned', 'matched', 'en_route_pickup', 'picked_up', 'in_transit', 'arrived_delivery'];
+    const query = { assignedDriver: driverId };
+    if (scope === 'active') query.status = { $in: activeStatuses };
+
+    const shipments = await Shipment.find(query)
+      .populate('shipper', 'fullName phone companyName')
+      .populate('transporter', 'fullName phone rating')
+      .populate('vehicle', 'type registrationNumber capacity make model category')
+      .populate('booking')
+      .sort({ updatedAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: shipments.length,
+      data: shipments
+    });
+  } catch (error) {
+    console.error('Error fetching driver shipments:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching driver shipments',
+      error: error.message
+    });
+  }
+};
+
 // Get all shipments (with pagination) - From your code
 exports.getAllShipments = async (req, res) => {
   try {
@@ -138,9 +221,8 @@ exports.getShipmentById = async (req, res) => {
       });
     }
 
-    // Check authorization
-    if (shipment.shipper._id.toString() !== req.user.id && 
-        (!shipment.transporter || shipment.transporter._id.toString() !== req.user.id)) {
+    // Check authorization (shipper, transporter, assigned driver, or admin)
+    if (!(await canAccessShipment(shipment, req.user))) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to access this shipment'
@@ -167,7 +249,7 @@ exports.trackShipment = async (req, res) => {
     const shipment = await Shipment.findById(req.params.id)
       .populate('transporter', 'fullName phone avatar')
       .populate('vehicle', 'type registrationNumber')
-      .select('shipper status route currentLocation schedule pricing tracking');
+      .select('shipper transporter assignedDriver status route currentLocation schedule pricing tracking');
 
     if (!shipment) {
       return res.status(404).json({
@@ -176,9 +258,8 @@ exports.trackShipment = async (req, res) => {
       });
     }
 
-    // Check authorization
-    if (shipment.shipper.toString() !== req.user.id && 
-        (!shipment.transporter || shipment.transporter._id.toString() !== req.user.id)) {
+    // Check authorization (shipper, transporter, assigned driver, or admin)
+    if (!(await canAccessShipment(shipment, req.user))) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to track this shipment'
@@ -247,8 +328,8 @@ exports.updateLocation = async (req, res) => {
       });
     }
 
-    // Check if user is the assigned transporter
-    if (!shipment.transporter || shipment.transporter.toString() !== req.user.id) {
+    // The assigned transporter or the assigned driver may push location updates.
+    if (!(await canOperateShipment(shipment, req.user))) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to update this shipment'
@@ -306,8 +387,8 @@ exports.updateStatus = async (req, res) => {
       });
     }
 
-    // Authorization check
-    if (!shipment.transporter || shipment.transporter.toString() !== req.user.id) {
+    // Authorization check (assigned transporter or assigned driver)
+    if (!(await canOperateShipment(shipment, req.user))) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to update this shipment'
@@ -381,7 +462,7 @@ exports.uploadProofOfDelivery = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Shipment not found' });
     }
 
-    if (!shipment.transporter || shipment.transporter.toString() !== req.user.id) {
+    if (!(await canOperateShipment(shipment, req.user))) {
       return res.status(403).json({ success: false, message: 'Not authorized to upload proof for this shipment' });
     }
 

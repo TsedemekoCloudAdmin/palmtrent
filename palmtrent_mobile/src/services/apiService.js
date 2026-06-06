@@ -385,6 +385,13 @@ class ApiService {
     }
   }
 
+  async changePassword(currentPassword, newPassword) {
+    return this.request('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+  }
+
   async getCurrentUser() {
     try {
       const response = await this.request('/auth/me');
@@ -457,6 +464,10 @@ class ApiService {
   // Shipment endpoints
   async getActiveShipments() {
     return this.request('/shipments/active');
+  }
+
+  async getDriverShipments(scope = 'active') {
+    return this.request(`/shipments/driver?scope=${scope}`);
   }
 
   async getAllShipments(page = 1, limit = 10, status = null) {
@@ -914,6 +925,12 @@ async unassignDriverFromVehicle(vehicleId) {
   return this.request(`/vehicles/${vehicleId}/assign-driver`, {
     method: 'POST',
     body: JSON.stringify({ driverId: null }),
+  });
+}
+
+async inviteDriverToApp(driverId) {
+  return this.request(`/drivers/${driverId}/invite`, {
+    method: 'POST',
   });
 }
 

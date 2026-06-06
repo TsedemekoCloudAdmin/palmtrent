@@ -5,6 +5,7 @@ import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
 import { AuthProvider } from './src/context/AuthContext';
 import AuthNavigator from './src/navigation/AuthNavigator';
 import AppNavigator from './src/navigation/AppNavigator';
+import ForceChangePasswordScreen from './src/screens/ForceChangePasswordScreen';
 import useAuth from './src/hook/useAuth';
 
 const StartupLoadingScreen = () => (
@@ -40,9 +41,15 @@ const Navigation = () => {
     return <StartupLoadingScreen />;
   }
   
+  const renderForUser = () => {
+    if (!user) return <AuthNavigator />;
+    if (user.mustChangePassword) return <ForceChangePasswordScreen />;
+    return <AppNavigator />;
+  };
+
   return (
     <View style={styles.appShell}>
-      {user ? <AppNavigator /> : <AuthNavigator />}
+      {renderForUser()}
       {isLoading && <AuthProgressOverlay />}
     </View>
   );

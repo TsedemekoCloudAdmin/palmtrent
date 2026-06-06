@@ -52,6 +52,22 @@ const protect = async (req, res, next) => {
         });
       }
 
+      // Accounts provisioned with a temporary password must change it before
+      // they can use any other endpoint. Only allow changing the password and
+      // reading the current user while the requirement is pending.
+      if (user.mustChangePassword) {
+        const path = (req.originalUrl || '').split('?')[0];
+        const allowedWhilePending = ['/auth/change-password', '/auth/me'];
+        const isAllowed = allowedWhilePending.some(allowed => path.endsWith(allowed));
+        if (!isAllowed) {
+          return res.status(403).json({
+            success: false,
+            code: 'PASSWORD_CHANGE_REQUIRED',
+            message: 'You must change your temporary password before continuing.'
+          });
+        }
+      }
+
       req.user = user;
       next();
     } catch (error) {

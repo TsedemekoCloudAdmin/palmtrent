@@ -94,6 +94,13 @@ const apiFetch = async (endpoint, options = {}) => {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
+    // Account provisioned with a temporary password must change it first.
+    if (response.status === 403 && data.code === 'PASSWORD_CHANGE_REQUIRED') {
+      if (!window.location.pathname.startsWith('/change-password')) {
+        window.location.href = '/change-password';
+      }
+      throw new Error(data.message || 'You must change your temporary password before continuing.');
+    }
     throw new Error(data.message || 'An error occurred');
   }
 
@@ -168,6 +175,16 @@ export const authAPI = {
   },
 
   getProfile: () => apiFetch('/auth/me'),
+
+  changePassword: async (currentPassword, newPassword) => {
+    const response = await apiFetch('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    const current = getUser();
+    if (current) setUser({ ...current, mustChangePassword: false });
+    return response;
+  },
 
   updateProfile: async (data) => {
     const response = await apiFetch('/auth/profile', {
@@ -363,6 +380,11 @@ export const vehiclesAPI = {
     body: JSON.stringify(data),
   }),
 
+  assignDriver: (id, driverId) => apiFetch(`/vehicles/${id}/assign-driver`, {
+    method: 'POST',
+    body: JSON.stringify({ driverId }),
+  }),
+
   getTypes: () => apiFetch('/reference/vehicle-types'),
 
   getMakes: () => apiFetch('/reference/vehicle-makes'),
@@ -499,6 +521,10 @@ export const driversAPI = {
   updateStatus: (id, status) => apiFetch(`/drivers/${id}/status`, {
     method: 'PUT',
     body: JSON.stringify({ status }),
+  }),
+
+  invite: (id) => apiFetch(`/drivers/${id}/invite`, {
+    method: 'POST',
   }),
 };
 

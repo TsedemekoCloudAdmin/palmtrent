@@ -11,8 +11,7 @@ const {
   assertDriverAssignable,
   assertRentalOwnerCanList,
   getRentalOwnerSubscriptionIssues,
-  getUsableRentalOwnerIds,
-  getVehicleComplianceIssues
+  getUsableRentalOwnerIds
 } = require('../services/flowControlService');
 const { finalizeUploadedFile } = require('../services/uploadFinalizationService');
 const { canAccessRentalOwnerResource, getRentalOwnerScopeId } = require('../services/resourceAccessService');
@@ -582,13 +581,11 @@ exports.assignDriver = async (req, res) => {
       });
     }
 
-    const vehicleIssues = getVehicleComplianceIssues(vehicle).filter(issue => issue !== 'Vehicle is not available');
-    if (vehicleIssues.length) {
-      return res.status(400).json({
-        success: false,
-        message: `Vehicle is not compliant: ${vehicleIssues.join('; ')}`
-      });
-    }
+    // Assigning a driver to a vehicle is an internal fleet-roster action, not a
+    // dispatch. Vehicle compliance (verification/insurance/license expiry) is
+    // enforced later at booking-matching time via assertVehicleAssignable, so we
+    // do not block roster assignment for vehicles that are still pending
+    // verification — otherwise a freshly added vehicle could never get a driver.
 
     if (driverId && driverBelongsToAccount) {
       await assertDriverAssignable(driverId, getRentalOwnerScopeId(req.user));

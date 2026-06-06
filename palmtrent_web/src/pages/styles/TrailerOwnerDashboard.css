@@ -138,6 +138,16 @@
   margin-bottom: 1rem;
 }
 
+.subscription-warning {
+  margin-top: 0.85rem;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #9a3412;
+  padding: 0.7rem 0.9rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
 .fleet-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));

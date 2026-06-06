@@ -224,6 +224,11 @@ const DriverPortalScreen = ({ navigation }) => {
               value={availability.isAvailable}
               onValueChange={(value) => saveAvailability({ ...availability, isAvailable: value })}
             />
+            {(availability.visible || availability.lookingForWork) && !subscriptionPaid && (
+              <Text style={styles.noticeText}>
+                You will only appear in the driver marketplace once your annual subscription is paid.
+              </Text>
+            )}
           </View>
 
           <View style={styles.card}>
@@ -308,6 +313,7 @@ const styles = StyleSheet.create({
   toggleRow: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
   toggleLabel: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingRight: 10 },
   toggleText: { flex: 1, color: '#334155', fontSize: 15, fontWeight: '600' },
+  noticeText: { marginTop: 12, color: '#9a3412', backgroundColor: '#fff7ed', borderWidth: 1, borderColor: '#fed7aa', borderRadius: 12, padding: 12, fontSize: 13, lineHeight: 18 },
   row: { flexDirection: 'row', gap: 10 },
   halfField: { flex: 1 },
   field: { marginBottom: 12 },

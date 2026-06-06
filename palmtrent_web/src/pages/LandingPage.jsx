@@ -139,7 +139,8 @@ const LandingPage = () => {
       const response = await authAPI.login(loginForm.email, loginForm.password);
       if (response.token || response.data?.token) {
         setShowLoginModal(false);
-        navigate(getRoleHomePath(authAPI.getCurrentUser()));
+        const currentUser = authAPI.getCurrentUser();
+        navigate(currentUser?.mustChangePassword ? '/change-password' : getRoleHomePath(currentUser));
       }
     } catch (error) {
       setAuthError(error.message || 'Login failed. Please try again.');

@@ -1,5 +1,7 @@
 const Booking = require('../models/Booking');
 const ChatMessage = require('../models/ChatMessage');
+const Driver = require('../models/Driver');
+const Shipment = require('../models/Shipment');
 
 const isParticipant = (booking, user) => {
   const userId = (user.id || user._id).toString();
@@ -10,6 +12,19 @@ const isParticipant = (booking, user) => {
     user.userType === 'admin';
 };
 
+// The driver assigned to carry a booking's shipment is also a chat participant,
+// so the shipper/transporter and the driver share one booking conversation.
+const isAssignedDriver = async (booking, user) => {
+  if (user.userType !== 'driver') return false;
+  const driver = await Driver.findOne({ user: user.id || user._id }).select('_id');
+  if (!driver) return false;
+  const shipment = await Shipment.findOne({
+    $or: [{ booking: booking._id }, { bookingReference: booking.bookingReference }],
+    assignedDriver: driver._id
+  }).select('_id');
+  return Boolean(shipment);
+};
+
 const assertBookingChatAccess = async (bookingId, user) => {
   const booking = await Booking.findById(bookingId).select('shipper user transporter corporateAccount bookingReference');
   if (!booking) {
@@ -18,7 +33,7 @@ const assertBookingChatAccess = async (bookingId, user) => {
     throw error;
   }
 
-  if (!isParticipant(booking, user)) {
+  if (!isParticipant(booking, user) && !(await isAssignedDriver(booking, user))) {
     const error = new Error('Not authorized to access this booking chat');
     error.statusCode = 403;
     throw error;

@@ -12,6 +12,7 @@ const ApiDocsPage = lazy(() => import('./pages/ApiDocsPage'));
 const PaymentReturnPage = lazy(() => import('./pages/PaymentReturnPage'));
 const PublicTrackingPage = lazy(() => import('./pages/PublicTrackingPage'));
 const LegalPage = lazy(() => import('./pages/LegalPage'));
+const ForceChangePasswordPage = lazy(() => import('./pages/ForceChangePasswordPage'));
 
 const getRoleHomePath = (user) => {
   switch (user?.userType) {
@@ -35,7 +36,9 @@ const getRoleHomePath = (user) => {
 const RoleRedirect = () => {
   const user = JSON.parse(localStorage.getItem('palmtrent_user') || 'null');
   const token = localStorage.getItem('palmtrent_token');
-  return token && user ? <Navigate to={getRoleHomePath(user)} replace /> : <LandingPage />;
+  if (!token || !user) return <LandingPage />;
+  if (user.mustChangePassword) return <Navigate to="/change-password" replace />;
+  return <Navigate to={getRoleHomePath(user)} replace />;
 };
 
 const RouteLoader = () => (
@@ -53,6 +56,7 @@ function App() {
           <Route path="/" element={<RoleRedirect />} />
           <Route path="/home" element={<LandingPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/change-password" element={<ForceChangePasswordPage />} />
           <Route path="/api-docs" element={<ApiDocsPage />} />
           <Route path="/payment/return" element={<PaymentReturnPage />} />
           <Route path="/tracking/:trackingId" element={<PublicTrackingPage />} />
