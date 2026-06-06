@@ -13,7 +13,27 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 const JobAcceptedScreen = ({ navigation, route }) => {
   const { job } = route.params || {};
 
-  const jobData = job;
+  const jobData = job || {};
+
+  const earnings = jobData.transporterEarnings
+    ?? jobData.pricing?.feeAllocation?.transporter?.amount
+    ?? jobData.pricing?.totals?.transporterTotal
+    ?? jobData.earnings
+    ?? 0;
+  const pickupDateRaw = jobData.route?.pickup?.date || jobData.pickup?.date || jobData.pickupDate;
+  const pickupDate = pickupDateRaw ? new Date(pickupDateRaw) : null;
+  const pickupDateLabel = pickupDate && !Number.isNaN(pickupDate.getTime())
+    ? pickupDate.toLocaleDateString()
+    : 'scheduled date';
+  const pickupTime = jobData.route?.pickup?.timeWindow || jobData.pickupTimeWindow || '';
+  const distance = jobData.route?.distance ?? jobData.distance;
+  const shipper = jobData.shipper || jobData.user || {};
+  const shipperName = shipper.fullName || shipper.name || 'Shipper';
+  const shipperPhone = shipper.phone || '';
+
+  const goToDashboard = () => {
+    navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -45,24 +65,24 @@ const JobAcceptedScreen = ({ navigation, route }) => {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Next Steps</Text>
           <View style={styles.nextSteps}>
-            <NextStepItem 
+            <NextStepItem
               icon="📱"
-              text="Shipper contact details shared"
-              action="Call shipper 1 hour before pickup"
+              text={`Shipper: ${shipperName}`}
+              action={shipperPhone ? `Call ${shipperPhone} before pickup` : 'Contact shared in job details'}
             />
-            <NextStepItem 
+            <NextStepItem
               icon="⏰"
-              text={`Pickup ${jobData?.pickup?.date || jobData?.route?.pickup?.date || 'scheduled date'}`}
-              action="Be on time for good rating"
+              text={`Pickup ${pickupDateLabel}${pickupTime ? ` (${pickupTime})` : ''}`}
+              action="Be on time for a good rating"
             />
-            <NextStepItem 
+            <NextStepItem
               icon="📍"
               text="Route navigation ready"
-              action={jobData?.route?.distance ? `${jobData.route.distance} km` : 'Open the job details for route information'}
+              action={distance != null ? `${Number(distance).toFixed(2)} km` : 'Open job details for route information'}
             />
-            <NextStepItem 
+            <NextStepItem
               icon="💰"
-              text={`$${jobData?.earnings || jobData?.pricing?.totals?.transporterTotal || 0} expected earnings`}
+              text={`$${earnings} expected earnings`}
               action="Released 24 hrs after delivery"
             />
           </View>
@@ -70,15 +90,15 @@ const JobAcceptedScreen = ({ navigation, route }) => {
 
         {/* Action Buttons */}
         <View style={styles.actionButtons}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.primaryButton}
             onPress={() => navigation.navigate('JobDetails', { job: jobData, jobId: jobData?._id || jobData?.id })}
           >
             <Text style={styles.primaryButtonText}>View Job Details</Text>
           </TouchableOpacity>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.secondaryButton}
-            onPress={() => navigation.navigate('Home')}
+            onPress={goToDashboard}
           >
             <Text style={styles.secondaryButtonText}>Go to Dashboard</Text>
           </TouchableOpacity>

@@ -12,6 +12,7 @@ const {
   trackShipment,
   updateLocation,
   updateStatus,
+  assignVehicle,
   createShipment,
   uploadProofOfDelivery,
   getProofOfDeliveryDocument,
@@ -68,6 +69,9 @@ router.put('/:id/location', updateLocation);
 
 // PUT /api/v1/shipments/:id/status - Update status (transporter only)
 router.put('/:id/status', updateStatus);
+
+// PUT /api/v1/shipments/:id/vehicle - Assign/change the vehicle on a shipment
+router.put('/:id/vehicle', assignVehicle);
 
 // POST /api/v1/shipments/:id/proof-of-delivery - Upload POD
 router.post('/:id/proof-of-delivery', podUpload.array('files', 8), uploadProofOfDelivery);

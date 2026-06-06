@@ -1340,6 +1340,10 @@ const JobsView = ({ userFilter, clearUserFilter }) => {
           delivery: booking.route?.delivery?.address || booking.delivery?.address || booking.delivery?.city || 'N/A',
           status: booking.status,
           amount: booking.pricing?.total || booking.pricing?.totals?.total || booking.totalAmount || 0,
+          // Admin-only earnings breakdown of the gross cost.
+          transporterEarnings: booking.pricing?.feeAllocation?.transporter?.amount ?? booking.pricing?.totals?.transporterTotal ?? 0,
+          insuranceEarnings: booking.pricing?.feeAllocation?.insurance?.amount ?? booking.pricing?.totals?.insuranceTotal ?? 0,
+          platformEarnings: booking.pricing?.feeAllocation?.platform?.amount ?? booking.pricing?.totals?.platformTotal ?? 0,
           createdAt: booking.createdAt,
           cargo: booking.cargoDetails?.description || booking.cargoDetails?.type || 'N/A',
           paymentStatus: booking.paymentStatus || booking.payment?.status || 'N/A',
@@ -1432,6 +1436,15 @@ const JobsView = ({ userFilter, clearUserFilter }) => {
               <div className="detail-item"><DollarSign className="icon" /><div><label>Method</label><p>{selectedJob.paymentMethod?.replace(/_/g, ' ')}</p></div></div>
               <div className="detail-item"><MapPin className="icon" /><div><label>Pickup</label><p>{selectedJob.pickup}</p></div></div>
               <div className="detail-item"><MapPin className="icon" /><div><label>Delivery</label><p>{selectedJob.delivery}</p></div></div>
+            </div>
+
+            {/* Admin-only earnings breakdown of the gross booking cost */}
+            <div className="earnings-breakdown">
+              <h4>Cost Breakdown (admin only)</h4>
+              <div className="detail-row"><label>Gross Cost</label><span>${Number(selectedJob.amount || 0).toLocaleString()}</span></div>
+              <div className="detail-row"><label>Transporter Earnings</label><span>${Number(selectedJob.transporterEarnings || 0).toLocaleString()}</span></div>
+              <div className="detail-row"><label>Insurance Earnings</label><span>${Number(selectedJob.insuranceEarnings || 0).toLocaleString()}</span></div>
+              <div className="detail-row"><label>PalmTrent Earnings</label><span>${Number(selectedJob.platformEarnings || 0).toLocaleString()}</span></div>
             </div>
             {trackingLoading && <div className="settings-empty">Loading tracking details...</div>}
             {trackingDetails && (

@@ -10,13 +10,29 @@ import {
   Dimensions,
   ActivityIndicator,
   Linking,
-  Alert
+  Alert,
+  Modal,
+  FlatList
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../hook/useAuth';
 import apiService from '../services/apiService';
 
 const { width } = Dimensions.get('window');
+
+const formatMemberSince = (value) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+};
+
+const formatPickupDate = (value) => {
+  if (!value) return 'TBD';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString();
+};
 
 const isUserVerifiedForJobs = (user) => (
   user?.isVerified ||
@@ -39,6 +55,9 @@ const JobDetailsScreen = ({ navigation, route }) => {
   const [bookingData, setBookingData] = useState(null);
   const [subscription, setSubscription] = useState(null);
   const [subscriptionLoading, setSubscriptionLoading] = useState(true);
+  const [showVehicleModal, setShowVehicleModal] = useState(false);
+  const [vehicleOptions, setVehicleOptions] = useState([]);
+  const [assigningVehicle, setAssigningVehicle] = useState(false);
 
   const isTransporter = user?.userType === 'transporter';
   const isShipper = user?.userType === 'shipper' || !user?.userType;
@@ -164,15 +183,50 @@ const JobDetailsScreen = ({ navigation, route }) => {
       to: jobData.route?.delivery?.address || jobData.deliveryLocation?.address || jobData.route?.to || 'Delivery'
     },
     distance: jobData.route?.distance || jobData.distance || 0,
-    earnings: jobData.pricing?.totals?.transporterTotal || jobData.earnings || 0,
+    earnings: jobData.transporterEarnings
+      ?? jobData.pricing?.feeAllocation?.transporter?.amount
+      ?? jobData.pricing?.totals?.transporterTotal
+      ?? jobData.earnings
+      ?? 0,
     totalPrice: jobData.pricing?.totals?.total || jobData.totalPrice || jobData.totalAmount || 0,
     status: jobData.status || 'pending',
     shipper: jobData.shipper || jobData.user || { name: 'Customer', rating: 0 },
     transporter: jobData.transporter,
     cargoDetails: jobData.cargoDetails || { type: 'General', weight: 0 },
-    pickup: jobData.pickup || {
-      date: jobData.route?.pickup?.date || 'TBD',
-      time: 'TBD'
+    pickup: {
+      date: formatPickupDate(jobData.route?.pickup?.date || jobData.pickupDate || jobData.pickup?.date),
+      time: jobData.route?.pickup?.timeWindow || jobData.pickupTimeWindow || jobData.pickup?.time || 'TBD'
+    }
+  };
+
+  const shipmentId = route.params?.shipmentId || jobData.shipmentId;
+  const canAssignVehicle = isTransporter && Boolean(shipmentId) && displayData.status !== 'finding_transporter';
+
+  const openVehicleAssign = async () => {
+    setShowVehicleModal(true);
+    try {
+      const response = await apiService.getVehicles('status=available');
+      setVehicleOptions(response.data || []);
+    } catch (error) {
+      Alert.alert('Vehicles', error.message || 'Could not load your vehicles.');
+    }
+  };
+
+  const assignVehicle = async (vehicleId) => {
+    if (!shipmentId) return;
+    setAssigningVehicle(true);
+    try {
+      const response = await apiService.assignVehicleToShipment(shipmentId, vehicleId);
+      if (response.success) {
+        Alert.alert('Vehicle assigned', 'The vehicle was assigned to this job.');
+        setShowVehicleModal(false);
+      } else {
+        Alert.alert('Assign failed', response.message || 'Could not assign the vehicle.');
+      }
+    } catch (error) {
+      Alert.alert('Assign failed', error.message || 'Could not assign the vehicle.');
+    } finally {
+      setAssigningVehicle(false);
     }
   };
 
@@ -300,15 +354,20 @@ const JobDetailsScreen = ({ navigation, route }) => {
                   <Text style={styles.tripsText}>• {jobData.shipper?.trips || jobData.user?.completedTrips || 0} trips</Text>
                 </View>
               </View>
-              <View style={styles.onTimeBadge}>
-                <Text style={styles.onTimeText}>100% on-time</Text>
-              </View>
+              {(jobData.shipper?.onTimeRate ?? jobData.user?.onTimeRate) != null && (
+                <View style={styles.onTimeBadge}>
+                  <Text style={styles.onTimeText}>{jobData.shipper?.onTimeRate ?? jobData.user?.onTimeRate}% on-time</Text>
+                </View>
+              )}
             </View>
 
-            <View style={styles.shipperDetails}>
-              <Text style={styles.shipperDetail}>Payment History: Excellent ✓</Text>
-              <Text style={styles.shipperDetail}>Member since: Jan 2025</Text>
-            </View>
+            {(jobData.shipper?.memberSince || jobData.shipper?.createdAt || jobData.user?.createdAt) && (
+              <View style={styles.shipperDetails}>
+                <Text style={styles.shipperDetail}>
+                  Member since: {formatMemberSince(jobData.shipper?.memberSince || jobData.shipper?.createdAt || jobData.user?.createdAt)}
+                </Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -333,7 +392,7 @@ const JobDetailsScreen = ({ navigation, route }) => {
               <DetailRow label="Method" value="Digital (Escrow) ✓" highlight />
               <DetailRow label="Platform Fee" value="Paid by shipper" />
               <DetailRow label="Release" value="24 hours after delivery" />
-              <DetailRow label="Your Payout" value={`$${jobData.earnings} to your account`} />
+              <DetailRow label="Your Payout" value={`$${displayData.earnings} to your account`} />
             </View>
           </View>
         </View>
@@ -359,30 +418,50 @@ const JobDetailsScreen = ({ navigation, route }) => {
         {/* Actions - User Type Aware */}
         <View style={styles.section}>
           {isTransporter ? (
-            // Transporter Actions
+            // Transporter Actions — only offer "Accept" while the job is still
+            // open. Once accepted/assigned, offer tracking instead.
             <View style={styles.actionButtonsColumn}>
-              {accessBlocker ? (
-                <View style={styles.accessNotice}>
-                  <MaterialIcons
-                    name={transporterVerified ? 'workspace-premium' : 'verified-user'}
-                    size={22}
-                    color="#0C2D48"
-                  />
-                  <Text style={styles.accessNoticeText}>{accessBlocker}</Text>
-                </View>
-              ) : null}
-              <TouchableOpacity
-                style={[styles.acceptButton, accessBlocker && styles.acceptButtonDisabled]}
-                onPress={() => {
-                  if (accessBlocker) {
-                    Alert.alert('Action Required', accessBlocker);
-                    return;
-                  }
-                  navigateTo('AcceptJobConfirmation', { job: jobData });
-                }}
-              >
-                <Text style={styles.acceptButtonText}>{accessBlocker ? 'View Only' : 'Accept Job'}</Text>
-              </TouchableOpacity>
+              {displayData.status === 'finding_transporter' ? (
+                <>
+                  {accessBlocker ? (
+                    <View style={styles.accessNotice}>
+                      <MaterialIcons
+                        name={transporterVerified ? 'workspace-premium' : 'verified-user'}
+                        size={22}
+                        color="#0C2D48"
+                      />
+                      <Text style={styles.accessNoticeText}>{accessBlocker}</Text>
+                    </View>
+                  ) : null}
+                  <TouchableOpacity
+                    style={[styles.acceptButton, accessBlocker && styles.acceptButtonDisabled]}
+                    onPress={() => {
+                      if (accessBlocker) {
+                        Alert.alert('Action Required', accessBlocker);
+                        return;
+                      }
+                      navigateTo('AcceptJobConfirmation', { job: jobData });
+                    }}
+                  >
+                    <Text style={styles.acceptButtonText}>{accessBlocker ? 'View Only' : 'Accept Job'}</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <TouchableOpacity
+                    style={styles.acceptButton}
+                    onPress={() => navigateTo('TrackShipment', { shipmentId: shipmentId, bookingId: jobData.booking?._id || jobData.booking || jobData._id })}
+                  >
+                    <Text style={styles.acceptButtonText}>Track Job</Text>
+                  </TouchableOpacity>
+                  {canAssignVehicle && (
+                    <TouchableOpacity style={styles.assignVehicleBtn} onPress={openVehicleAssign}>
+                      <MaterialIcons name="local-shipping" size={18} color="#0C2D48" />
+                      <Text style={styles.assignVehicleBtnText}>Assign / Change Vehicle</Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              )}
             </View>
           ) : (
             // Shipper Actions
@@ -448,6 +527,33 @@ const JobDetailsScreen = ({ navigation, route }) => {
         {/* Bottom Padding */}
         <View style={styles.bottomPadding} />
       </ScrollView>
+
+      {/* Assign / change vehicle modal */}
+      <Modal visible={showVehicleModal} transparent animationType="slide" onRequestClose={() => setShowVehicleModal(false)}>
+        <View style={styles.vehicleModalOverlay}>
+          <View style={styles.vehicleModalContent}>
+            <Text style={styles.vehicleModalTitle}>Assign Vehicle</Text>
+            <FlatList
+              data={vehicleOptions}
+              keyExtractor={(item) => item._id}
+              style={{ maxHeight: 320 }}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={styles.vehicleOption} disabled={assigningVehicle} onPress={() => assignVehicle(item._id)}>
+                  <MaterialIcons name="local-shipping" size={20} color="#0C2D48" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.vehicleOptionTitle}>{item.registrationNumber}</Text>
+                    <Text style={styles.vehicleOptionSub}>{[item.make, item.model].filter(Boolean).join(' ')}</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={<Text style={styles.vehicleEmpty}>No available vehicles. Add or free up a vehicle in Fleet first.</Text>}
+            />
+            <TouchableOpacity style={styles.vehicleModalClose} onPress={() => setShowVehicleModal(false)}>
+              <Text style={styles.vehicleModalCloseText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -463,6 +569,27 @@ const DetailRow = ({ label, value, highlight }) => (
 );
 
 const styles = StyleSheet.create({
+  assignVehicleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 12,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#0C2D48',
+  },
+  assignVehicleBtnText: { color: '#0C2D48', fontSize: 15, fontWeight: '700' },
+  vehicleModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  vehicleModalContent: { backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 },
+  vehicleModalTitle: { fontSize: 18, fontWeight: '800', color: '#0f172a', marginBottom: 12 },
+  vehicleOption: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
+  vehicleOptionTitle: { fontSize: 15, fontWeight: '700', color: '#1f2937' },
+  vehicleOptionSub: { fontSize: 13, color: '#6b7280', marginTop: 2 },
+  vehicleEmpty: { color: '#64748b', fontSize: 14, paddingVertical: 20, textAlign: 'center' },
+  vehicleModalClose: { marginTop: 14, paddingVertical: 14, alignItems: 'center', backgroundColor: '#f3f4f6', borderRadius: 12 },
+  vehicleModalCloseText: { color: '#374151', fontWeight: '700' },
   container: {
     flex: 1,
     backgroundColor: '#f9fafb',

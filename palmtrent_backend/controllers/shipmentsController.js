@@ -3,8 +3,11 @@ const Booking = require('../models/Booking');
 const Rating = require('../models/Rating');
 const User = require('../models/User');
 const Driver = require('../models/Driver');
+const Vehicle = require('../models/Vehicle');
 const { validationResult } = require('express-validator');
-const { assertShipmentTransition } = require('../services/flowControlService');
+const { assertShipmentTransition, assertVehicleAssignable } = require('../services/flowControlService');
+
+const ACTIVE_SHIPMENT_STATUSES = ['assigned', 'en_route_pickup', 'picked_up', 'in_transit', 'arrived_delivery'];
 const { recordAudit } = require('../services/auditService');
 const { finalizeUploadedFiles } = require('../services/uploadFinalizationService');
 const podService = require('../services/podService');
@@ -427,6 +430,80 @@ exports.updateStatus = async (req, res) => {
       message: 'Error updating shipment status',
       error: error.message
     });
+  }
+};
+
+// Assign (or change) the vehicle carrying a shipment. Only the assigned
+// transporter (or an admin) may do this. The vehicle must belong to the
+// transporter, be compliant/available, and not already be on another active job.
+exports.assignVehicle = async (req, res) => {
+  try {
+    const { vehicleId } = req.body;
+    if (!vehicleId) {
+      return res.status(400).json({ success: false, message: 'vehicleId is required' });
+    }
+
+    const shipment = await Shipment.findById(req.params.id);
+    if (!shipment) {
+      return res.status(404).json({ success: false, message: 'Shipment not found' });
+    }
+
+    const userId = idOf(req.user._id || req.user.id);
+    const isTransporter = idOf(shipment.transporter) === userId;
+    if (req.user.userType !== 'admin' && !isTransporter) {
+      return res.status(403).json({ success: false, message: 'Not authorized to assign a vehicle to this shipment' });
+    }
+
+    if (idOf(shipment.vehicle) === idOf(vehicleId)) {
+      const current = await Shipment.findById(shipment._id).populate('vehicle', 'registrationNumber make model capacity');
+      return res.status(200).json({ success: true, message: 'Vehicle already assigned', data: current });
+    }
+
+    const ownerId = isTransporter ? (req.user._id || req.user.id) : shipment.transporter;
+    if (!ownerId) {
+      return res.status(400).json({ success: false, message: 'Shipment has no transporter to own the vehicle' });
+    }
+
+    // Validates ownership, compliance, and that the vehicle is free.
+    await assertVehicleAssignable(vehicleId, ownerId);
+
+    const vehicle = await Vehicle.findById(vehicleId).select('_id assignedDriver');
+    const previousVehicleId = shipment.vehicle;
+
+    shipment.vehicle = vehicleId;
+    if (vehicle?.assignedDriver) shipment.assignedDriver = vehicle.assignedDriver;
+    await shipment.save();
+
+    // The newly assigned vehicle is now in use; free the previous one if it is
+    // no longer carrying any active shipment.
+    await Vehicle.findByIdAndUpdate(vehicleId, { status: 'in_use' });
+    if (previousVehicleId && idOf(previousVehicleId) !== idOf(vehicleId)) {
+      const stillActive = await Shipment.findOne({
+        vehicle: previousVehicleId,
+        status: { $in: ACTIVE_SHIPMENT_STATUSES }
+      }).select('_id');
+      if (!stillActive) await Vehicle.findByIdAndUpdate(previousVehicleId, { status: 'available' });
+    }
+
+    await recordAudit({
+      actor: req.user,
+      action: 'shipment.vehicle_assigned',
+      entityType: 'Shipment',
+      entityId: shipment._id,
+      entityRef: shipment.bookingReference,
+      before: { vehicle: previousVehicleId },
+      after: { vehicle: vehicleId },
+      req
+    });
+
+    const populated = await Shipment.findById(shipment._id)
+      .populate('vehicle', 'registrationNumber make model capacity')
+      .populate('assignedDriver', 'fullName phone');
+
+    res.status(200).json({ success: true, message: 'Vehicle assigned to shipment', data: populated });
+  } catch (error) {
+    console.error('Assign vehicle error:', error);
+    res.status(400).json({ success: false, message: error.message || 'Failed to assign vehicle to shipment' });
   }
 };
 

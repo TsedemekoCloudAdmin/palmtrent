@@ -72,33 +72,41 @@ const AvailableJobsScreen = ({ navigation, onNavigate }) => {
 
       if (response.success && response.data) {
         // Transform API data to match UI structure
-        const transformedJobs = response.data.map(job => ({
-          id: job._id,
-          bookingReference: job.bookingReference || job._id,
-          route: {
-            from: job.route?.pickup?.city || job.route?.pickup?.address || 'Unknown',
-            to: job.route?.delivery?.city || job.route?.delivery?.address || 'Unknown'
-          },
-          distance: job.route?.distance || 0,
-          cargo: job.cargoDetails?.description || `${job.cargoDetails?.weight || 0} kg cargo`,
-          earnings: job.pricing?.totals?.transporterTotal || job.pricing?.totals?.total || 0,
-          shipper: {
-            name: job.shipper?.fullName || job.shipper?.name || 'Shipper',
-            rating: job.shipper?.rating?.average || 4.5,
-            trips: job.shipper?.rating?.count || 0
-          },
-          pickup: {
-            date: formatPickupDate(job.route?.pickup?.date),
-            time: job.route?.pickup?.time || 'Flexible'
-          },
-          payment: job.payment?.method || 'digital',
-          expiresIn: calculateExpiresIn(job.createdAt),
-          recommended: job.pricing?.totals?.transporterTotal > 300,
-          returnLoads: 0,
-          cargoDetails: job.cargoDetails,
-          insurance: job.insurance,
-          rawData: job
-        }));
+        const transformedJobs = response.data.map(job => {
+          const earnings = job.transporterEarnings
+            ?? job.pricing?.feeAllocation?.transporter?.amount
+            ?? job.pricing?.totals?.transporterTotal
+            ?? job.amount
+            ?? 0;
+          return {
+            id: job._id,
+            bookingReference: job.bookingReference || job._id,
+            route: {
+              from: job.route?.pickup?.address || job.route?.pickup?.city || job.origin || 'Unknown',
+              to: job.route?.delivery?.address || job.route?.delivery?.city || job.destination || 'Unknown'
+            },
+            distance: job.route?.distance || 0,
+            duration: job.route?.estimatedDuration || '',
+            cargo: job.cargoDetails?.description || `${job.cargoDetails?.weight || 0} kg cargo`,
+            earnings,
+            shipper: {
+              name: job.shipper?.fullName || job.shipper?.name || 'Shipper',
+              rating: job.shipper?.rating?.average || 0,
+              trips: job.shipper?.rating?.count || 0
+            },
+            pickup: {
+              date: formatPickupDate(job.route?.pickup?.date),
+              time: job.route?.pickup?.timeWindow || 'Flexible'
+            },
+            payment: job.payment?.method || 'digital',
+            expiresIn: calculateExpiresIn(job.createdAt),
+            recommended: earnings > 300,
+            returnLoads: 0,
+            cargoDetails: job.cargoDetails,
+            insurance: job.insurance,
+            rawData: job
+          };
+        });
         setJobs(transformedJobs);
       } else {
         setJobs([]);
@@ -387,7 +395,7 @@ const JobCard = ({ job, onAccept, onViewDetails, onViewMap, accessBlocker }) => 
       {/* Header */}
       <View style={styles.jobHeader}>
         <View style={styles.jobIdContainer}>
-          <Text style={styles.jobId}>{job.id}</Text>
+          <Text style={styles.jobId}>{job.bookingReference}</Text>
           {job.recommended && (
             <View style={styles.recommendedBadge}>
               <MaterialIcons name="star" size={12} color="#92400e" />
@@ -409,7 +417,7 @@ const JobCard = ({ job, onAccept, onViewDetails, onViewMap, accessBlocker }) => 
             {job.route.from} → {job.route.to}
           </Text>
           <Text style={styles.routeDetails}>
-            {job.distance} km • {Math.round(job.distance / 60)} hours
+            {Number(job.distance || 0).toFixed(2)} km{job.duration ? ` • ${job.duration}` : ''}
           </Text>
         </View>
       </View>

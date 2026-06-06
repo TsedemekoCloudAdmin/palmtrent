@@ -33,8 +33,8 @@ const validateRegistration = [
     // Removed the complex password validation for now to simplify
   
   body('userType')
-    .isIn(['shipper', 'transporter', 'trailer_owner', 'corporate'])
-    .withMessage('User type must be shipper, transporter, trailer_owner, or corporate'),
+    .isIn(['shipper', 'transporter', 'trailer_owner', 'rental_owner', 'driver', 'roadside_provider', 'corporate'])
+    .withMessage('User type must be shipper, transporter, trailer_owner, rental_owner, driver, roadside_provider, or corporate'),
   
   handleValidationErrors
 ];

@@ -11,13 +11,35 @@ import {
   Alert,
   ActivityIndicator,
   RefreshControl,
-  Linking
+  Linking,
+  Modal,
+  FlatList
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import MapView, { Marker } from 'react-native-maps';
 import useAuth from '../hook/useAuth';
 import apiService from '../services/apiService';
+import socketService from '../services/socketService';
 
 const { width } = Dimensions.get('window');
+
+// Convert a GeoJSON [lng, lat] pair into a { latitude, longitude } map coord,
+// ignoring unset [0,0] placeholders.
+const toLatLng = (coordinates) => {
+  if (!Array.isArray(coordinates) || coordinates.length < 2) return null;
+  const [lng, lat] = coordinates;
+  if (!lat || !lng) return null;
+  return { latitude: lat, longitude: lng };
+};
+
+// Forward status actions the transporter can take from the tracking screen.
+const TRANSPORTER_NEXT_ACTION = {
+  assigned: { label: 'Start Pickup Trip', next: 'en_route_pickup' },
+  transporter_assigned: { label: 'Start Pickup Trip', next: 'en_route_pickup' },
+  en_route_pickup: { label: 'Mark Picked Up', next: 'picked_up' },
+  picked_up: { label: 'Start Transit', next: 'in_transit' },
+  in_transit: { label: 'Arrived at Delivery', next: 'arrived_delivery' }
+};
 
 // Status Step Component for waiting states
 const StatusStep = ({ label, completed, active }) => (
@@ -83,6 +105,10 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [liveLocation, setLiveLocation] = useState(null);
+  const [showVehicleModal, setShowVehicleModal] = useState(false);
+  const [vehicleOptions, setVehicleOptions] = useState([]);
+  const [assigningVehicle, setAssigningVehicle] = useState(false);
 
   const isTrailerOwner = user?.userType === 'trailer_owner';
 
@@ -159,27 +185,34 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
           if (shipment) {
             const distance = shipment.route?.distance || 0;
             const progress = calculateProgress(shipment);
-            const covered = Math.round(distance * (progress / 100));
+            const covered = distance * (progress / 100);
 
             setJobDetails({
               id: shipment.bookingReference || shipment._id,
               shipmentId: shipment._id,
+              bookingId: shipment.booking?._id || shipment.booking,
               status: shipment.status,
               progress,
               isRental: false,
+              weight: shipment.cargoDetails?.weight ?? null,
+              cargoType: shipment.cargoDetails?.type || '',
               driver: {
-                name: shipment.transporter?.name || shipment.driver?.name || 'Transporter',
-                rating: shipment.transporter?.rating?.average || 4.5,
+                name: shipment.transporter?.fullName || shipment.transporter?.name || shipment.driver?.name || 'Transporter',
+                rating: shipment.transporter?.rating?.average ?? 0,
+                trips: shipment.transporter?.rating?.count ?? 0,
                 phone: shipment.transporter?.phone || 'Not available',
-                vehicle: shipment.vehicle?.registration || 'Not assigned'
+                vehicle: shipment.vehicle?.registrationNumber || shipment.vehicle?.registration || 'Not assigned'
               },
               route: {
                 from: shipment.route?.pickup?.address || shipment.route?.pickup?.city || 'Pickup',
                 to: shipment.route?.delivery?.address || shipment.route?.delivery?.city || 'Delivery',
                 distance,
                 covered,
-                remaining: distance - covered
+                remaining: Math.max(distance - covered, 0),
+                pickupCoords: toLatLng(shipment.route?.pickup?.coordinates?.coordinates),
+                deliveryCoords: toLatLng(shipment.route?.delivery?.coordinates?.coordinates)
               },
+              currentCoords: toLatLng(shipment.currentLocation?.coordinates),
               timing: {
                 started: formatTime(shipment.timeline?.pickedUpAt),
                 eta: calculateETA(shipment),
@@ -246,23 +279,51 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
     return () => clearInterval(interval);
   }, [fetchShipmentData]);
 
+  // Subscribe to real-time location updates over the socket for this job.
+  useEffect(() => {
+    const trackingKey = jobDetails?.bookingId || jobDetails?.shipmentId || shipmentId || bookingId;
+    if (!trackingKey) return undefined;
+
+    let active = true;
+    const subscribe = async () => {
+      if (!socketService.getConnectionStatus().isConnected) {
+        await socketService.connect();
+      }
+      if (!active) return;
+      socketService.subscribeToTracking(trackingKey, (data) => {
+        if (data?.latitude != null && data?.longitude != null) {
+          setLiveLocation({ latitude: data.latitude, longitude: data.longitude, timestamp: data.timestamp });
+        }
+      });
+    };
+    subscribe();
+
+    return () => {
+      active = false;
+      socketService.unsubscribeFromTracking(trackingKey);
+    };
+  }, [jobDetails?.bookingId, jobDetails?.shipmentId, shipmentId, bookingId]);
+
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     fetchShipmentData();
   }, [fetchShipmentData]);
 
   const calculateProgress = (shipment) => {
+    // Progress reflects how far the load has actually moved. Nothing has started
+    // until the driver is en route, so pre-pickup statuses are 0%.
     const statusProgress = {
       'pending': 0,
-      'payment_confirmed': 5,
-      'finding_transporter': 10,
-      'transporter_assigned': 15,
-      'assigned': 15,
-      'en_route_pickup': 25,
-      'picked_up': 40,
+      'payment_confirmed': 0,
+      'finding_transporter': 0,
+      'transporter_assigned': 0,
+      'assigned': 0,
+      'matched': 0,
+      'en_route_pickup': 10,
+      'picked_up': 30,
       'in_transit': 60,
-      'arrived_delivery': 85,
-      'delivered': 95,
+      'arrived_delivery': 90,
+      'delivered': 100,
       'completed': 100
     };
     return statusProgress[shipment.status] || 0;
@@ -338,7 +399,55 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
   };
 
   const handleMessageDriver = () => {
-    navigateTo('Chat', { driver: jobDetails.driver });
+    navigateTo('Chat', {
+      bookingId: jobDetails.bookingId || jobDetails.rawData?.booking?._id || jobDetails.rawData?.booking,
+      recipientName: jobDetails.driver?.name
+    });
+  };
+
+  const openVehicleAssign = async () => {
+    setShowVehicleModal(true);
+    try {
+      const response = await apiService.getVehicles('status=available');
+      setVehicleOptions(response.data || []);
+    } catch (err) {
+      Alert.alert('Vehicles', err.message || 'Could not load your vehicles.');
+    }
+  };
+
+  const assignVehicle = async (vehicleId) => {
+    if (!jobDetails?.shipmentId) return;
+    setAssigningVehicle(true);
+    try {
+      const response = await apiService.assignVehicleToShipment(jobDetails.shipmentId, vehicleId);
+      if (response.success) {
+        Alert.alert('Vehicle assigned', 'The vehicle was assigned to this job.');
+        setShowVehicleModal(false);
+        fetchShipmentData();
+      } else {
+        Alert.alert('Assign failed', response.message || 'Could not assign the vehicle.');
+      }
+    } catch (err) {
+      Alert.alert('Assign failed', err.message || 'Could not assign the vehicle.');
+    } finally {
+      setAssigningVehicle(false);
+    }
+  };
+
+  // Transporter advances the shipment through its lifecycle (e.g. "Mark Picked Up").
+  const advanceShipmentStatus = async (nextStatus, label) => {
+    if (!jobDetails?.shipmentId) return;
+    try {
+      const response = await apiService.updateStatus(jobDetails.shipmentId, nextStatus, `${label} by transporter`);
+      if (response.success) {
+        Alert.alert('Updated', `${label} confirmed.`);
+        fetchShipmentData();
+      } else {
+        Alert.alert('Update failed', response.message || 'Could not update the shipment.');
+      }
+    } catch (err) {
+      Alert.alert('Update failed', err.message || 'Could not update the shipment.');
+    }
   };
 
   const handleShareTracking = () => {
@@ -350,10 +459,13 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
   };
 
   const handleViewFullMap = () => {
-    Alert.alert(
-      'Route Map',
-      `${jobDetails.route.from}\n\nCurrent: ${jobDetails.currentLocation}\n\n${jobDetails.route.to}`
-    );
+    if (liveLocation?.latitude != null && liveLocation?.longitude != null) {
+      const query = `${liveLocation.latitude},${liveLocation.longitude}`;
+      Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`)
+        .catch(() => Alert.alert('Map', 'Unable to open the map.'));
+    } else {
+      Alert.alert('Live location', 'Waiting for the live location to come through. Try again shortly.');
+    }
   };
 
   const getStatusColor = (status) => {
@@ -621,19 +733,51 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
       >
         {/* Map Section */}
         <View style={styles.mapSection}>
-          <View style={styles.mapPlaceholder}>
-            <MaterialIcons name="location-on" size={48} color="#0C2D48" />
-            <Text style={styles.mapTitle}>Live GPS Tracking</Text>
-            <Text style={styles.mapSubtitle}>Real-time location updates</Text>
-          </View>
-          
+          {(() => {
+            const liveCoord = liveLocation || jobDetails.currentCoords;
+            const center = liveCoord || jobDetails.route.pickupCoords || jobDetails.route.deliveryCoords;
+            if (!center) {
+              return (
+                <View style={styles.mapPlaceholder}>
+                  <MaterialIcons name="location-off" size={48} color="#0C2D48" />
+                  <Text style={styles.mapTitle}>Live GPS Tracking</Text>
+                  <Text style={styles.mapSubtitle}>Waiting for location…</Text>
+                </View>
+              );
+            }
+            return (
+              <MapView
+                style={styles.map}
+                region={{ latitude: center.latitude, longitude: center.longitude, latitudeDelta: 0.5, longitudeDelta: 0.5 }}
+              >
+                {jobDetails.route.pickupCoords && (
+                  <Marker coordinate={jobDetails.route.pickupCoords} title="Pickup" description={jobDetails.route.from} pinColor="#16a34a" />
+                )}
+                {jobDetails.route.deliveryCoords && (
+                  <Marker coordinate={jobDetails.route.deliveryCoords} title="Delivery" description={jobDetails.route.to} pinColor="#dc2626" />
+                )}
+                {liveCoord && (
+                  <Marker coordinate={liveCoord} title="Current location">
+                    <View style={styles.marker}>
+                      <MaterialIcons name="local-shipping" size={22} color="#0C2D48" />
+                    </View>
+                  </Marker>
+                )}
+              </MapView>
+            );
+          })()}
+
           {/* Current Location Card */}
           <View style={styles.locationCard}>
             <View style={styles.locationHeader}>
               <MaterialIcons name="navigation" size={20} color="#0C2D48" />
               <Text style={styles.locationLabel}>Current Location</Text>
             </View>
-            <Text style={styles.locationText}>{jobDetails.currentLocation}</Text>
+            <Text style={styles.locationText}>
+              {liveLocation
+                ? `Live • ${Number(liveLocation.latitude).toFixed(5)}, ${Number(liveLocation.longitude).toFixed(5)}`
+                : jobDetails.currentLocation}
+            </Text>
             <TouchableOpacity style={styles.viewMapButton} onPress={handleViewFullMap}>
               <Text style={styles.viewMapText}>View Full Map</Text>
             </TouchableOpacity>
@@ -657,15 +801,15 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
             
             <View style={styles.progressStats}>
               <View style={styles.progressStat}>
-                <Text style={styles.progressStatValue}>{jobDetails.route.covered} km</Text>
+                <Text style={styles.progressStatValue}>{Number(jobDetails.route.covered || 0).toFixed(2)} km</Text>
                 <Text style={styles.progressStatLabel}>Covered</Text>
               </View>
               <View style={styles.progressStat}>
-                <Text style={styles.progressStatValue}>{jobDetails.route.remaining} km</Text>
+                <Text style={styles.progressStatValue}>{Number(jobDetails.route.remaining || 0).toFixed(2)} km</Text>
                 <Text style={styles.progressStatLabel}>Remaining</Text>
               </View>
               <View style={styles.progressStat}>
-                <Text style={styles.progressStatValue}>{jobDetails.route.distance} km</Text>
+                <Text style={styles.progressStatValue}>{Number(jobDetails.route.distance || 0).toFixed(2)} km</Text>
                 <Text style={styles.progressStatLabel}>Total</Text>
               </View>
             </View>
@@ -713,9 +857,9 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
                 <Text style={styles.timingStatLabel}>ETA</Text>
               </View>
               <View style={styles.timingStat}>
-                <MaterialIcons name="speed" size={16} color="#6b7280" />
-                <Text style={styles.timingStatValue}>62 km/h</Text>
-                <Text style={styles.timingStatLabel}>Avg Speed</Text>
+                <MaterialIcons name="straighten" size={16} color="#6b7280" />
+                <Text style={styles.timingStatValue}>{Number(jobDetails.route.distance || 0).toFixed(2)} km</Text>
+                <Text style={styles.timingStatLabel}>Distance</Text>
               </View>
             </View>
           </View>
@@ -736,8 +880,8 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
                 <Text style={styles.driverName}>{jobDetails.driver.name}</Text>
                 <View style={styles.ratingContainer}>
                   <MaterialIcons name="star" size={16} color="#fbbf24" />
-                  <Text style={styles.ratingText}>{jobDetails.driver.rating}</Text>
-                  <Text style={styles.ratingCount}>• 45 trips</Text>
+                  <Text style={styles.ratingText}>{Number(jobDetails.driver.rating || 0).toFixed(1)}</Text>
+                  <Text style={styles.ratingCount}>• {jobDetails.driver.trips || 0} trips</Text>
                 </View>
               </View>
             </View>
@@ -749,20 +893,18 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
                 <Text style={styles.vehicleLabel}>VEHICLE</Text>
                 <Text style={styles.vehicleText}>{jobDetails.driver.vehicle}</Text>
               </View>
+              {user?.userType === 'transporter' && jobDetails.shipmentId && (
+                <TouchableOpacity style={styles.assignVehicleButton} onPress={openVehicleAssign}>
+                  <MaterialIcons name={jobDetails.driver.vehicle === 'Not assigned' ? 'add' : 'swap-horiz'} size={16} color="#0C2D48" />
+                  <Text style={styles.assignVehicleText}>{jobDetails.driver.vehicle === 'Not assigned' ? 'Assign' : 'Change'}</Text>
+                </TouchableOpacity>
+              )}
             </View>
 
-            {/* Contact Buttons */}
+            {/* Contact Button (message only) */}
             <View style={styles.contactButtons}>
-              <TouchableOpacity 
-                style={[styles.contactButton, styles.callButton]}
-                onPress={handleCallDriver}
-              >
-                <MaterialIcons name="phone" size={20} color="white" />
-                <Text style={styles.contactButtonText}>Call</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[styles.contactButton, styles.messageButton]}
+              <TouchableOpacity
+                style={[styles.contactButton, styles.messageButton, { flex: 1 }]}
                 onPress={handleMessageDriver}
               >
                 <MaterialIcons name="message" size={20} color="white" />
@@ -822,14 +964,28 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
             </TouchableOpacity>
           )}
 
-          {/* Show transporter actions when not completed */}
-          {user?.userType === 'transporter' && jobDetails.status !== 'completed' && (
+          {/* Transporter status-advance action (e.g. Mark Picked Up) */}
+          {user?.userType === 'transporter' && TRANSPORTER_NEXT_ACTION[jobDetails.status] && (
+            <TouchableOpacity
+              style={[styles.actionButton, styles.arriveButton]}
+              onPress={() => {
+                const action = TRANSPORTER_NEXT_ACTION[jobDetails.status];
+                advanceShipmentStatus(action.next, action.label);
+              }}
+            >
+              <MaterialIcons name="check-circle" size={20} color="white" />
+              <Text style={styles.emergencyButtonText}>{TRANSPORTER_NEXT_ACTION[jobDetails.status].label}</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Show delivery checklist when at/near delivery */}
+          {user?.userType === 'transporter' && ['arrived_delivery', 'in_transit'].includes(jobDetails.status) && (
             <TouchableOpacity
               style={[styles.actionButton, styles.arriveButton]}
               onPress={() => navigateTo('DeliveryChecklist', { job: jobDetails })}
             >
               <MaterialIcons name="location-on" size={20} color="white" />
-              <Text style={styles.emergencyButtonText}>Arrived at Destination</Text>
+              <Text style={styles.emergencyButtonText}>Complete Delivery</Text>
             </TouchableOpacity>
           )}
 
@@ -845,6 +1001,40 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
         {/* Reduced bottom padding */}
         <View style={styles.bottomPadding} />
       </ScrollView>
+
+      {/* Assign / change vehicle modal */}
+      <Modal visible={showVehicleModal} transparent animationType="slide" onRequestClose={() => setShowVehicleModal(false)}>
+        <View style={styles.vehicleModalOverlay}>
+          <View style={styles.vehicleModalContent}>
+            <Text style={styles.vehicleModalTitle}>Assign Vehicle</Text>
+            <FlatList
+              data={vehicleOptions}
+              keyExtractor={(item) => item._id}
+              style={{ maxHeight: 320 }}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.vehicleOption}
+                  disabled={assigningVehicle}
+                  onPress={() => assignVehicle(item._id)}
+                >
+                  <MaterialIcons name="local-shipping" size={20} color="#0C2D48" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.vehicleOptionTitle}>{item.registrationNumber}</Text>
+                    <Text style={styles.vehicleOptionSub}>{[item.make, item.model].filter(Boolean).join(' ')}</Text>
+                  </View>
+                  {jobDetails.driver.vehicle === item.registrationNumber && (
+                    <MaterialIcons name="check-circle" size={20} color="#16a34a" />
+                  )}
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={<Text style={styles.vehicleEmpty}>No available vehicles. Add or free up a vehicle in Fleet first.</Text>}
+            />
+            <TouchableOpacity style={styles.vehicleModalClose} onPress={() => setShowVehicleModal(false)}>
+              <Text style={styles.vehicleModalCloseText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -898,6 +1088,84 @@ const styles = StyleSheet.create({
     backgroundColor: '#e5e7eb',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  map: {
+    height: 220,
+    width: '100%',
+  },
+  assignVehicleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: '#0C2D48',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  assignVehicleText: {
+    color: '#0C2D48',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  vehicleModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  vehicleModalContent: {
+    backgroundColor: 'white',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+  },
+  vehicleModalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0f172a',
+    marginBottom: 12,
+  },
+  vehicleOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  vehicleOptionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1f2937',
+  },
+  vehicleOptionSub: {
+    fontSize: 13,
+    color: '#6b7280',
+    marginTop: 2,
+  },
+  vehicleEmpty: {
+    color: '#64748b',
+    fontSize: 14,
+    paddingVertical: 20,
+    textAlign: 'center',
+  },
+  vehicleModalClose: {
+    marginTop: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    backgroundColor: '#f3f4f6',
+    borderRadius: 12,
+  },
+  vehicleModalCloseText: {
+    color: '#374151',
+    fontWeight: '700',
+  },
+  marker: {
+    backgroundColor: 'white',
+    padding: 6,
+    borderRadius: 999,
+    borderWidth: 2,
+    borderColor: '#0C2D48',
   },
   mapTitle: {
     fontSize: 16,

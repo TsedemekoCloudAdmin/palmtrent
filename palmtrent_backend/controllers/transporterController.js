@@ -253,16 +253,30 @@ exports.getRecentActivity = async (req, res) => {
     })
       .sort({ updatedAt: -1 })
       .limit(limit)
-      .select('origin destination status amount updatedAt')
+      .select('origin destination route status amount transporterEarnings pricing updatedAt booking bookingReference')
       .lean();
 
-    const activities = recentShipments.map(shipment => ({
-      id: shipment._id,
-      title: `${shipment.origin} → ${shipment.destination}`,
-      status: shipment.status,
-      date: formatRelativeTime(shipment.updatedAt),
-      amount: `$${shipment.amount || 0}`
-    }));
+    const activities = recentShipments.map(shipment => {
+      // Always present the transporter's EARNINGS here so the amount matches the
+      // job listing and job details (never the gross booking cost).
+      const earnings = shipment.transporterEarnings
+        ?? shipment.pricing?.feeAllocation?.transporter?.amount
+        ?? shipment.pricing?.totals?.transporterTotal
+        ?? shipment.amount
+        ?? 0;
+      const from = shipment.route?.pickup?.address || shipment.origin || 'Pickup';
+      const to = shipment.route?.delivery?.address || shipment.destination || 'Delivery';
+      return {
+        id: shipment._id,
+        shipmentId: shipment._id,
+        bookingId: shipment.booking,
+        bookingReference: shipment.bookingReference,
+        title: `${from} → ${to}`,
+        status: shipment.status,
+        date: formatRelativeTime(shipment.updatedAt),
+        amount: `$${earnings}`
+      };
+    });
 
     res.status(200).json({
       success: true,
@@ -302,14 +316,22 @@ exports.getAvailableJobs = async (req, res) => {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
-      .populate('shipper', 'fullName email phone')
-      .select('origin destination vehicleType amount totalAmount pricing pickupDate deliveryDate cargoDetails')
+      .populate('shipper', 'fullName email phone rating')
+      .select('origin destination vehicleType amount totalAmount pricing pickupDate deliveryDate cargoDetails route bookingReference')
       .lean();
-    const normalizedJobs = jobs.map(job => ({
-      ...job,
-      id: job._id,
-      amount: job.amount || job.totalAmount || job.pricing?.totals?.transporterTotal || job.pricing?.totals?.total || 0
-    }));
+    const normalizedJobs = jobs.map(job => {
+      // Transporter-facing screens must always show the transporter's EARNINGS,
+      // never the gross booking cost. Only admins see the full cost breakdown.
+      const transporterEarnings = job.pricing?.feeAllocation?.transporter?.amount
+        ?? job.pricing?.totals?.transporterTotal
+        ?? 0;
+      return {
+        ...job,
+        id: job._id,
+        transporterEarnings,
+        amount: transporterEarnings
+      };
+    });
 
     const total = await Booking.countDocuments(query);
 
@@ -417,8 +439,11 @@ exports.getJobDetails = async (req, res) => {
           vehicleType: job.vehicles?.[0]?.vehicleType || job.vehicleType,
           cargoDetails: job.cargoDetails,
           pickupDate: job.route?.pickup?.date,
+          pickupTimeWindow: job.route?.pickup?.timeWindow,
           deliveryDate: job.route?.delivery?.date,
-          amount: job.pricing?.totals?.transporterTotal || job.pricing?.totals?.total,
+          route: job.route,
+          amount: job.pricing?.feeAllocation?.transporter?.amount ?? job.pricing?.totals?.transporterTotal ?? 0,
+          transporterEarnings: job.pricing?.feeAllocation?.transporter?.amount ?? job.pricing?.totals?.transporterTotal ?? 0,
           platformFee: job.pricing?.totals?.platformTotal,
           insurance: job.insurance,
           status: job.status,

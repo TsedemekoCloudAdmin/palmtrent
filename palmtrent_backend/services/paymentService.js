@@ -211,7 +211,8 @@ class PaymentService {
       : 'confirmed';
     booking.paymentConfirmedAt = booking.paymentConfirmedAt || payment.confirmedAt || new Date();
 
-    if (['draft', 'pending_payment', 'pending', 'payment_confirmed'].includes(booking.status)) {
+    const shouldBroadcast = ['draft', 'pending_payment', 'pending', 'payment_confirmed'].includes(booking.status);
+    if (shouldBroadcast) {
       booking.status = 'finding_transporter';
     }
 
@@ -225,6 +226,18 @@ class PaymentService {
     }
 
     await this.createShipmentFromBooking(booking._id);
+
+    // The booking just became available. Broadcast it so eligible transporters
+    // receive a push / in-app / WhatsApp "new job" alert. Without this, jobs
+    // confirmed via the payment path silently appeared with no notification.
+    if (shouldBroadcast) {
+      try {
+        const matchingService = require('./matchingService');
+        await matchingService.findAndNotifyTransporters(booking._id);
+      } catch (notifyError) {
+        console.error('Error notifying transporters of new job:', notifyError);
+      }
+    }
   }
 
   async finalizeConfirmedSubscriptionPayment(payment) {

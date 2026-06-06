@@ -106,6 +106,28 @@ exports.getBookingById = async (req, res) => {
   }
 };
 
+// Pickup schedule (date + time window) is mandatory so transporters know when to
+// collect the load. The mobile client sends the time either as a separate
+// `pickupTimeWindow` or embedded in `pickupDate` ("YYYY-MM-DD HH:MM").
+// Returns an error message string, or null when valid.
+function derivePickupTimeWindow(body) {
+  const explicit = String(body?.pickupTimeWindow || '').trim();
+  if (explicit) return explicit;
+  const pickupDate = body?.pickupDate;
+  if (typeof pickupDate === 'string') {
+    const match = pickupDate.match(/\d{1,2}:\d{2}\s*(am|pm)?/i);
+    if (match) return match[0].trim();
+  }
+  return '';
+}
+
+function getPickupScheduleError(body) {
+  if (!body?.pickupDate) return 'Pickup date is required';
+  if (Number.isNaN(new Date(body.pickupDate).getTime())) return 'Pickup date is invalid';
+  if (!derivePickupTimeWindow(body)) return 'Pickup time window is required';
+  return null;
+}
+
 // Create new booking - Merged
 exports.createBooking = async (req, res) => {
   try {
@@ -115,6 +137,11 @@ exports.createBooking = async (req, res) => {
         success: false,
         errors: errors.array()
       });
+    }
+
+    const scheduleError = getPickupScheduleError(req.body);
+    if (scheduleError) {
+      return res.status(400).json({ success: false, message: scheduleError });
     }
 
     console.log("Creating booking with data:");
@@ -168,8 +195,8 @@ function transformFrontendToBackend(frontendData, user) {
   const userId = user.id || user._id;
   const {
     cargoType, weight, cargoValue, specialInstructions, images,
-    pickupLocation, deliveryLocation, pickupDate, 
-    routeInfo, vehicleRecommendation, isCrossBorder, 
+    pickupLocation, deliveryLocation, pickupDate, pickupTimeWindow, deliveryDate,
+    routeInfo, vehicleRecommendation, isCrossBorder,
     paymentMethod, pricing, insurance, bookingType, vehicles = []
   } = frontendData;
   const insuranceSelection = typeof insurance === 'object' && insurance !== null
@@ -209,10 +236,12 @@ function transformFrontendToBackend(frontendData, user) {
       pickup: {
         address: pickupLocation || '',
         date: pickupDate ? new Date(pickupDate) : new Date(),
+        timeWindow: derivePickupTimeWindow(frontendData),
         coordinates: { type: 'Point', coordinates: [0, 0] }
       },
       delivery: {
         address: deliveryLocation || '',
+        deadline: deliveryDate ? new Date(deliveryDate) : undefined,
         coordinates: { type: 'Point', coordinates: [0, 0] }
       },
       distance: routeInfo?.distance || 0,
@@ -510,6 +539,11 @@ exports.createBookingWithPayment = async (req, res) => {
         success: false,
         errors: errors.array()
       });
+    }
+
+    const scheduleError = getPickupScheduleError(req.body);
+    if (scheduleError) {
+      return res.status(400).json({ success: false, message: scheduleError });
     }
 
     console.log("Creating booking with payment:", req.body);

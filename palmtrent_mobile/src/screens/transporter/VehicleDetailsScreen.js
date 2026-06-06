@@ -27,6 +27,9 @@ const VehicleDetailsScreen = () => {
   const [drivers, setDrivers] = useState([]);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedDriver, setSelectedDriver] = useState('');
+  const [showJobModal, setShowJobModal] = useState(false);
+  const [jobShipments, setJobShipments] = useState([]);
+  const [assigningJob, setAssigningJob] = useState(false);
 
   const getRecordLabel = (value, fallback = 'N/A') => {
     if (!value) return fallback;
@@ -84,6 +87,35 @@ const VehicleDetailsScreen = () => {
       setDrivers(Array.from(uniqueDrivers.values()));
     } catch (error) {
       console.error('Load drivers error:', error);
+    }
+  };
+
+  const openAssignToJob = async () => {
+    setShowJobModal(true);
+    try {
+      const response = await apiService.getActiveShipments();
+      setJobShipments(response.data || []);
+    } catch (error) {
+      console.error('Load active shipments error:', error);
+      Alert.alert('Jobs', 'Could not load your active jobs.');
+    }
+  };
+
+  const assignVehicleToJob = async (shipmentId) => {
+    setAssigningJob(true);
+    try {
+      const response = await apiService.assignVehicleToShipment(shipmentId, vehicleId);
+      if (response.success) {
+        Alert.alert('Assigned', 'This vehicle is now assigned to the job.');
+        setShowJobModal(false);
+        loadVehicleDetails();
+      } else {
+        Alert.alert('Assign failed', response.message || 'Could not assign this vehicle to the job.');
+      }
+    } catch (error) {
+      Alert.alert('Assign failed', error.message || 'Could not assign this vehicle to the job.');
+    } finally {
+      setAssigningJob(false);
     }
   };
 
@@ -283,6 +315,17 @@ const VehicleDetailsScreen = () => {
               </Text>
             </TouchableOpacity>
           )}
+        </View>
+
+        {/* Assign to an active job */}
+        <View style={styles.actionButtons}>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.assignButton]}
+            onPress={openAssignToJob}
+          >
+            <MaterialIcons name="local-shipping" size={20} color="#0C2D48" />
+            <Text style={styles.actionButtonText}>Assign to Job</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Vehicle Details */}
@@ -510,6 +553,60 @@ const VehicleDetailsScreen = () => {
                 disabled={!selectedDriver}
               >
                 <Text style={styles.assignModalButtonText}>Assign Driver</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Assign this vehicle to one of the transporter's active jobs */}
+      <Modal
+        visible={showJobModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowJobModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Assign to Job</Text>
+            <FlatList
+              data={jobShipments}
+              keyExtractor={(item) => item._id}
+              style={styles.driversList}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.driverOption}
+                  disabled={assigningJob}
+                  onPress={() => assignVehicleToJob(item._id)}
+                >
+                  <View style={styles.driverOptionInfo}>
+                    <Text style={styles.driverOptionName}>{item.bookingReference || item._id}</Text>
+                    <Text style={styles.driverOptionDetails}>
+                      {(item.route?.pickup?.address || item.origin || 'Pickup')} → {(item.route?.delivery?.address || item.destination || 'Delivery')}
+                    </Text>
+                    <Text style={styles.driverOptionDetails}>
+                      {String(item.status || '').replace(/_/g, ' ')}
+                      {item.vehicle?.registrationNumber ? ` • current: ${item.vehicle.registrationNumber}` : ''}
+                    </Text>
+                  </View>
+                  {item.vehicle?._id === vehicleId && (
+                    <MaterialIcons name="check-circle" size={22} color="#16a34a" />
+                  )}
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={
+                <View style={styles.emptyDrivers}>
+                  <MaterialIcons name="local-shipping" size={34} color="#94a3b8" />
+                  <Text style={styles.emptyDriversText}>No active jobs to assign this vehicle to.</Text>
+                </View>
+              }
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setShowJobModal(false)}
+              >
+                <Text style={styles.cancelButtonText}>Close</Text>
               </TouchableOpacity>
             </View>
           </View>

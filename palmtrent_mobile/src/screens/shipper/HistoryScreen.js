@@ -71,6 +71,8 @@ const HistoryScreen = ({ navigation }) => {
           const shipments = response.data || [];
           bookingData = shipments.map(shipment => ({
             _id: shipment._id,
+            bookingId: shipment.booking?._id || shipment.booking,
+            shipmentId: shipment._id,
             bookingReference: shipment.bookingReference,
             status: shipment.status,
             pickupLocation: { address: shipment.route?.pickup?.address || shipment.origin },
@@ -91,6 +93,8 @@ const HistoryScreen = ({ navigation }) => {
           const shipments = response.data || [];
           bookingData = shipments.map(shipment => ({
             _id: shipment._id,
+            bookingId: shipment.booking?._id || shipment.booking,
+            shipmentId: shipment._id,
             bookingReference: shipment.bookingReference,
             status: shipment.status,
             pickupLocation: { address: shipment.route?.pickup?.address || shipment.origin },
@@ -197,7 +201,12 @@ const HistoryScreen = ({ navigation }) => {
   }, [fetchBookings]);
 
   const handleBookingPress = (booking) => {
-    navigation.navigate('JobDetails', { bookingId: booking._id });
+    // For transporter/driver rows, _id is the shipment id; use the real booking
+    // id so JobDetails (which fetches /bookings/:id) can load.
+    navigation.navigate('JobDetails', {
+      bookingId: booking.bookingId || booking._id,
+      shipmentId: booking.shipmentId
+    });
   };
 
   const formatDate = (dateString) => {

@@ -470,6 +470,13 @@ class ApiService {
     return this.request(`/shipments/driver?scope=${scope}`);
   }
 
+  async assignVehicleToShipment(shipmentId, vehicleId) {
+    return this.request(`/shipments/${shipmentId}/vehicle`, {
+      method: 'PUT',
+      body: JSON.stringify({ vehicleId }),
+    });
+  }
+
   async getAllShipments(page = 1, limit = 10, status = null) {
     let url = `/shipments?page=${page}&limit=${limit}`;
     if (status) {
