@@ -5,10 +5,30 @@ const { getIntegrationConfig } = require('./integrationSettingsService');
 
 const DEFAULT_BASE_URL = 'https://backendservices.clicknpay.africa:2081';
 
+// Centralised, greppable logging of everything the ClicknPay/OpenAPI Africa
+// gateway sends and receives. Search logs for "[ClicknPay]" to trace a payment.
+function logGateway(direction, label, payload) {
+  try {
+    console.log(`[ClicknPay] ${direction} ${label} ${JSON.stringify(payload)}`);
+  } catch (_) {
+    console.log(`[ClicknPay] ${direction} ${label}`, payload);
+  }
+}
+
 function buildGatewayError(error, config, action) {
   const status = error.response?.status;
   const providerMessage = error.response?.data?.message || error.response?.data?.error;
   const networkCodes = ['ENOTFOUND', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN'];
+
+  // Always log the raw failure (provider body, HTTP status, network code) so the
+  // exact reason a payment failed is visible in the server logs.
+  console.error(`[ClicknPay] ✗ ${action} failed ${JSON.stringify({
+    baseUrl: config?.baseUrl,
+    code: error.code,
+    httpStatus: status,
+    providerData: error.response?.data,
+    message: error.message
+  })}`);
 
   const message = networkCodes.includes(error.code)
     ? `ClicknPay/OpenAPI Africa is unreachable from the server (${error.code}) at ${config.baseUrl}. Check the OpenAPI Africa base URL in Admin Settings or try again when the gateway is available.`
@@ -76,6 +96,14 @@ class OpenApiAfricaService {
       returnUrl: config.returnUrl
     };
 
+    logGateway('→', 'POST /payme/orders', {
+      reference: payment.paymentReference,
+      amount,
+      currency: payload.currency,
+      phone: payload.customerPhoneNumber || null,
+      baseUrl: config.baseUrl
+    });
+
     let response;
     try {
       response = await axios.post(`${config.baseUrl}/payme/orders`, payload, {
@@ -83,8 +111,29 @@ class OpenApiAfricaService {
         timeout: 30000
       });
     } catch (error) {
-      throw buildGatewayError(error, config, 'order creation');
+      const gatewayError = buildGatewayError(error, config, 'order creation');
+      payment.metadata = {
+        ...payment.metadata,
+        lastGatewayError: {
+          at: new Date(),
+          action: 'order_creation',
+          httpStatus: error.response?.status,
+          code: error.code,
+          providerData: error.response?.data,
+          message: gatewayError.message
+        }
+      };
+      try { await payment.save(); } catch (_) { /* best-effort */ }
+      throw gatewayError;
     }
+
+    logGateway('←', 'order created', {
+      reference: payment.paymentReference,
+      status: response.data?.status,
+      gatewayReference: response.data?.openapiGatewayReference || response.data?.paymentGatewayReference || response.data?.id,
+      paymeURL: response.data?.paymeURL,
+      acceptedPaymentChannels: response.data?.acceptedPaymentChannels
+    });
 
     payment.status = 'initiated';
     payment.initiatedAt = new Date();
@@ -144,6 +193,14 @@ class OpenApiAfricaService {
       returnUrl: config.returnUrl
     };
 
+    logGateway('→', 'POST /payme/orders', {
+      reference: payment.paymentReference,
+      amount,
+      currency: payload.currency,
+      phone: payload.customerPhoneNumber || null,
+      baseUrl: config.baseUrl
+    });
+
     let response;
     try {
       response = await axios.post(`${config.baseUrl}/payme/orders`, payload, {
@@ -151,8 +208,29 @@ class OpenApiAfricaService {
         timeout: 30000
       });
     } catch (error) {
-      throw buildGatewayError(error, config, 'order creation');
+      const gatewayError = buildGatewayError(error, config, 'order creation');
+      payment.metadata = {
+        ...payment.metadata,
+        lastGatewayError: {
+          at: new Date(),
+          action: 'order_creation',
+          httpStatus: error.response?.status,
+          code: error.code,
+          providerData: error.response?.data,
+          message: gatewayError.message
+        }
+      };
+      try { await payment.save(); } catch (_) { /* best-effort */ }
+      throw gatewayError;
     }
+
+    logGateway('←', 'order created', {
+      reference: payment.paymentReference,
+      status: response.data?.status,
+      gatewayReference: response.data?.openapiGatewayReference || response.data?.paymentGatewayReference || response.data?.id,
+      paymeURL: response.data?.paymeURL,
+      acceptedPaymentChannels: response.data?.acceptedPaymentChannels
+    });
 
     payment.status = 'initiated';
     payment.initiatedAt = new Date();
@@ -196,6 +274,13 @@ class OpenApiAfricaService {
     } catch (error) {
       throw buildGatewayError(error, config, 'status lookup');
     }
+
+    logGateway('←', 'status', {
+      reference: paymentReference,
+      rawStatus: response.data?.status,
+      totalPaid: response.data?.totalPaid,
+      paymentChannel: response.data?.paymentChannel
+    });
 
     const mappedStatus = this.mapStatus(response.data.status);
     const gatewayMetadata = {

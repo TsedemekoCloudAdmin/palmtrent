@@ -36,7 +36,15 @@
       "Bash(grep -E \"\\\\.js$\")",
       "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\sethm\\\\ngrok\\\\logs\\\\palmtrent\\\\palmtrent_backend\" -Recurse -Directory | Select-Object -First 30 | ForEach-Object { $_.Name })",
       "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\sethm\\\\ngrok\\\\logs\\\\palmtrent\\\\palmtrent_mobile\" -Recurse -Include \"TrackingScreen.js\")",
-      "Bash(Select-Object -ExpandProperty FullName)"
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "WebSearch",
+      "WebFetch(domain:paymeapi.docs.apiary.io)",
+      "WebFetch(domain:www.scribd.com)",
+      "Bash(curl -sS -m 20 -o /dev/null -w \"HTTP %{http_code} | dns %{time_namelookup}s connect %{time_connect}s tls %{time_appconnect}s total %{time_total}s\\\\n\" \"https://backendservices.clicknpay.africa:2081/payme/orders\")",
+      "Bash(curl -sS -m 20 -I \"https://backendservices.clicknpay.africa:2081/\")",
+      "Bash(curl -sS -m 25 -X POST https://backendservices.clicknpay.africa:2081/payme/orders -H 'Content-Type: application/json' -d '{\"channel\":\"AUTOMATED\",\"clientReference\":\"PT-TEST-123\",\"currency\":\"USD\",\"customerCharged\":true,\"customerPhoneNumber\":\"+263772000000\",\"description\":\"Palmtrent test\",\"multiplePayments\":false,\"amount\":10,\"totalAmount\":10,\"orderType\":\"DYNAMIC\",\"orderYpe\":\"DYNAMIC\",\"productsList\":[{\"description\":\"test\",\"id\":1,\"price\":10,\"productName\":\"Test\",\"quantity\":1}],\"publicUniqueId\":\"TEST-INVALID-ID\",\"returnUrl\":\"https://app.palmtrent.example/payment/return\"}' -w '\\\\n--- HTTP %{http_code} ---\\\\n')",
+      "Bash(curl -sS -m 20 \"https://backendservices.clicknpay.africa:2081/payme/orders/top-paid/PT-TEST-123\" -w \"\\\\n--- HTTP %{http_code} ---\\\\n\")",
+      "Bash(curl -sS -m 20 \"https://backendservices.clicknpay.africa:2081/payme/orders/top-paid/AhNv2fYx4Fha\" -w \"\\\\n--- HTTP %{http_code} ---\\\\n\")"
     ]
   }
 }

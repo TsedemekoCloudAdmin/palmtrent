@@ -451,7 +451,10 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
               key={index}
               style={styles.searchResultItem}
               onPress={() => {
-                updateField(formField, item.address);
+                // Set the value directly (not via updateField) so we don't
+                // re-trigger the location search, which would immediately
+                // repopulate and reopen this dropdown over the next field.
+                setFormData(prev => ({ ...prev, [formField]: item.address }));
                 setLocationSearchResults(prev => ({ ...prev, [stateKey]: [] }));
               }}
             >

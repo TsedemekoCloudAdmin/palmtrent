@@ -670,9 +670,20 @@ const NewBookingTab = ({ setActiveNav }) => {
       const suitableCargoIds = getRecordIds(trailer.suitableForCargoTypes);
       return selectedCargoId && suitableCargoIds.includes(selectedCargoId);
     });
-  const vehicleTypes = bookingData.cargoType && recommendedVehicles.length
-    ? recommendedVehicles.map(getRecordLabel)
-    : (referenceData.vehicleTypes.length ? referenceData.vehicleTypes.map(getRecordLabel) : defaultVehicleTypes);
+  // recommendedVehicles may be populated objects OR raw ObjectId strings. Resolve
+  // each to a human label (falling back to a lookup in the full vehicle type list)
+  // so the options are never blank and stay selectable.
+  const resolveVehicleLabel = (item) => {
+    const direct = getRecordLabel(item);
+    if (direct) return direct;
+    const id = String(getRecordId(item) || item || '');
+    return getRecordLabel(referenceData.vehicleTypes.find(v => String(getRecordId(v)) === id));
+  };
+  const recommendedVehicleLabels = recommendedVehicles.map(resolveVehicleLabel).filter(Boolean);
+  const allVehicleLabels = referenceData.vehicleTypes.map(getRecordLabel).filter(Boolean);
+  const vehicleTypes = (bookingData.cargoType && recommendedVehicleLabels.length)
+    ? recommendedVehicleLabels
+    : (allVehicleLabels.length ? allVehicleLabels : defaultVehicleTypes);
   const cities = ['Harare', 'Bulawayo', 'Mutare', 'Gweru', 'Masvingo', 'Chinhoyi', 'Victoria Falls', 'Beitbridge'];
 
   const normalizeInsuranceCargoType = (cargoType) => {
