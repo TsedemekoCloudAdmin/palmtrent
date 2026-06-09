@@ -6,7 +6,8 @@ jest.mock('../middleware/auth', () => ({
     req.user = { _id: 'user-1', id: 'user-1', userType: 'admin' };
     next();
   },
-  authorize: () => (req, res, next) => next()
+  authorize: () => (req, res, next) => next(),
+  requireRentalPermission: () => (req, res, next) => next()
 }));
 
 jest.mock('../controllers/vehicleController', () => ({
@@ -34,7 +35,8 @@ jest.mock('../controllers/trailerController', () => ({
   updateTrailerStatus: jest.fn((req, res) => res.status(200).json({ handler: 'updateTrailerStatus' })),
   updateRentalSettings: jest.fn((req, res) => res.status(200).json({ handler: 'updateRentalSettings' })),
   getTrailerRentals: jest.fn(),
-  getAvailableTrailers: jest.fn()
+  getAvailableTrailers: jest.fn(),
+  addMaintenanceRecord: jest.fn()
 }));
 
 jest.mock('../controllers/ratingController', () => ({

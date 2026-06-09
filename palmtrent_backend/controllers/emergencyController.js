@@ -236,6 +236,15 @@ exports.triggerSOS = async (req, res) => {
       parties.forEach(({ party, partyType }) => {
         notificationPromises.push(notifyParty(emergency, party, partyType, user));
       });
+
+      // Also alert the accountable parties over WhatsApp where we have a number.
+      const waRecipients = [...parties.values()]
+        .map(({ party }) => party?.phone)
+        .filter(Boolean);
+      if (waRecipients.length) {
+        const whatsappController = require('./whatsappController');
+        notificationPromises.push(whatsappController.sendSOSAlert(emergency, waRecipients));
+      }
     }
 
     // Execute all notifications

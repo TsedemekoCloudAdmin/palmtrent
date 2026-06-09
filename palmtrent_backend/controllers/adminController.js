@@ -112,9 +112,25 @@ function normalizePlatformRole(value, userType) {
 exports.getDashboardStats = async (req, res) => {
   try {
     const today = new Date();
-    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    const startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-    const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+    // Time-range selector. Variable names kept for minimal churn: startOfMonth =
+    // current period start; startOfLastMonth/endOfLastMonth = preceding window.
+    const range = ['today', 'week', 'month', 'year'].includes(req.query.range) ? req.query.range : 'month';
+    let startOfMonth;
+    let startOfLastMonth;
+    if (range === 'today') {
+      startOfMonth = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      startOfLastMonth = new Date(startOfMonth); startOfLastMonth.setDate(startOfLastMonth.getDate() - 1);
+    } else if (range === 'week') {
+      startOfMonth = new Date(today); startOfMonth.setDate(today.getDate() - 7); startOfMonth.setHours(0, 0, 0, 0);
+      startOfLastMonth = new Date(startOfMonth); startOfLastMonth.setDate(startOfLastMonth.getDate() - 7);
+    } else if (range === 'year') {
+      startOfMonth = new Date(today.getFullYear(), 0, 1);
+      startOfLastMonth = new Date(today.getFullYear() - 1, 0, 1);
+    } else {
+      startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    }
+    const endOfLastMonth = new Date(startOfMonth.getTime() - 1);
 
     // User statistics shown to platform admins should represent customers and
     // subscribers on the platform, not the internal admin accounts.
@@ -127,6 +143,13 @@ exports.getDashboardStats = async (req, res) => {
       ...platformUserQuery,
       createdAt: { $gte: startOfMonth }
     });
+    const newUsersLastMonth = await User.countDocuments({
+      ...platformUserQuery,
+      createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth }
+    });
+    const userGrowth = newUsersLastMonth > 0
+      ? Math.round(((newUsersThisMonth - newUsersLastMonth) / newUsersLastMonth) * 100)
+      : (newUsersThisMonth > 0 ? 100 : 0);
     const pendingVerifications = await User.countDocuments(verificationQueueQuery);
 
     // Booking statistics
@@ -201,6 +224,7 @@ exports.getDashboardStats = async (req, res) => {
           transporters: totalTransporters,
           trailerOwners: totalTrailerOwners,
           newThisMonth: newUsersThisMonth,
+          growth: userGrowth,
           pendingVerifications
         },
         bookings: {

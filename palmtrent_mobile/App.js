@@ -1,5 +1,5 @@
 import 'react-native-gesture-handler';
-import React from 'react';
+import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
 import { AuthProvider } from './src/context/AuthContext';
@@ -7,6 +7,8 @@ import AuthNavigator from './src/navigation/AuthNavigator';
 import AppNavigator from './src/navigation/AppNavigator';
 import ForceChangePasswordScreen from './src/screens/ForceChangePasswordScreen';
 import useAuth from './src/hook/useAuth';
+import pushNotificationService from './src/services/pushNotificationService';
+import { navigationRef, routeFromNotificationData, flushPendingNotificationRoute } from './src/services/notificationRouting';
 
 const StartupLoadingScreen = () => (
   <View style={styles.startupContainer}>
@@ -57,9 +59,27 @@ const Navigation = () => {
 
 // Main App Component
 export default function App() {
+  useEffect(() => {
+    // Route to the relevant screen when a notification is tapped (foreground/
+    // background). setupListeners returns a cleanup function.
+    const cleanup = pushNotificationService.setupListeners(
+      null,
+      (response) => routeFromNotificationData(response?.notification?.request?.content?.data)
+    );
+
+    // Handle the case where the app was launched (cold start) by tapping a push.
+    pushNotificationService.getLastNotificationResponse().then((response) => {
+      if (response) {
+        routeFromNotificationData(response?.notification?.request?.content?.data);
+      }
+    });
+
+    return cleanup;
+  }, []);
+
   return (
     <AuthProvider>
-      <NavigationContainer>
+      <NavigationContainer ref={navigationRef} onReady={flushPendingNotificationRoute}>
         <Navigation />
       </NavigationContainer>
     </AuthProvider>

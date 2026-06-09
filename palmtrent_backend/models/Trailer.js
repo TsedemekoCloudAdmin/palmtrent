@@ -239,6 +239,16 @@ const trailerSchema = new mongoose.Schema({
   },
 
   // Audit Trail
+  maintenanceHistory: [{
+    date: { type: Date, default: Date.now },
+    type: { type: String, default: 'general' },
+    description: String,
+    cost: { type: Number, default: 0 },
+    odometer: Number,
+    performedBy: String,
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    createdAt: { type: Date, default: Date.now }
+  }],
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'

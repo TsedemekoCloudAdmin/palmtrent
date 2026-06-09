@@ -46,7 +46,51 @@ class WhatsAppService {
     return provided.length === expected.length && crypto.timingSafeEqual(provided, expected);
   }
 
-  // Get or create session for a user
+  // Load the session from the DB into the in-memory cache. Call once per inbound
+  // message (await) so state survives restarts and works across instances. After
+  // this, the synchronous getSession/updateSession operate on the warm cache and
+  // persist changes back to the DB best-effort.
+  async loadSession(phoneNumber) {
+    const cached = this.sessions.get(phoneNumber);
+    if (cached && Date.now() - cached.lastActivity < this.sessionTimeout) {
+      cached.lastActivity = Date.now();
+      return cached;
+    }
+    try {
+      const WhatsappSession = require('../models/WhatsappSession');
+      const doc = await WhatsappSession.findOne({ phoneNumber });
+      if (doc && Date.now() - new Date(doc.lastActivity).getTime() < this.sessionTimeout) {
+        const session = {
+          phoneNumber,
+          state: doc.state || 'IDLE',
+          context: doc.context || {},
+          lastActivity: Date.now(),
+          createdAt: doc.createdAt ? new Date(doc.createdAt).getTime() : Date.now()
+        };
+        this.sessions.set(phoneNumber, session);
+        return session;
+      }
+    } catch (error) {
+      console.error('WhatsApp session load error:', error.message);
+    }
+    return this.createSession(phoneNumber);
+  }
+
+  // Persist a session to the DB (best-effort, fire-and-forget).
+  persistSession(session) {
+    try {
+      const WhatsappSession = require('../models/WhatsappSession');
+      WhatsappSession.updateOne(
+        { phoneNumber: session.phoneNumber },
+        { $set: { state: session.state, context: session.context, lastActivity: new Date() } },
+        { upsert: true }
+      ).catch(err => console.error('WhatsApp session persist error:', err.message));
+    } catch (error) {
+      console.error('WhatsApp session persist error:', error.message);
+    }
+  }
+
+  // Get or create session for a user (reads the in-memory cache)
   getSession(phoneNumber) {
     const session = this.sessions.get(phoneNumber);
     if (session && Date.now() - session.lastActivity < this.sessionTimeout) {
@@ -66,6 +110,7 @@ class WhatsAppService {
       createdAt: Date.now()
     };
     this.sessions.set(phoneNumber, session);
+    this.persistSession(session);
     return session;
   }
 
@@ -76,12 +121,19 @@ class WhatsAppService {
     session.context = { ...session.context, ...context };
     session.lastActivity = Date.now();
     this.sessions.set(phoneNumber, session);
+    this.persistSession(session);
     return session;
   }
 
   // Clear session
   clearSession(phoneNumber) {
     this.sessions.delete(phoneNumber);
+    try {
+      const WhatsappSession = require('../models/WhatsappSession');
+      WhatsappSession.deleteOne({ phoneNumber }).catch(() => {});
+    } catch (error) {
+      // best-effort
+    }
   }
 
   // Send text message

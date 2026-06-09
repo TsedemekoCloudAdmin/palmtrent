@@ -276,6 +276,7 @@ const OverviewTab = ({ setActiveNav }) => {
   });
   const [recentBookings, setRecentBookings] = useState([]);
   const [topRoutes, setTopRoutes] = useState([]);
+  const [spendTrend, setSpendTrend] = useState([]);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -291,6 +292,10 @@ const OverviewTab = ({ setActiveNav }) => {
             monthlySpend: statsRes.data.totalSpend || 0,
             onTimeRate: statsRes.data.onTimeRate || '0%'
           });
+          const routes = statsRes.data.topRoutes || [];
+          const maxCount = Math.max(1, ...routes.map(r => r.count || 0));
+          setTopRoutes(routes.map(r => ({ ...r, percentage: Math.round(((r.count || 0) / maxCount) * 100) })));
+          setSpendTrend(statsRes.data.spendTrend || []);
         }
 
         // Fetch recent bookings
@@ -402,24 +407,22 @@ const OverviewTab = ({ setActiveNav }) => {
       <div className="corp-section full-width">
         <div className="corp-section-header">
           <h3>Monthly Spending Trend</h3>
-          <select className="period-select">
-            <option value="6months">Last 6 Months</option>
-            <option value="year">Last Year</option>
-          </select>
         </div>
         <div className="top-routes-list">
-          {topRoutes.length > 0 ? topRoutes.map((item, index) => (
-            <div key={index} className="route-item">
-              <div className="route-info">
-                <span className="route-name">{item.route}</span>
-                <span className="route-count">{item.count} shipment{item.count === 1 ? '' : 's'}</span>
+          {spendTrend.some(m => m.amount > 0) ? (() => {
+            const maxAmount = Math.max(1, ...spendTrend.map(m => m.amount || 0));
+            return spendTrend.map((item, index) => (
+              <div key={index} className="route-item">
+                <div className="route-info">
+                  <span className="route-name">{item.month}</span>
+                  <span className="route-count">${Number(item.amount || 0).toLocaleString()}</span>
+                </div>
+                <div className="route-bar">
+                  <div className="route-bar-fill" style={{ width: `${Math.round(((item.amount || 0) / maxAmount) * 100)}%` }} />
+                </div>
               </div>
-              <div className="route-bar">
-                <div className="route-bar-fill" style={{ width: `${item.percentage || 0}%` }} />
-              </div>
-              <span className="route-percentage">{item.percentage || 0}%</span>
-            </div>
-          )) : (
+            ));
+          })() : (
             <div className="empty-state">
               <Activity className="icon" />
               <p>No spending activity has been recorded for this period.</p>
@@ -669,6 +672,7 @@ const TeamTab = () => {
   const [inviteForm, setInviteForm] = useState({
     fullName: '',
     email: '',
+    phone: '',
     role: 'manager',
     permissions: TEAM_ROLE_DEFAULT_PERMISSIONS.manager
   });
@@ -706,20 +710,26 @@ const TeamTab = () => {
         setTeamMessage('Email address is required.');
         return;
       }
-      await corporateAPI.inviteUser({
+      const response = await corporateAPI.inviteUser({
+        fullName: inviteForm.fullName,
         email: inviteForm.email,
+        phone: inviteForm.phone,
         role: inviteForm.role,
         permissions: inviteForm.permissions
       });
       setInviteForm({
         fullName: '',
         email: '',
+        phone: '',
         role: 'manager',
         permissions: TEAM_ROLE_DEFAULT_PERMISSIONS.manager
       });
       setShowAddMember(false);
       await loadTeam();
-      setTeamMessage('Team member added to the corporate account.');
+      const creds = response?.data?.credentials;
+      setTeamMessage(creds
+        ? `Team member created. Login: ${creds.email} · temporary password: ${creds.temporaryPassword} (also sent by SMS).`
+        : 'Team member added to the corporate account.');
     } catch (error) {
       setTeamMessage(error.message || 'Unable to add team member.');
     }
@@ -850,6 +860,10 @@ const TeamTab = () => {
               <div className="form-group">
                 <label>Email Address</label>
                 <input type="email" placeholder="Enter email address" value={inviteForm.email} onChange={e => setInviteForm(form => ({ ...form, email: e.target.value }))} />
+              </div>
+              <div className="form-group">
+                <label>Phone Number</label>
+                <input type="tel" placeholder="+263 77... (required for new members)" value={inviteForm.phone} onChange={e => setInviteForm(form => ({ ...form, phone: e.target.value }))} />
               </div>
               <div className="form-group">
                 <label>Role</label>

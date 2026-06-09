@@ -152,10 +152,21 @@ exports.createStaffUser = async (req, res) => {
     if (!canAccessRentalOwnerResource(req.user, getRentalOwnerScopeId(req.user))) {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
-    const { fullName, email, phone, password, role = 'agent', permissions = ['rentals:read', 'rentals:write', 'fleet:read'] } = req.body;
+    const { fullName, email, phone, password, role = 'agent' } = req.body;
     if (!fullName || !email || !phone || !password) {
       return res.status(400).json({ success: false, message: 'Full name, email, phone, and password are required' });
     }
+
+    // Permissions are derived from the chosen role (explicit permissions in the
+    // body override). manager = full; agent = rentals; viewer = read-only.
+    const ROLE_PERMISSIONS = {
+      manager: ['rentals:read', 'rentals:write', 'fleet:read', 'fleet:write', 'drivers:read', 'drivers:write', 'staff:manage'],
+      agent: ['rentals:read', 'rentals:write', 'fleet:read'],
+      viewer: ['rentals:read', 'fleet:read']
+    };
+    const permissions = Array.isArray(req.body.permissions) && req.body.permissions.length
+      ? req.body.permissions
+      : (ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.agent);
 
     const staff = await User.create({
       fullName,
@@ -168,7 +179,10 @@ exports.createStaffUser = async (req, res) => {
       rentalStaffRole: role,
       rentalStaffPermissions: permissions,
       isPhoneVerified: true,
-      profileCompleted: true
+      profileCompleted: true,
+      // Owner sets an initial password (UI labels it "Temporary"); force a change
+      // on first login so the staff member owns their own credential.
+      mustChangePassword: true
     });
 
     res.status(201).json({

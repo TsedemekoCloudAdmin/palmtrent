@@ -47,7 +47,12 @@
       "Bash(curl -sS -m 20 \"https://backendservices.clicknpay.africa:2081/payme/orders/top-paid/AhNv2fYx4Fha\" -w \"\\\\n--- HTTP %{http_code} ---\\\\n\")",
       "Bash(grep -n \"getProfile\\\\|corporateAccount\\\\|accountProfile\\\\|\\\\\\\\bprofile\\\\\\\\b\\\\|setProfile\\\\|plan\\\\b\" src/pages/CorporateDashboard.jsx)",
       "Bash(sed -n '1,12p' controllers/trailerController.js)",
-      "Bash(sed -n '25,30p' models/Trailer.js)"
+      "Bash(sed -n '25,30p' models/Trailer.js)",
+      "Bash(grep -n \"createdBy\\\\|timestamps\\\\|}, {\" models/Trailer.js)",
+      "Bash(grep -n \"rental-settings\\\\|updateTrailerStatus\\\\|require\\('../controllers/trailerController'\\)\\\\|{\" routes/trailers.js)",
+      "Bash(npx jest *)",
+      "Bash(sed -n '/const STATES/,/};/p' controllers/whatsappController.js)",
+      "Bash(sed -n '/async function handleText/,/^}/p' controllers/whatsappController.js)"
     ]
   }
 }

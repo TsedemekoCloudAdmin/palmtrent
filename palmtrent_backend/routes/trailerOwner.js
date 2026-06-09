@@ -7,8 +7,7 @@ const {
   getStaffUsers,
   createStaffUser
 } = require('../controllers/trailerOwnersController');
-const { protect } = require('../middleware/auth');
-const { authorize } = require('../middleware/auth');
+const { protect, authorize, requireRentalPermission } = require('../middleware/auth');
 
 // All routes require authentication
 router.use(protect);
@@ -20,5 +19,6 @@ router.get('/dashboard-stats', getDashboardStats);
 
 router.get('/trailers', getTrailers);
 router.get('/staff', getStaffUsers);
-router.post('/staff', createStaffUser);
+// Only owners/managers (staff:manage) may create staff.
+router.post('/staff', requireRentalPermission('staff:manage'), createStaffUser);
 module.exports = router;

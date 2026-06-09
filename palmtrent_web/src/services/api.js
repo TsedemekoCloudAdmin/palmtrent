@@ -396,6 +396,13 @@ export const vehiclesAPI = {
 export const fleetAPI = {
   getDashboard: () => apiFetch('/trailer-owner/dashboard-stats'),
 
+  addMaintenance: (assetId, data) => apiFetch(`/trailers/${assetId}/maintenance`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  getAsset: (assetId) => apiFetch(`/trailers/${assetId}`),
+
   getStaff: () => apiFetch('/trailer-owner/staff'),
 
   createStaff: (data) => apiFetch('/trailer-owner/staff', {
@@ -668,7 +675,7 @@ export const shipperAPI = {
 
 // Admin API
 export const adminAPI = {
-  getDashboardStats: () => apiFetch('/admin/dashboard'),
+  getDashboardStats: (range) => apiFetch(`/admin/dashboard${range ? `?range=${range}` : ''}`),
 
   getUsers: (params = {}) => {
     const queryString = new URLSearchParams(params).toString();

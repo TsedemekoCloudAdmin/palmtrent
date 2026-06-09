@@ -9,9 +9,12 @@ const {
   updateTrailerStatus,
   updateRentalSettings,
   getTrailerRentals,
-  getAvailableTrailers
+  getAvailableTrailers,
+  addMaintenanceRecord
 } = require('../controllers/trailerController');
-const { protect, authorize } = require('../middleware/auth');
+const { protect, authorize, requireRentalPermission } = require('../middleware/auth');
+
+const FLEET_ROLES = ['trailer_owner', 'rental_owner', 'transporter', 'admin'];
 
 // Public routes
 router.get('/available', getAvailableTrailers);
@@ -21,26 +24,29 @@ router.use(protect);
 
 // Trailer CRUD
 router.route('/')
-  .post(authorize('trailer_owner', 'rental_owner', 'transporter', 'admin'), createTrailer);
+  .post(authorize(...FLEET_ROLES), requireRentalPermission('fleet:write'), createTrailer);
 
-router.get('/my-trailers', authorize('trailer_owner', 'rental_owner', 'transporter', 'admin'), getMyTrailers);
-router.get('/my-fleet', authorize('trailer_owner', 'rental_owner', 'transporter', 'admin'), getMyTrailers);
+router.get('/my-trailers', authorize(...FLEET_ROLES), getMyTrailers);
+router.get('/my-fleet', authorize(...FLEET_ROLES), getMyTrailers);
 
 router.route('/:id')
   .get(getTrailerById)
-  .put(updateTrailer)
-  .delete(deleteTrailer);
+  .put(authorize(...FLEET_ROLES), requireRentalPermission('fleet:write'), updateTrailer)
+  .delete(authorize(...FLEET_ROLES), requireRentalPermission('fleet:write'), deleteTrailer);
 
 // Status and settings
 router.route('/:id/status')
-  .patch(authorize('trailer_owner', 'rental_owner', 'transporter', 'admin'), updateTrailerStatus)
-  .put(authorize('trailer_owner', 'rental_owner', 'transporter', 'admin'), updateTrailerStatus);
+  .patch(authorize(...FLEET_ROLES), requireRentalPermission('fleet:write'), updateTrailerStatus)
+  .put(authorize(...FLEET_ROLES), requireRentalPermission('fleet:write'), updateTrailerStatus);
 
 router.route('/:id/rental-settings')
-  .patch(authorize('trailer_owner', 'rental_owner', 'transporter', 'admin'), updateRentalSettings)
-  .put(authorize('trailer_owner', 'rental_owner', 'transporter', 'admin'), updateRentalSettings);
+  .patch(authorize(...FLEET_ROLES), requireRentalPermission('fleet:write'), updateRentalSettings)
+  .put(authorize(...FLEET_ROLES), requireRentalPermission('fleet:write'), updateRentalSettings);
 
 // Trailer rentals
 router.get('/:id/rentals', getTrailerRentals);
+
+// Maintenance records
+router.post('/:id/maintenance', authorize(...FLEET_ROLES), requireRentalPermission('fleet:write'), addMaintenanceRecord);
 
 module.exports = router;

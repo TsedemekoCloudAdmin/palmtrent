@@ -202,6 +202,10 @@ const TrailerOwnerDashboard = () => {
   const [inspectionDialog, setInspectionDialog] = useState(null);
   const [inspectionForm, setInspectionForm] = useState(emptyInspectionForm);
   const [uploadingInspectionPhoto, setUploadingInspectionPhoto] = useState(false);
+  const [maintenanceAsset, setMaintenanceAsset] = useState(null);
+  const [maintenanceHistory, setMaintenanceHistory] = useState([]);
+  const [maintenanceForm, setMaintenanceForm] = useState({ type: '', description: '', cost: '', odometer: '', performedBy: '' });
+  const [savingMaintenance, setSavingMaintenance] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -682,6 +686,44 @@ const TrailerOwnerDashboard = () => {
     }
   };
 
+  const openMaintenance = async (asset) => {
+    setMaintenanceAsset(asset);
+    setMaintenanceHistory(asset.maintenanceHistory || []);
+    setMaintenanceForm({ type: '', description: '', cost: '', odometer: '', performedBy: '' });
+    try {
+      const response = await fleetAPI.getAsset(asset._id);
+      if (response.data?.maintenanceHistory) setMaintenanceHistory(response.data.maintenanceHistory);
+    } catch {
+      // keep whatever we already have
+    }
+  };
+
+  const submitMaintenance = async (event) => {
+    event.preventDefault();
+    if (!maintenanceAsset || !maintenanceForm.description.trim()) {
+      setMessage('Enter a description of the maintenance work.');
+      return;
+    }
+    try {
+      setSavingMaintenance(true);
+      const response = await fleetAPI.addMaintenance(maintenanceAsset._id, {
+        type: maintenanceForm.type.trim() || 'general',
+        description: maintenanceForm.description.trim(),
+        cost: Number(maintenanceForm.cost) || 0,
+        odometer: maintenanceForm.odometer ? Number(maintenanceForm.odometer) : undefined,
+        performedBy: maintenanceForm.performedBy.trim()
+      });
+      setMaintenanceHistory(response.data || []);
+      setMaintenanceForm({ type: '', description: '', cost: '', odometer: '', performedBy: '' });
+      setMessage('Maintenance record added');
+      await loadData();
+    } catch (error) {
+      setMessage(error.message || 'Could not add maintenance record');
+    } finally {
+      setSavingMaintenance(false);
+    }
+  };
+
   const openInspectionDialog = (rental, type) => {
     setInspectionDialog({ rental, type });
     setInspectionForm({
@@ -1042,12 +1084,65 @@ const TrailerOwnerDashboard = () => {
                     <div className="asset-actions">
                       <button onClick={() => updateStatus(asset, 'available')}><CheckCircle className="icon" /> Open For Bookings</button>
                       <button onClick={() => updateStatus(asset, 'maintenance')}><Wrench className="icon" /> Maintenance</button>
+                      {assetTypeFor(asset) !== 'small_vehicle' && (
+                        <button onClick={() => openMaintenance(asset)}><Wrench className="icon" /> Service Log</button>
+                      )}
                     </div>
                   </article>
                 ))}
                 {!fleet.length && <div className="empty-state">No fleet assets yet.</div>}
               </div>
             </section>
+
+            {maintenanceAsset && (
+              <div className="fleet-dialog-backdrop" role="presentation" onMouseDown={() => setMaintenanceAsset(null)}>
+                <section className="fleet-dialog" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
+                  <div className="fleet-dialog-header">
+                    <div>
+                      <h2>Service Log</h2>
+                      <p>{assetRegistration(maintenanceAsset)} — maintenance history</p>
+                    </div>
+                    <button className="dialog-close" type="button" aria-label="Close" onClick={() => setMaintenanceAsset(null)}>
+                      <X className="icon" />
+                    </button>
+                  </div>
+
+                  <div className="asset-list">
+                    {maintenanceHistory.length ? maintenanceHistory.map((record, index) => (
+                      <article className="asset-card" key={record._id || index}>
+                        <div>
+                          <h3>{record.type || 'Maintenance'}</h3>
+                          <p>{record.description}</p>
+                          <span>{record.date ? formatDate(record.date) : ''}{record.performedBy ? ` · ${record.performedBy}` : ''}</span>
+                        </div>
+                        <strong>${Number(record.cost || 0).toLocaleString()}</strong>
+                      </article>
+                    )) : <div className="empty-state">No maintenance records yet.</div>}
+                  </div>
+
+                  <form className="fleet-form" onSubmit={submitMaintenance}>
+                    <label>Type
+                      <input value={maintenanceForm.type} onChange={(e) => setMaintenanceForm({ ...maintenanceForm, type: e.target.value })} placeholder="service, tyres, brakes" />
+                    </label>
+                    <label>Description
+                      <input value={maintenanceForm.description} onChange={(e) => setMaintenanceForm({ ...maintenanceForm, description: e.target.value })} required />
+                    </label>
+                    <div className="form-row">
+                      <label>Cost (USD)
+                        <input type="number" min="0" step="0.01" value={maintenanceForm.cost} onChange={(e) => setMaintenanceForm({ ...maintenanceForm, cost: e.target.value })} />
+                      </label>
+                      <label>Odometer (km)
+                        <input type="number" min="0" value={maintenanceForm.odometer} onChange={(e) => setMaintenanceForm({ ...maintenanceForm, odometer: e.target.value })} />
+                      </label>
+                    </div>
+                    <label>Performed by
+                      <input value={maintenanceForm.performedBy} onChange={(e) => setMaintenanceForm({ ...maintenanceForm, performedBy: e.target.value })} placeholder="Workshop / mechanic" />
+                    </label>
+                    <button className="fleet-primary" disabled={savingMaintenance}>{savingMaintenance ? 'Saving...' : 'Add Maintenance Record'}</button>
+                  </form>
+                </section>
+              </div>
+            )}
 
             {showAddFleetDialog && (
               <div className="fleet-dialog-backdrop" role="presentation" onMouseDown={() => setShowAddFleetDialog(false)}>

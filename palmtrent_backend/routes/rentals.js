@@ -19,7 +19,7 @@ const {
   confirmRentalPayment,
   checkRentalPaymentStatus
 } = require('../controllers/rentalController');
-const { protect } = require('../middleware/auth');
+const { protect, requireRentalPermission } = require('../middleware/auth');
 
 // Public routes
 router.get('/available', getAvailableRentals);
@@ -30,7 +30,7 @@ router.use(protect);
 
 // Rental requests
 router.post('/request', createRentalRequest);
-router.post('/walk-in', createWalkInRental);
+router.post('/walk-in', requireRentalPermission('rentals:write'), createWalkInRental);
 router.get('/my-rentals', getMyRentals);
 router.get('/my-listings', getMyListings);
 router.get('/active', getActiveRentals);
@@ -38,15 +38,15 @@ router.get('/:id/tracking', getRentalTracking);
 router.put('/:id/location', updateRentalLocation);
 router.get('/:id', getRentalById);
 
-// Owner actions
-router.post('/:id/approve', approveRental);
-router.post('/:id/reject', rejectRental);
+// Owner actions (staff need the rentals:write permission)
+router.post('/:id/approve', requireRentalPermission('rentals:write'), approveRental);
+router.post('/:id/reject', requireRentalPermission('rentals:write'), rejectRental);
 router.post('/:id/pay', initiateRentalPayment);
 router.get('/:id/payment-status', checkRentalPaymentStatus);
 router.post('/payment/confirm', confirmRentalPayment);
 
 // Pickup and return
-router.post('/:id/confirm-pickup', confirmPickup);
-router.post('/:id/confirm-return', confirmReturn);
+router.post('/:id/confirm-pickup', requireRentalPermission('rentals:write'), confirmPickup);
+router.post('/:id/confirm-return', requireRentalPermission('rentals:write'), confirmReturn);
 
 module.exports = router;

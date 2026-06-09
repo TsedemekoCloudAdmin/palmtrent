@@ -87,7 +87,7 @@ const createAuthorityCheck = (document = null) => ({
 });
 
 const AdminDashboard = () => {
-  const [timeRange] = useState('month');
+  const [timeRange, setTimeRange] = useState('month');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [jobsUserFilter, setJobsUserFilter] = useState(null);
@@ -117,7 +117,7 @@ const AdminDashboard = () => {
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <DashboardView timeRange={timeRange} setActiveTab={setActiveTab} />;
+        return <DashboardView timeRange={timeRange} setTimeRange={setTimeRange} setActiveTab={setActiveTab} />;
       case 'users':
         return <UsersView setActiveTab={setActiveTab} setJobsUserFilter={setJobsUserFilter} />;
       case 'verifications':
@@ -143,7 +143,7 @@ const AdminDashboard = () => {
       case 'settings':
         return <SettingsView />;
       default:
-        return <DashboardView timeRange={timeRange} setActiveTab={setActiveTab} />;
+        return <DashboardView timeRange={timeRange} setTimeRange={setTimeRange} setActiveTab={setActiveTab} />;
     }
   };
 
@@ -280,7 +280,7 @@ const AdminDashboard = () => {
 };
 
 // ============ Dashboard View ============
-const DashboardView = ({ timeRange, setActiveTab }) => {
+const DashboardView = ({ timeRange, setTimeRange, setActiveTab }) => {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     today: { revenue: 0, bookings: 0, activeJobs: 0, platformUsers: 0, disputes: 0 },
@@ -293,7 +293,7 @@ const DashboardView = ({ timeRange, setActiveTab }) => {
     const fetchDashboardData = async () => {
       try {
         setLoading(true);
-        const response = await adminAPI.getDashboardStats();
+        const response = await adminAPI.getDashboardStats(timeRange);
 
         if (response.success && response.data) {
           const data = response.data;
@@ -376,7 +376,16 @@ const DashboardView = ({ timeRange, setActiveTab }) => {
             <p className="page-subtitle">Welcome back, Admin</p>
           </div>
           <div className="topbar-right">
-            <span className="time-selector-label">This Month</span>
+            <select
+              value={timeRange}
+              onChange={(e) => setTimeRange(e.target.value)}
+              className="time-selector"
+            >
+              <option value="today">Today</option>
+              <option value="week">This Week</option>
+              <option value="month">This Month</option>
+              <option value="year">This Year</option>
+            </select>
             <button className="btn-primary" onClick={exportDashboardReport}>Export Report</button>
           </div>
         </div>

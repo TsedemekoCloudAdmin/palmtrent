@@ -9,7 +9,9 @@ import {
   StatusBar,
   Image,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
+  Modal,
+  TextInput
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../../services/apiService';
@@ -91,6 +93,50 @@ const TrailerDetailScreen = ({ navigation, route }) => {
   const [loading, setLoading] = useState(true);
   const [savingStatus, setSavingStatus] = useState(false);
   const [error, setError] = useState('');
+  const [maintenanceModal, setMaintenanceModal] = useState(false);
+  const [savingMaintenance, setSavingMaintenance] = useState(false);
+  const [maintenanceForm, setMaintenanceForm] = useState({ type: '', description: '', cost: '', odometer: '', performedBy: '' });
+
+  const refreshTrailer = async () => {
+    const id = trailerId || trailer?._id || trailer?.id || trailerData?.id;
+    if (!id) return;
+    try {
+      const response = await apiService.getTrailerById(id);
+      setTrailerData(normalizeTrailer(response.data));
+    } catch (err) {
+      // keep existing data on refresh failure
+    }
+  };
+
+  const submitMaintenance = async () => {
+    const id = trailerId || trailer?._id || trailer?.id || trailerData?.id;
+    if (!maintenanceForm.description.trim()) {
+      Alert.alert('Maintenance', 'Enter a description of the work done.');
+      return;
+    }
+    setSavingMaintenance(true);
+    try {
+      const response = await apiService.addTrailerMaintenance(id, {
+        type: maintenanceForm.type.trim() || 'general',
+        description: maintenanceForm.description.trim(),
+        cost: Number(maintenanceForm.cost) || 0,
+        odometer: maintenanceForm.odometer ? Number(maintenanceForm.odometer) : undefined,
+        performedBy: maintenanceForm.performedBy.trim()
+      });
+      if (response.success) {
+        setMaintenanceModal(false);
+        setMaintenanceForm({ type: '', description: '', cost: '', odometer: '', performedBy: '' });
+        await refreshTrailer();
+        Alert.alert('Maintenance', 'Maintenance record added.');
+      } else {
+        Alert.alert('Maintenance', response.message || 'Could not add the record.');
+      }
+    } catch (err) {
+      Alert.alert('Maintenance', err.message || 'Could not add the record.');
+    } finally {
+      setSavingMaintenance(false);
+    }
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -340,19 +386,47 @@ const TrailerDetailScreen = ({ navigation, route }) => {
             </View>
           </View>
 
-          {/* Maintenance History — only shown when records exist */}
-          {trailerData.maintenanceHistory.length > 0 && (
-            <View style={styles.maintenanceCard}>
-              <Text style={styles.cardTitle}>Maintenance History</Text>
-              {trailerData.maintenanceHistory.map((record) => (
-                <MaintenanceRecord key={record.id} record={record} />
-              ))}
-            </View>
-          )}
+          {/* Maintenance History */}
+          <View style={styles.maintenanceCard}>
+            <Text style={styles.cardTitle}>Maintenance History</Text>
+            {trailerData.maintenanceHistory.length > 0 ? (
+              trailerData.maintenanceHistory.map((record, index) => (
+                <MaintenanceRecord key={record._id || record.id || index} record={record} />
+              ))
+            ) : (
+              <Text style={styles.recordDate}>No maintenance records yet.</Text>
+            )}
+            <TouchableOpacity style={styles.addMaintenanceButton} onPress={() => setMaintenanceModal(true)}>
+              <MaterialIcons name="add" size={20} color="#0C2D48" />
+              <Text style={styles.addMaintenanceText}>Add Maintenance Record</Text>
+            </TouchableOpacity>
+          </View>
 
           <View style={styles.bottomPadding} />
         </View>
       </ScrollView>
+
+      {/* Add maintenance record modal */}
+      <Modal visible={maintenanceModal} transparent animationType="slide" onRequestClose={() => setMaintenanceModal(false)}>
+        <View style={styles.mtOverlay}>
+          <View style={styles.mtContent}>
+            <Text style={styles.mtTitle}>Add Maintenance Record</Text>
+            <TextInput style={styles.mtInput} placeholder="Type (e.g. service, tyres, brakes)" value={maintenanceForm.type} onChangeText={(v) => setMaintenanceForm(p => ({ ...p, type: v }))} />
+            <TextInput style={[styles.mtInput, styles.mtMultiline]} placeholder="Description of work done *" multiline value={maintenanceForm.description} onChangeText={(v) => setMaintenanceForm(p => ({ ...p, description: v }))} />
+            <TextInput style={styles.mtInput} placeholder="Cost (USD)" keyboardType="numeric" value={maintenanceForm.cost} onChangeText={(v) => setMaintenanceForm(p => ({ ...p, cost: v }))} />
+            <TextInput style={styles.mtInput} placeholder="Odometer (km)" keyboardType="numeric" value={maintenanceForm.odometer} onChangeText={(v) => setMaintenanceForm(p => ({ ...p, odometer: v }))} />
+            <TextInput style={styles.mtInput} placeholder="Performed by (workshop / mechanic)" value={maintenanceForm.performedBy} onChangeText={(v) => setMaintenanceForm(p => ({ ...p, performedBy: v }))} />
+            <View style={styles.mtActions}>
+              <TouchableOpacity style={[styles.mtButton, styles.mtCancel]} onPress={() => setMaintenanceModal(false)}>
+                <Text style={styles.mtCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.mtButton, styles.mtSave]} onPress={submitMaintenance} disabled={savingMaintenance}>
+                {savingMaintenance ? <ActivityIndicator color="white" /> : <Text style={styles.mtSaveText}>Save Record</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -385,19 +459,34 @@ const RateItem = ({ period, rate }) => (
 );
 
 // Maintenance Record Component
-const MaintenanceRecord = ({ record }) => (
-  <View style={styles.maintenanceRecord}>
-    <View style={styles.recordHeader}>
-      <Text style={styles.recordType}>{record.type}</Text>
-      <Text style={styles.recordCost}>${record.cost}</Text>
+const MaintenanceRecord = ({ record }) => {
+  const dateLabel = record.date ? new Date(record.date).toLocaleDateString() : '';
+  return (
+    <View style={styles.maintenanceRecord}>
+      <View style={styles.recordHeader}>
+        <Text style={styles.recordType}>{record.type || 'Maintenance'}</Text>
+        <Text style={styles.recordCost}>${Number(record.cost || 0).toLocaleString()}</Text>
+      </View>
+      {dateLabel ? <Text style={styles.recordDate}>{dateLabel}</Text> : null}
+      {record.description ? <Text style={styles.recordWorkshop}>{record.description}</Text> : null}
+      {record.performedBy ? <Text style={styles.recordNext}>By: {record.performedBy}</Text> : null}
+      {record.odometer != null ? <Text style={styles.recordNext}>Odometer: {record.odometer}</Text> : null}
     </View>
-    <Text style={styles.recordDate}>{record.date}</Text>
-    <Text style={styles.recordWorkshop}>{record.workshop}</Text>
-    <Text style={styles.recordNext}>Next: {record.nextService}</Text>
-  </View>
-);
+  );
+};
 
 const styles = StyleSheet.create({
+  mtOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  mtContent: { backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 },
+  mtTitle: { fontSize: 18, fontWeight: '800', color: '#0f172a', marginBottom: 12 },
+  mtInput: { minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: '#cbd5e1', backgroundColor: '#fff', paddingHorizontal: 12, marginBottom: 10, color: '#0f172a' },
+  mtMultiline: { minHeight: 80, textAlignVertical: 'top', paddingTop: 12 },
+  mtActions: { flexDirection: 'row', gap: 12, marginTop: 6 },
+  mtButton: { flex: 1, minHeight: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  mtCancel: { backgroundColor: '#f3f4f6' },
+  mtCancelText: { color: '#374151', fontWeight: '700' },
+  mtSave: { backgroundColor: '#0C2D48' },
+  mtSaveText: { color: 'white', fontWeight: '700' },
   container: {
     flex: 1,
     backgroundColor: '#f9fafb',

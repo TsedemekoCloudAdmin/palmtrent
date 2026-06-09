@@ -8,6 +8,8 @@ const CargoType = require('../models/CargoType');
 const VehicleType = require('../models/VehicleType');
 const pricingService = require('../services/pricingService');
 const monetizationService = require('../services/monetizationService');
+const paymentService = require('../services/paymentService');
+const openApiAfricaService = require('../services/openApiAfricaService');
 const distanceService = require('../services/distanceService');
 const Shipment = require('../models/Shipment');
 const matchingService = require('../services/matchingService');
@@ -25,7 +27,8 @@ const STATES = {
   BOOKING_DELIVERY_LOCATION: 'BOOKING_DELIVERY_LOCATION',
   BOOKING_PICKUP_DATE: 'BOOKING_PICKUP_DATE',
   BOOKING_CONFIRM: 'BOOKING_CONFIRM',
-  TRACKING_BOOKING_ID: 'TRACKING_BOOKING_ID'
+  TRACKING_BOOKING_ID: 'TRACKING_BOOKING_ID',
+  RATING_SCORE: 'RATING_SCORE'
 };
 
 // Verify webhook (GET)
@@ -71,8 +74,8 @@ exports.handleWebhook = async (req, res) => {
     // Mark message as read
     await whatsappService.markAsRead(message.messageId);
 
-    // Get or create session
-    const session = whatsappService.getSession(message.from);
+    // Load (or create) the session from persistent storage
+    const session = await whatsappService.loadSession(message.from);
 
     // Find or create user
     let user = await User.findOne({ phone: formatPhoneForDB(message.from) });
@@ -154,8 +157,66 @@ async function handleText(from, text, session, user) {
     case STATES.TRACKING_BOOKING_ID:
       return handleTrackingInput(from, text, session, user);
 
+    case STATES.RATING_SCORE:
+      return handleRatingScore(from, text, session, user);
+
     default:
       return sendMainMenu(from, session);
+  }
+}
+
+// Record a 1-5 rating submitted over WhatsApp.
+async function handleRatingScore(from, text, session, user) {
+  const match = String(text).match(/[1-5]/);
+  if (!match) {
+    return whatsappService.sendTextMessage(from, 'Please reply with a number from 1 to 5.');
+  }
+  const score = Number(match[0]);
+  const comment = String(text).replace(/^[^0-9]*[1-5]\s*/, '').trim();
+  const bookingId = session.context?.ratingBookingId;
+
+  try {
+    const Rating = require('../models/Rating');
+    const booking = await Booking.findById(bookingId)
+      .populate('user', 'fullName')
+      .populate('transporter', 'fullName');
+    if (!booking || !user) {
+      whatsappService.clearSession(from);
+      return whatsappService.sendTextMessage(from, 'We could not find that booking to rate. Thank you for your feedback!');
+    }
+
+    const raterIsShipper = String(booking.user?._id || booking.user) === String(user._id);
+    const ratee = raterIsShipper ? booking.transporter : booking.user;
+    if (!ratee) {
+      whatsappService.clearSession(from);
+      return whatsappService.sendTextMessage(from, 'Thanks! There is no counterparty to rate on this booking yet.');
+    }
+
+    const existing = await Rating.findOne({ booking: bookingId, 'rater.user': user._id });
+    if (existing) {
+      whatsappService.clearSession(from);
+      return whatsappService.sendTextMessage(from, 'You have already rated this booking. Thank you!');
+    }
+
+    await Rating.create({
+      booking: bookingId,
+      rater: { user: user._id, role: raterIsShipper ? 'shipper' : 'transporter' },
+      ratee: { user: ratee._id || ratee, role: raterIsShipper ? 'transporter' : 'shipper' },
+      overallRating: score,
+      review: { text: comment, isPublic: true },
+      tripDetails: {
+        origin: booking.route?.pickup?.city || booking.route?.pickup?.address,
+        destination: booking.route?.delivery?.city || booking.route?.delivery?.address,
+        completedAt: booking.timeline?.completedAt || booking.updatedAt
+      }
+    });
+
+    whatsappService.clearSession(from);
+    return whatsappService.sendTextMessage(from, `Thank you! Your ${score}-star rating has been recorded. 🌟`);
+  } catch (error) {
+    console.error('WhatsApp rating error:', error.message);
+    whatsappService.clearSession(from);
+    return whatsappService.sendTextMessage(from, 'Thanks for your feedback! We could not save the rating right now.');
   }
 }
 
@@ -204,14 +265,15 @@ async function handleButtonReply(from, buttonReply, session, user) {
   }
 
   if (buttonId === 'modify_booking') {
-    return startBookingFlow(from, session, user);
+    return sendModifyMenu(from);
   }
 
-  // Rating
+  // Rating — capture the score over WhatsApp instead of redirecting to the app.
   if (buttonId.startsWith('rate_')) {
     const bookingId = buttonId.replace('rate_', '');
+    whatsappService.updateSession(from, STATES.RATING_SCORE, { ratingBookingId: bookingId });
     return whatsappService.sendTextMessage(from,
-      `Thank you for choosing Palmtrent! 🌟\n\nPlease open our app to rate your experience for booking ${bookingId}.\n\nYour feedback helps us improve!`);
+      'Thank you for choosing Palmtrent! 🌟\n\nHow would you rate your experience? Reply with a number from *1* (poor) to *5* (excellent). You can add a short comment after the number.');
   }
 
   if (buttonId === 'book_again') {
@@ -219,14 +281,64 @@ async function handleButtonReply(from, buttonReply, session, user) {
   }
 }
 
+// Show a menu of fields the user can change, preserving the rest of the booking.
+async function sendModifyMenu(from) {
+  const sections = [{
+    title: 'What would you like to change?',
+    rows: [
+      { id: 'modify_cargo', title: 'Cargo type' },
+      { id: 'modify_weight', title: 'Weight' },
+      { id: 'modify_pickup', title: 'Pickup location' },
+      { id: 'modify_delivery', title: 'Delivery location' },
+      { id: 'modify_date', title: 'Pickup date' }
+    ]
+  }];
+  return whatsappService.sendListMessage(from, 'Modify your booking', 'Choose field', sections);
+}
+
+// After re-collecting a single modified field, return to the summary instead of
+// continuing the linear flow.
+async function finishModify(from, session) {
+  whatsappService.updateSession(from, STATES.BOOKING_CONFIRM, { returnToSummary: false });
+  return showBookingSummary(from, session);
+}
+
 // Handle list replies
 async function handleListReply(from, listReply, session, user) {
   const itemId = listReply.id;
 
+  // Modify-a-single-field selection — re-ask just that field, then go to summary.
+  if (itemId.startsWith('modify_')) {
+    const field = itemId.replace('modify_', '');
+    if (field === 'cargo') {
+      whatsappService.updateSession(from, session.state, { returnToSummary: true });
+      return startBookingFlow(from, session, user);
+    }
+    if (field === 'weight') {
+      whatsappService.updateSession(from, STATES.BOOKING_CARGO_WEIGHT, { returnToSummary: true });
+      return whatsappService.sendTextMessage(from, 'Enter the new weight in kilograms (e.g. 500).');
+    }
+    if (field === 'pickup') {
+      whatsappService.updateSession(from, STATES.BOOKING_PICKUP_LOCATION, { returnToSummary: true });
+      return whatsappService.sendLocationRequest(from, 'Share the new pickup location, or type the address.');
+    }
+    if (field === 'delivery') {
+      whatsappService.updateSession(from, STATES.BOOKING_DELIVERY_LOCATION, { returnToSummary: true });
+      return whatsappService.sendLocationRequest(from, 'Share the new delivery location, or type the address.');
+    }
+    if (field === 'date') {
+      whatsappService.updateSession(from, STATES.BOOKING_PICKUP_DATE, { returnToSummary: true });
+      return askPickupDate(from, session);
+    }
+  }
+
   // Cargo type selection
   if (itemId.startsWith('cargo_')) {
     const cargoType = itemId.replace('cargo_', '');
-    whatsappService.updateSession(from, STATES.BOOKING_CARGO_WEIGHT, { cargoType });
+    // Keep both the id (for matching) and the human name (for display/storage).
+    whatsappService.updateSession(from, STATES.BOOKING_CARGO_WEIGHT, { cargoType, cargoTypeName: listReply.title });
+
+    if (session.context.returnToSummary) return finishModify(from, session);
 
     return whatsappService.sendTextMessage(from,
       `Great! You selected *${listReply.title}*.\n\nWhat is the estimated weight of your cargo in kilograms?\n\n(Example: 500)`);
@@ -255,7 +367,7 @@ async function handleListReply(from, listReply, session, user) {
         break;
     }
 
-    whatsappService.updateSession(from, STATES.BOOKING_CONFIRM, { pickupDate });
+    whatsappService.updateSession(from, STATES.BOOKING_CONFIRM, { pickupDate, returnToSummary: false });
     return showBookingSummary(from, session);
   }
 }
@@ -273,6 +385,8 @@ async function handleLocation(from, location, session, user) {
       pickup: locationData
     });
 
+    if (session.context.returnToSummary) return finishModify(from, session);
+
     await whatsappService.sendTextMessage(from,
       `📍 Pickup location set to:\n${locationData.address}\n\nNow, please share your *delivery location*.`);
 
@@ -285,17 +399,75 @@ async function handleLocation(from, location, session, user) {
       delivery: locationData
     });
 
+    if (session.context.returnToSummary) return finishModify(from, session);
+
     return askPickupDate(from, session);
   }
 
   return whatsappService.sendTextMessage(from, 'Location received. Send "menu" to continue.');
 }
 
-// Handle image messages (for POD)
+// Handle image messages — attach as proof of delivery to the sender's active
+// shipment (transporter) when one is in a delivery phase.
 async function handleImage(from, image, session, user) {
-  // Could be used for proof of delivery or cargo photos
-  return whatsappService.sendTextMessage(from,
-    'Image received! If you\'re uploading proof of delivery, please use our mobile app for verification.');
+  if (!user) {
+    return whatsappService.sendTextMessage(from,
+      'Image received. Please register on the Palmtrent app so we can link it to your shipment.');
+  }
+
+  try {
+    const Driver = require('../models/Driver');
+    let shipmentQuery = null;
+    if (user.userType === 'transporter') {
+      shipmentQuery = { transporter: user._id };
+    } else if (user.userType === 'driver') {
+      const driver = await Driver.findOne({ user: user._id }).select('_id');
+      if (driver) shipmentQuery = { assignedDriver: driver._id };
+    }
+
+    if (!shipmentQuery) {
+      return whatsappService.sendTextMessage(from,
+        'Image received. Proof-of-delivery uploads are available to the assigned transporter or driver.');
+    }
+
+    const shipment = await Shipment.findOne({
+      ...shipmentQuery,
+      status: { $in: ['picked_up', 'in_transit', 'arrived_delivery', 'delivered'] }
+    }).sort({ updatedAt: -1 });
+
+    if (!shipment) {
+      return whatsappService.sendTextMessage(from,
+        'Image received, but you have no active delivery to attach it to right now.');
+    }
+
+    const media = await whatsappService.downloadMedia(image.id);
+    if (!media.success) {
+      return whatsappService.sendTextMessage(from, 'We could not download that image. Please try again.');
+    }
+
+    const storageService = require('../services/storageService');
+    const ext = (media.mimeType || 'image/jpeg').split('/')[1] || 'jpg';
+    const uploaded = await storageService.uploadFile(
+      Buffer.from(media.data),
+      `wa-pod-${shipment._id}-${Date.now()}.${ext}`,
+      media.mimeType || 'image/jpeg',
+      'pod'
+    );
+
+    shipment.proofOfDelivery = {
+      ...(shipment.proofOfDelivery || {}),
+      photos: [...(shipment.proofOfDelivery?.photos || []), uploaded.url],
+      notes: shipment.proofOfDelivery?.notes || 'Proof of delivery received via WhatsApp'
+    };
+    await shipment.save();
+
+    return whatsappService.sendTextMessage(from,
+      `✅ Proof of delivery photo attached to ${shipment.bookingReference || 'your shipment'}.`);
+  } catch (error) {
+    console.error('WhatsApp POD image error:', error.message);
+    return whatsappService.sendTextMessage(from,
+      'Image received, but we could not attach it right now. Please try again or use the app.');
+  }
 }
 
 // Send main menu
@@ -364,6 +536,8 @@ async function handleCargoWeight(from, text, session) {
 
   whatsappService.updateSession(from, STATES.BOOKING_PICKUP_LOCATION, { weight });
 
+  if (session.context.returnToSummary) return finishModify(from, session);
+
   await whatsappService.sendTextMessage(from,
     `Weight set to *${weight} kg*.\n\nNow, please share your *pickup location*.`);
 
@@ -377,6 +551,8 @@ async function handlePickupLocation(from, text, session) {
 
   whatsappService.updateSession(from, STATES.BOOKING_DELIVERY_LOCATION, { pickup });
 
+  if (session.context.returnToSummary) return finishModify(from, session);
+
   await whatsappService.sendTextMessage(from,
     `📍 Pickup location:\n${text}\n\nNow, please share your *delivery location*.`);
 
@@ -389,6 +565,8 @@ async function handleDeliveryLocation(from, text, session) {
   const delivery = { address: text };
 
   whatsappService.updateSession(from, STATES.BOOKING_PICKUP_DATE, { delivery });
+
+  if (session.context.returnToSummary) return finishModify(from, session);
 
   return askPickupDate(from, session);
 }
@@ -422,7 +600,7 @@ async function handlePickupDate(from, text, session) {
     return askPickupDate(from, session);
   }
 
-  whatsappService.updateSession(from, STATES.BOOKING_CONFIRM, { pickupDate });
+  whatsappService.updateSession(from, STATES.BOOKING_CONFIRM, { pickupDate, returnToSummary: false });
   return showBookingSummary(from, session);
 }
 
@@ -443,10 +621,30 @@ async function showBookingSummary(from, session) {
       distance = distResult.distance || 100;
     }
 
-    // Simple pricing calculation
-    const baseRate = 0.5; // $0.50 per km
-    const weightFactor = ctx.weight > 1000 ? 1.5 : 1;
-    price = Math.max(30, distance * baseRate * weightFactor);
+    // Prefer the platform pricing engine; fall back to a simple estimate.
+    let priced = null;
+    try {
+      const result = await pricingService.calculatePricing({
+        distance,
+        cargoType: ctx.cargoTypeName || ctx.cargoType,
+        weight: ctx.weight,
+        route: {
+          pickup: { address: ctx.pickup?.address },
+          delivery: { address: ctx.delivery?.address }
+        }
+      });
+      priced = result?.totals?.total ?? result?.total ?? null;
+    } catch (pricingError) {
+      console.error('Pricing service error (falling back):', pricingError.message);
+    }
+
+    if (priced && priced > 0) {
+      price = priced;
+    } else {
+      const baseRate = 0.5; // $0.50 per km
+      const weightFactor = ctx.weight > 1000 ? 1.5 : 1;
+      price = Math.max(30, distance * baseRate * weightFactor);
+    }
   } catch (error) {
     console.error('Price calculation error:', error);
   }
@@ -456,7 +654,7 @@ async function showBookingSummary(from, session) {
 
   const summary = `📋 *Booking Summary*
 
-📦 *Cargo:* ${ctx.cargoType || 'General'}
+📦 *Cargo:* ${ctx.cargoTypeName || 'General'}
 ⚖️ *Weight:* ${ctx.weight} kg
 📍 *Pickup:* ${ctx.pickup?.address || 'Not set'}
 📍 *Delivery:* ${ctx.delivery?.address || 'Not set'}
@@ -480,10 +678,37 @@ Please confirm your booking:`;
 async function confirmBooking(from, session, user) {
   const ctx = session.context;
 
+  // Guest bookings: auto-provision a lightweight shipper account from the
+  // WhatsApp number so the booking + payment can complete. The customer can
+  // later claim it via "forgot password" using this phone number.
   if (!user) {
-    whatsappService.clearSession(from);
-    return whatsappService.sendTextMessage(from,
-      'To complete your booking, please register or login through our mobile app.\n\nDownload Palmtrent from the App Store or Google Play.\n\nYour booking details have been saved.');
+    const phone = formatPhoneForDB(from);
+    if (!/^\+263[0-9]{9}$/.test(phone)) {
+      whatsappService.clearSession(from);
+      return whatsappService.sendTextMessage(from,
+        'We could not create a booking for this number. Please register through the Palmtrent app.');
+    }
+    try {
+      const crypto = require('crypto');
+      user = await User.create({
+        fullName: ctx.customerName || 'WhatsApp Customer',
+        email: `wa.${phone.replace('+', '')}@guest.palmtrent.app`,
+        phone,
+        password: crypto.randomBytes(9).toString('hex'),
+        userType: 'shipper',
+        roles: ['shipper'],
+        isPhoneVerified: true,
+        profileCompleted: false
+      });
+    } catch (createError) {
+      // Likely a concurrent create — fall back to the existing record.
+      user = await User.findOne({ phone: formatPhoneForDB(from) });
+      if (!user) {
+        whatsappService.clearSession(from);
+        return whatsappService.sendTextMessage(from,
+          'Sorry, we could not set up your booking account. Please try the Palmtrent app.');
+      }
+    }
   }
 
   try {
@@ -510,9 +735,9 @@ async function confirmBooking(from, session, user) {
       shipper: user._id,
       bookingReference,
       cargoDetails: {
-        type: ctx.cargoType,
+        type: ctx.cargoTypeName || ctx.cargoType,
         weight: ctx.weight,
-        description: `WhatsApp booking - ${ctx.cargoType}`
+        description: `WhatsApp booking - ${ctx.cargoTypeName || 'cargo'}`
       },
       route: {
         pickup: {
@@ -552,18 +777,35 @@ async function confirmBooking(from, session, user) {
 
     await booking.save();
 
+    // Create a real payment + hosted ClicknPay checkout link.
+    let payUrl = null;
+    try {
+      const payment = await paymentService.createPayment(booking._id, ctx.price, 'clicknpay', {
+        phone: user.phone,
+        email: user.email
+      });
+      const order = await openApiAfricaService.createOrder(payment.paymentReference, {
+        phone: user.phone,
+        email: user.email
+      });
+      payUrl = order?.redirectUrl || null;
+    } catch (paymentError) {
+      console.error('WhatsApp payment link error:', paymentError.message);
+    }
+
     // Clear session
     whatsappService.clearSession(from);
 
     // Send confirmation
+    const paymentLine = payUrl
+      ? `Complete payment to confirm your booking:\n\n🔗 Pay Now: ${payUrl}`
+      : 'Open the Palmtrent app to complete payment for this booking.';
     const message = `✅ *Booking Created!*
 
-📋 *Booking ID:* ${booking.bookingReference}
+📋 *Booking Ref:* ${booking.bookingReference}
 💰 *Amount:* $${ctx.price.toFixed(2)}
 
-To complete your booking, please make payment through our mobile app or use the link below:
-
-🔗 Pay Now: ${process.env.FRONTEND_URL}/pay/${booking._id}
+${paymentLine}
 
 Your booking will be confirmed once payment is received.
 

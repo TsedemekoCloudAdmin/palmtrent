@@ -1,7 +1,7 @@
 // routes/drivers.js
 const express = require('express');
 const router = express.Router();
-const { protect } = require('../middleware/auth');
+const { protect, requireRentalPermission } = require('../middleware/auth');
 const {
   getDrivers,
   getDriver,
@@ -28,12 +28,12 @@ router.route('/me/availability')
 
 router.route('/')
   .get(protect, getDrivers)
-  .post(protect, createDriver);
+  .post(protect, requireRentalPermission('drivers:write'), createDriver);
 
 router.route('/:id')
   .get(protect, getDriver)
-  .put(protect, updateDriver)
-  .delete(protect, deleteDriver);
+  .put(protect, requireRentalPermission('drivers:write'), updateDriver)
+  .delete(protect, requireRentalPermission('drivers:write'), deleteDriver);
 
 router.route('/:id/status')
   .put(protect, updateDriverStatus);

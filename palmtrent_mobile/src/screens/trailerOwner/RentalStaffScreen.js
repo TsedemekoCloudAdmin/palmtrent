@@ -26,6 +26,13 @@ const emptyForm = {
   role: 'agent',
 };
 
+// Mirrors the backend role→permission mapping in trailerOwnersController.
+const ROLE_OPTIONS = [
+  { value: 'manager', label: 'Manager', hint: 'Full access: rentals, fleet, drivers and staff.' },
+  { value: 'agent', label: 'Agent', hint: 'Operate rentals (approve, pickup, return). Cannot edit fleet or staff.' },
+  { value: 'viewer', label: 'Viewer', hint: 'Read-only access to rentals and fleet.' },
+];
+
 const RentalStaffScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -155,7 +162,26 @@ const RentalStaffScreen = ({ navigation }) => {
             <Field label="Email" value={form.email} onChangeText={(value) => updateField('email', value)} placeholder="name@example.com" keyboardType="email-address" autoCapitalize="none" />
             <Field label="Phone" value={form.phone} onChangeText={(value) => updateField('phone', value)} placeholder="+263..." keyboardType="phone-pad" />
             <Field label="Temporary Password" value={form.password} onChangeText={(value) => updateField('password', value)} placeholder="Minimum 6 characters" secureTextEntry />
-            <Field label="Role" value={form.role} onChangeText={(value) => updateField('role', value)} placeholder="agent" />
+
+            <View style={styles.field}>
+              <Text style={styles.label}>Role</Text>
+              <View style={styles.roleRow}>
+                {ROLE_OPTIONS.map((option) => (
+                  <TouchableOpacity
+                    key={option.value}
+                    style={[styles.rolePill, form.role === option.value && styles.rolePillActive]}
+                    onPress={() => updateField('role', option.value)}
+                  >
+                    <Text style={[styles.rolePillText, form.role === option.value && styles.rolePillTextActive]}>
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={styles.roleHint}>
+                {ROLE_OPTIONS.find((option) => option.value === form.role)?.hint}
+              </Text>
+            </View>
 
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.secondaryButton} onPress={closeModal} disabled={saving}>
@@ -210,6 +236,12 @@ const styles = StyleSheet.create({
   field: { marginBottom: 12 },
   label: { color: '#334155', fontSize: 13, fontWeight: '700', marginBottom: 6 },
   input: { minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: '#cbd5e1', paddingHorizontal: 12, color: '#0f172a', fontSize: 15 },
+  roleRow: { flexDirection: 'row', gap: 8 },
+  rolePill: { flex: 1, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: '#cbd5e1', alignItems: 'center' },
+  rolePillActive: { backgroundColor: '#0C2D48', borderColor: '#0C2D48' },
+  rolePillText: { color: '#334155', fontWeight: '800', fontSize: 13 },
+  rolePillTextActive: { color: 'white' },
+  roleHint: { color: '#64748b', fontSize: 12, marginTop: 6, lineHeight: 17 },
   modalActions: { flexDirection: 'row', gap: 10, marginTop: 8 },
   secondaryButton: { flex: 1, minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: '#cbd5e1', alignItems: 'center', justifyContent: 'center' },
   secondaryButtonText: { color: '#334155', fontWeight: '800' },

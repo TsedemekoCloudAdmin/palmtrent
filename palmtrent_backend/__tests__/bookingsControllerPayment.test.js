@@ -86,6 +86,8 @@ describe('bookingsController createBookingWithPayment', () => {
       body: {
         pickupLocation: 'Harare',
         deliveryLocation: 'Bulawayo',
+        pickupDate: '2026-01-01',
+        pickupTimeWindow: '08:00',
         cargoType: 'General cargo',
         weight: 1000,
         cargoValue: 200,
@@ -160,6 +162,8 @@ describe('bookingsController createBookingWithPayment', () => {
       body: {
         pickupLocation: 'Harare',
         deliveryLocation: 'Gweru',
+        pickupDate: '2026-01-01',
+        pickupTimeWindow: '08:00',
         cargoType: 'General cargo',
         weight: 500,
         paymentMethod: 'ecocash',

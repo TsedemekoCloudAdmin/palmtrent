@@ -199,6 +199,28 @@ const requireVerified = (role = null) => {
   };
 };
 
+// Enforce a rental/fleet-staff permission. The actual owner (no
+// associatedRentalOwner) and admins always pass; a staff member must hold one of
+// the required permission strings (e.g. 'rentals:write', 'fleet:write',
+// 'drivers:write', 'staff:manage') in their rentalStaffPermissions.
+const requireRentalPermission = (...required) => {
+  return (req, res, next) => {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Not authorized to access this route' });
+    }
+    if (getEffectiveRoles(user).has('admin')) return next();
+    // Owners are the scope themselves (no associatedRentalOwner) → full access.
+    if (!user.associatedRentalOwner) return next();
+    const perms = Array.isArray(user.rentalStaffPermissions) ? user.rentalStaffPermissions : [];
+    if (required.some(permission => perms.includes(permission))) return next();
+    return res.status(403).json({
+      success: false,
+      message: `You do not have permission for this action (requires ${required.join(' or ')}).`
+    });
+  };
+};
+
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN,
@@ -210,6 +232,7 @@ module.exports = {
   authorize,
   requireCorporateRole,
   requireCorporatePermission,
+  requireRentalPermission,
   requireVerified,
   generateToken
 };

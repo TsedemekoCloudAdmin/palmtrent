@@ -50,6 +50,7 @@ import VehicleRentalScreen from '../screens/transporter/VehicleRentalScreen';
 import DriverMarketplaceScreen from '../screens/transporter/DriverMarketplaceScreen';
 import DriverPortalScreen from '../screens/driver/DriverPortalScreen';
 import RentalStaffScreen from '../screens/trailerOwner/RentalStaffScreen';
+import CorporateTeamScreen from '../screens/corporate/CorporateTeamScreen';
 import ResponderPortalScreen from '../screens/emergency/ResponderPortalScreen';
 import MobileMoneyPaymentScreen from '../screens/MobileMoneyPaymentScreen';
 import CardPaymentScreen from '../screens/CardPaymentScreen';
@@ -167,6 +168,7 @@ const AppNavigator = () => {
       <Stack.Screen name="DriverPortal" component={DriverPortalScreen} />
       <Stack.Screen name="ResponderPortal" component={ResponderPortalScreen} />
       <Stack.Screen name="MyRentals" component={FleetRentalRequestsScreen} />
+      <Stack.Screen name="CorporateTeam" component={CorporateTeamScreen} />
 
       {/* Payment screens */}
       <Stack.Screen name="MobileMoneyPayment" component={MobileMoneyPaymentScreen} />

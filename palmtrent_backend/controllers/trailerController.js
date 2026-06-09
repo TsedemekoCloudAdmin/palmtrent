@@ -377,6 +377,49 @@ exports.updateTrailerStatus = async (req, res) => {
   }
 };
 
+// @desc    Add a maintenance record to a trailer/fleet asset
+// @route   POST /api/v1/trailers/:id/maintenance
+// @access  Private (owner)
+exports.addMaintenanceRecord = async (req, res) => {
+  try {
+    const trailer = await Trailer.findById(req.params.id);
+    if (!trailer) {
+      return res.status(404).json({ success: false, message: 'Trailer not found' });
+    }
+    if (!canAccessRentalOwnerResource(req.user, trailer.owner)) {
+      return res.status(403).json({ success: false, message: 'Not authorized to update this trailer' });
+    }
+
+    const { date, type, description, cost, odometer, performedBy } = req.body;
+    if (!description || !String(description).trim()) {
+      return res.status(400).json({ success: false, message: 'A maintenance description is required' });
+    }
+
+    trailer.maintenanceHistory = trailer.maintenanceHistory || [];
+    trailer.maintenanceHistory.unshift({
+      date: date ? new Date(date) : new Date(),
+      type: type || 'general',
+      description: String(description).trim(),
+      cost: Number(cost) || 0,
+      odometer: odometer != null ? Number(odometer) : undefined,
+      performedBy: performedBy || '',
+      createdBy: req.user.id,
+      createdAt: new Date()
+    });
+    trailer.updatedBy = req.user.id;
+    await trailer.save();
+
+    res.status(201).json({
+      success: true,
+      message: 'Maintenance record added',
+      data: trailer.maintenanceHistory
+    });
+  } catch (error) {
+    console.error('Error adding maintenance record:', error);
+    res.status(500).json({ success: false, message: 'Failed to add maintenance record', error: error.message });
+  }
+};
+
 // @desc    Update rental settings
 // @route   PATCH /api/v1/trailers/:id/rental-settings
 // @access  Private

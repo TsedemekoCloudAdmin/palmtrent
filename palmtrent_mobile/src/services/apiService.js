@@ -635,6 +635,30 @@ class ApiService {
     return this.request('/corporate/dashboard-stats');
   }
 
+  async getCorporateUsers() {
+    return this.request('/corporate/users');
+  }
+
+  async inviteCorporateUser(data) {
+    return this.request('/corporate/users/invite', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateCorporateUser(userId, data) {
+    return this.request(`/corporate/users/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async removeCorporateUser(userId) {
+    return this.request(`/corporate/users/${userId}`, {
+      method: 'DELETE',
+    });
+  }
+
   async getPublicPlans(audience = null) {
     const response = await this.request('/public/plans');
     if (!audience) return response;
@@ -1164,6 +1188,13 @@ async getAvailableTrailers(params = '') {
 
 async getTrailerById(trailerId) {
   return this.request(`/trailers/${trailerId}`);
+}
+
+async addTrailerMaintenance(trailerId, data) {
+  return this.request(`/trailers/${trailerId}/maintenance`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
 }
 
 async createTrailer(trailerData) {

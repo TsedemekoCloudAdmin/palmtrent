@@ -378,6 +378,27 @@ const HomeScreen = ({ navigation }) => {
                 color="purple"
                 onPress={() => navigation.navigate('MyBookings')}
               />
+              <ActionButton
+                icon="directions-car"
+                title="Rent a Vehicle"
+                subtitle="Hire a vehicle from the rental marketplace"
+                color="blue"
+                onPress={() => navigation.navigate('VehicleRental')}
+              />
+              <ActionButton
+                icon="rv-hookup"
+                title="Rent a Trailer"
+                subtitle="Find trailers available for rent"
+                color="green"
+                onPress={() => navigation.navigate('TrailerRental')}
+              />
+              <ActionButton
+                icon="event-note"
+                title="My Rentals"
+                subtitle="View and manage your rental requests"
+                color="orange"
+                onPress={() => navigation.navigate('MyRentals')}
+              />
             </View>
           ) : isTransporter ? (
             <View style={styles.actionsContainer}>
@@ -437,6 +458,58 @@ const HomeScreen = ({ navigation }) => {
                 subtitle="Find trailers for your cargo"
                 color="green"
                 onPress={() => navigation.navigate('TrailerRental')}
+              />
+            </View>
+          ) : isCorporate ? (
+            <View style={styles.actionsContainer}>
+              <ActionButton
+                icon="inventory"
+                title="Book Transport"
+                subtitle="Create a shipment for your company"
+                color="blue"
+                onPress={navigateToBooking}
+              />
+              <ActionButton
+                icon="location-on"
+                title="Track Shipment"
+                subtitle="View live location of your goods"
+                color="green"
+                onPress={() => navigation.navigate('MyBookings')}
+              />
+              <ActionButton
+                icon="trending-up"
+                title="My Bookings"
+                subtitle="View all your company bookings"
+                color="purple"
+                onPress={() => navigation.navigate('MyBookings')}
+              />
+              <ActionButton
+                icon="directions-car"
+                title="Rent a Vehicle"
+                subtitle="Hire a vehicle from the rental marketplace"
+                color="blue"
+                onPress={() => navigation.navigate('VehicleRental')}
+              />
+              <ActionButton
+                icon="rv-hookup"
+                title="Rent a Trailer"
+                subtitle="Find trailers available for rent"
+                color="green"
+                onPress={() => navigation.navigate('TrailerRental')}
+              />
+              <ActionButton
+                icon="event-note"
+                title="My Rentals"
+                subtitle="View and manage your rental requests"
+                color="orange"
+                onPress={() => navigation.navigate('MyRentals')}
+              />
+              <ActionButton
+                icon="groups"
+                title="Manage Team"
+                subtitle="Invite and manage your team members"
+                color="purple"
+                onPress={() => navigation.navigate('CorporateTeam')}
               />
             </View>
           ) : null}

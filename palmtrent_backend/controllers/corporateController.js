@@ -369,9 +369,46 @@ exports.getDashboardStats = async (req, res) => {
       return b.route.delivery.deadline >= b.updatedAt;
     }).length;
 
-    const onTimeRate = deliveredBookings.length > 0 
+    const onTimeRate = deliveredBookings.length > 0
       ? ((onTimeDeliveries / deliveredBookings.length) * 100).toFixed(1)
       : 0;
+
+    // Top routes + 6-month spending trend use the full booking history.
+    const historyBookings = await Booking.find({
+      $or: [
+        { corporateAccount: corporateAccount._id },
+        { shipper: req.user.id }
+      ]
+    }).select('route pricing totalAmount createdAt');
+
+    const amountOf = (b) => b.pricing?.totals?.total || b.pricing?.total || b.totalAmount || 0;
+
+    const routeMap = {};
+    historyBookings.forEach(b => {
+      const from = b.route?.pickup?.city || b.route?.pickup?.address || 'Unknown';
+      const to = b.route?.delivery?.city || b.route?.delivery?.address || 'Unknown';
+      const key = `${from} → ${to}`;
+      if (!routeMap[key]) routeMap[key] = { route: key, count: 0, total: 0 };
+      routeMap[key].count += 1;
+      routeMap[key].total += amountOf(b);
+    });
+    const topRoutes = Object.values(routeMap)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    const spendTrend = [];
+    for (let i = 5; i >= 0; i -= 1) {
+      const start = new Date();
+      start.setDate(1);
+      start.setHours(0, 0, 0, 0);
+      start.setMonth(start.getMonth() - i);
+      const end = new Date(start);
+      end.setMonth(end.getMonth() + 1);
+      const amount = historyBookings
+        .filter(b => b.createdAt >= start && b.createdAt < end)
+        .reduce((sum, b) => sum + amountOf(b), 0);
+      spendTrend.push({ month: start.toLocaleString('default', { month: 'short' }), amount });
+    }
 
     res.status(200).json({
       success: true,
@@ -379,7 +416,9 @@ exports.getDashboardStats = async (req, res) => {
         activeBookings,
         completedBookings,
         totalSpend,
-        onTimeRate: `${onTimeRate}%`
+        onTimeRate: `${onTimeRate}%`,
+        topRoutes,
+        spendTrend
       }
     });
   } catch (error) {
@@ -416,9 +455,48 @@ exports.inviteUser = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Corporate account not found' });
     }
 
-    let user = userId ? await User.findById(userId) : await User.findOne({ email });
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    let user = userId ? await User.findById(userId) : (normalizedEmail ? await User.findOne({ email: normalizedEmail }) : null);
+
+    // Provision a login for a brand-new team member (no app registration needed).
+    let createdCredentials = null;
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User must register before being added to a corporate account' });
+      const { normalizeZimbabwePhone } = require('../utils/phone');
+      const phone = normalizeZimbabwePhone(req.body.phone);
+      if (!normalizedEmail || !phone || !/^\+263[0-9]{9}$/.test(phone)) {
+        return res.status(400).json({
+          success: false,
+          message: 'To invite a new member, provide their name, email and a valid Zimbabwean phone number (+263).'
+        });
+      }
+      const temporaryPassword = crypto.randomBytes(9).toString('hex');
+      try {
+        user = await User.create({
+          fullName: req.body.fullName || 'Corporate Team Member',
+          email: normalizedEmail,
+          phone,
+          password: temporaryPassword,
+          userType: 'corporate',
+          roles: ['corporate'],
+          isPhoneVerified: true,
+          profileCompleted: false,
+          mustChangePassword: true
+        });
+        createdCredentials = { email: normalizedEmail, phone, temporaryPassword };
+        try {
+          const { sendSMS } = require('../utils/sendSMS');
+          await sendSMS(phone, `You've been added to a Palmtrent corporate account. Sign in with email ${normalizedEmail} and temporary password ${temporaryPassword}. Please change it after your first login.`);
+        } catch (smsError) {
+          console.error('Corporate invite SMS error:', smsError.message);
+        }
+      } catch (createError) {
+        if (createError.code === 11000) {
+          user = await User.findOne({ $or: [{ email: normalizedEmail }, { phone }] });
+        }
+        if (!user) {
+          return res.status(409).json({ success: false, message: 'Another account already uses this email or phone number.' });
+        }
+      }
     }
 
     const alreadyAdded = corporateAccount.settings.allowedUsers.some(item =>
@@ -440,8 +518,14 @@ exports.inviteUser = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Corporate user added',
-      data: { user: user._id, role: normalizedRole, permissions: normalizedPermissions }
+      message: createdCredentials ? 'Corporate team member created and invited' : 'Corporate user added',
+      data: {
+        user: user._id,
+        role: normalizedRole,
+        permissions: normalizedPermissions,
+        createdAccount: Boolean(createdCredentials),
+        credentials: createdCredentials || undefined
+      }
     });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error adding corporate user', error: error.message });
