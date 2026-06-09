@@ -44,7 +44,10 @@
       "Bash(curl -sS -m 20 -I \"https://backendservices.clicknpay.africa:2081/\")",
       "Bash(curl -sS -m 25 -X POST https://backendservices.clicknpay.africa:2081/payme/orders -H 'Content-Type: application/json' -d '{\"channel\":\"AUTOMATED\",\"clientReference\":\"PT-TEST-123\",\"currency\":\"USD\",\"customerCharged\":true,\"customerPhoneNumber\":\"+263772000000\",\"description\":\"Palmtrent test\",\"multiplePayments\":false,\"amount\":10,\"totalAmount\":10,\"orderType\":\"DYNAMIC\",\"orderYpe\":\"DYNAMIC\",\"productsList\":[{\"description\":\"test\",\"id\":1,\"price\":10,\"productName\":\"Test\",\"quantity\":1}],\"publicUniqueId\":\"TEST-INVALID-ID\",\"returnUrl\":\"https://app.palmtrent.example/payment/return\"}' -w '\\\\n--- HTTP %{http_code} ---\\\\n')",
       "Bash(curl -sS -m 20 \"https://backendservices.clicknpay.africa:2081/payme/orders/top-paid/PT-TEST-123\" -w \"\\\\n--- HTTP %{http_code} ---\\\\n\")",
-      "Bash(curl -sS -m 20 \"https://backendservices.clicknpay.africa:2081/payme/orders/top-paid/AhNv2fYx4Fha\" -w \"\\\\n--- HTTP %{http_code} ---\\\\n\")"
+      "Bash(curl -sS -m 20 \"https://backendservices.clicknpay.africa:2081/payme/orders/top-paid/AhNv2fYx4Fha\" -w \"\\\\n--- HTTP %{http_code} ---\\\\n\")",
+      "Bash(grep -n \"getProfile\\\\|corporateAccount\\\\|accountProfile\\\\|\\\\\\\\bprofile\\\\\\\\b\\\\|setProfile\\\\|plan\\\\b\" src/pages/CorporateDashboard.jsx)",
+      "Bash(sed -n '1,12p' controllers/trailerController.js)",
+      "Bash(sed -n '25,30p' models/Trailer.js)"
     ]
   }
 }

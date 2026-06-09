@@ -72,6 +72,10 @@ const ratingSchema = new mongoose.Schema({
       'dirty_vehicle', 'rude', 'unreliable'
     ]
   }],
+  wouldUseAgain: {
+    type: String,
+    enum: ['yes', 'maybe', 'no']
+  },
   response: {
     text: String,
     respondedAt: Date

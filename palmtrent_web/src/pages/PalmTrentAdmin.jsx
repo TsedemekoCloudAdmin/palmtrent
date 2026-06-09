@@ -87,7 +87,7 @@ const createAuthorityCheck = (document = null) => ({
 });
 
 const AdminDashboard = () => {
-  const [timeRange, setTimeRange] = useState('today');
+  const [timeRange] = useState('month');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [jobsUserFilter, setJobsUserFilter] = useState(null);
@@ -117,7 +117,7 @@ const AdminDashboard = () => {
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <DashboardView timeRange={timeRange} setTimeRange={setTimeRange} setActiveTab={setActiveTab} />;
+        return <DashboardView timeRange={timeRange} setActiveTab={setActiveTab} />;
       case 'users':
         return <UsersView setActiveTab={setActiveTab} setJobsUserFilter={setJobsUserFilter} />;
       case 'verifications':
@@ -143,7 +143,7 @@ const AdminDashboard = () => {
       case 'settings':
         return <SettingsView />;
       default:
-        return <DashboardView timeRange={timeRange} setTimeRange={setTimeRange} setActiveTab={setActiveTab} />;
+        return <DashboardView timeRange={timeRange} setActiveTab={setActiveTab} />;
     }
   };
 
@@ -280,7 +280,7 @@ const AdminDashboard = () => {
 };
 
 // ============ Dashboard View ============
-const DashboardView = ({ timeRange, setTimeRange, setActiveTab }) => {
+const DashboardView = ({ timeRange, setActiveTab }) => {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     today: { revenue: 0, bookings: 0, activeJobs: 0, platformUsers: 0, disputes: 0 },
@@ -306,10 +306,10 @@ const DashboardView = ({ timeRange, setTimeRange, setActiveTab }) => {
               disputes: data.claims?.unattendedDisputes || 0
             },
             growth: {
-              revenue: data.revenue?.growth || 0,
-              bookings: data.bookings?.growth || 0,
-              users: data.users?.growth || 0,
-              onTime: data.operations?.onTimeGrowth || 0
+              revenue: data.revenue?.growth ?? null,
+              bookings: data.bookings?.growth ?? null,
+              users: data.users?.growth ?? null,
+              onTime: data.operations?.onTimeGrowth ?? null
             }
           });
         }
@@ -323,7 +323,7 @@ const DashboardView = ({ timeRange, setTimeRange, setActiveTab }) => {
             id: b.bookingId || b._id,
             shipper: b.shipper?.fullName || 'N/A',
             driver: b.transporter?.fullName || 'Pending',
-            route: `${b.pickup?.city || 'N/A'} → ${b.delivery?.city || 'N/A'}`,
+            route: `${b.route?.pickup?.city || b.route?.pickup?.address || 'N/A'} → ${b.route?.delivery?.city || b.route?.delivery?.address || 'N/A'}`,
             status: b.status,
             progress: b.status === 'in_transit' ? 50 : b.status === 'picked_up' ? 75 : 15,
             eta: b.estimatedDelivery ? new Date(b.estimatedDelivery).toLocaleTimeString() : 'TBD'
@@ -333,7 +333,7 @@ const DashboardView = ({ timeRange, setTimeRange, setActiveTab }) => {
           time: log.createdAt ? new Date(log.createdAt).toLocaleString() : '',
           event: log.action,
           user: log.actor?.fullName || log.actor?.email || 'System',
-          type: log.entityType || 'audit'
+          type: String(log.entityType || 'audit').toLowerCase()
         })));
 
       } catch (error) {
@@ -376,16 +376,7 @@ const DashboardView = ({ timeRange, setTimeRange, setActiveTab }) => {
             <p className="page-subtitle">Welcome back, Admin</p>
           </div>
           <div className="topbar-right">
-            <select
-              value={timeRange}
-              onChange={(e) => setTimeRange(e.target.value)}
-              className="time-selector"
-            >
-              <option value="today">Today</option>
-              <option value="week">This Week</option>
-              <option value="month">This Month</option>
-              <option value="year">This Year</option>
-            </select>
+            <span className="time-selector-label">This Month</span>
             <button className="btn-primary" onClick={exportDashboardReport}>Export Report</button>
           </div>
         </div>
@@ -2161,6 +2152,8 @@ const DisputesView = ({ onDisputesChanged }) => {
   const [selectedDispute, setSelectedDispute] = useState(null);
   const [showDisputeModal, setShowDisputeModal] = useState(false);
   const [resolutionText, setResolutionText] = useState('');
+  const [resolutionOutcome, setResolutionOutcome] = useState('');
+  const [refundAmount, setRefundAmount] = useState('');
   const [disputeMessage, setDisputeMessage] = useState('');
 
   const loadDisputes = useCallback(async () => {
@@ -2230,11 +2223,23 @@ const DisputesView = ({ onDisputesChanged }) => {
       return;
     }
     if (!resolution || !dispute) return;
+    const outcomeLabel = {
+      favor_complainant: 'Ruled in favour of complainant',
+      favor_respondent: 'Ruled in favour of respondent',
+      partial: 'Partial resolution'
+    }[resolutionOutcome];
+    const fullResolution = outcomeLabel ? `${outcomeLabel}: ${resolution}` : resolution;
     try {
-      await adminAPI.resolveDispute(dispute.bookingId || dispute.id, { resolution, status: 'resolved' });
+      await adminAPI.resolveDispute(dispute.bookingId || dispute.id, {
+        resolution: fullResolution,
+        status: 'resolved',
+        refundAmount: Number(refundAmount) || 0
+      });
       setShowDisputeModal(false);
       setSelectedDispute(null);
       setResolutionText('');
+      setResolutionOutcome('');
+      setRefundAmount('');
       await loadDisputes();
       onDisputesChanged?.();
       setDisputeMessage(`Dispute ${dispute.bookingRef || dispute.id} resolved.`);
@@ -2286,7 +2291,7 @@ const DisputesView = ({ onDisputesChanged }) => {
             <div key={dispute.id} className="dispute-card">
               <div className="dispute-header">
                 <div className="dispute-info">
-                  <span className="dispute-id">{dispute.id}</span>
+                  <span className="dispute-id">Dispute</span>
                   <span className="booking-ref">{dispute.bookingRef}</span>
                 </div>
                 <div className="dispute-badges">
@@ -2358,7 +2363,7 @@ const DisputesView = ({ onDisputesChanged }) => {
         <div className="modal-overlay" onClick={() => setShowDisputeModal(false)}>
           <div className="modal-content dispute-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Dispute Details - {selectedDispute.id}</h2>
+              <h2>Dispute Details - {selectedDispute.bookingRef}</h2>
               <button className="modal-close" onClick={() => setShowDisputeModal(false)}>
                 <XCircle className="icon" />
               </button>
@@ -2389,21 +2394,21 @@ const DisputesView = ({ onDisputesChanged }) => {
                   <textarea placeholder="Enter resolution details..." rows={4} value={resolutionText} onChange={e => setResolutionText(e.target.value)}></textarea>
                   <div className="resolution-options">
                     <label>
-                      <input type="radio" name="resolution" value="favor_complainant" />
+                      <input type="radio" name="resolution" value="favor_complainant" checked={resolutionOutcome === 'favor_complainant'} onChange={() => setResolutionOutcome('favor_complainant')} />
                       Rule in favor of complainant
                     </label>
                     <label>
-                      <input type="radio" name="resolution" value="favor_respondent" />
+                      <input type="radio" name="resolution" value="favor_respondent" checked={resolutionOutcome === 'favor_respondent'} onChange={() => setResolutionOutcome('favor_respondent')} />
                       Rule in favor of respondent
                     </label>
                     <label>
-                      <input type="radio" name="resolution" value="partial" />
+                      <input type="radio" name="resolution" value="partial" checked={resolutionOutcome === 'partial'} onChange={() => setResolutionOutcome('partial')} />
                       Partial resolution
                     </label>
                   </div>
                   <div className="refund-input">
                     <label>Refund Amount (if applicable):</label>
-                    <input type="number" placeholder="0.00" />
+                    <input type="number" min="0" step="0.01" placeholder="0.00" value={refundAmount} onChange={e => setRefundAmount(e.target.value)} />
                   </div>
                 </div>
               )}
@@ -4812,7 +4817,7 @@ const StatCard = ({ title, value, change, icon, color, alert }) => {
     <div className={`stat-card ${colorClass}`}>
       <div className="stat-header">
         <div className="stat-icon-wrapper">{icon}</div>
-        {change !== undefined && (
+        {change != null && (
           <div className={`stat-change ${change >= 0 ? 'positive' : 'negative'}`}>
             {change >= 0 ? <TrendingUp className="icon" /> : <TrendingDown className="icon" />}
             {Math.abs(change)}%

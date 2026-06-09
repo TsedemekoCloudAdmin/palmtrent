@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../../services/apiService';
+import { cleanLabel } from '../../utils/labels';
 
 const AcceptJobConfirmationScreen = ({ navigation, route }) => {
   const { job, jobId } = route.params || {};
@@ -207,7 +208,11 @@ const AcceptJobConfirmationScreen = ({ navigation, route }) => {
         time: jobData.route?.pickup?.timeWindow || 'Flexible'
       },
       distance: jobData.route?.distance || jobData.distance,
-      vehicleType: jobData.vehicleType || jobData.vehicles?.[0]?.vehicleType,
+      vehicleType: cleanLabel(jobData.vehicleTypeName)
+        || cleanLabel(jobData.vehicleType?.name)
+        || cleanLabel(jobData.vehicleType)
+        || cleanLabel(jobData.vehicles?.[0]?.vehicleTypeName)
+        || cleanLabel(jobData.vehicles?.[0]?.vehicleType),
       cargoDescription: jobData.cargoDetails?.description || 'General cargo'
     };
   };

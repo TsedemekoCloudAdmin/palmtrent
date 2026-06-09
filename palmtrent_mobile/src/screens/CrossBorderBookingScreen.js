@@ -56,8 +56,8 @@ const CrossBorderBookingScreen = ({ navigation, route, onNavigate, bookingData, 
       setError(null);
       const response = await apiService.get('/cross-border/destinations');
 
-      if (response.data.success) {
-        setCountries(response.data.data);
+      if (response.success) {
+        setCountries(response.data);
       }
     } catch (err) {
       console.error('Error fetching destinations:', err);
@@ -71,8 +71,8 @@ const CrossBorderBookingScreen = ({ navigation, route, onNavigate, bookingData, 
     try {
       const response = await apiService.get(`/cross-border/border-posts/${countryCode}`);
 
-      if (response.data.success) {
-        setBorderInfo(response.data.data.borderPosts[0]); // Get first border post
+      if (response.success) {
+        setBorderInfo(response.data.borderPosts[0]); // Get first border post
       }
     } catch (err) {
       console.error('Error fetching border info:', err);
@@ -90,8 +90,8 @@ const CrossBorderBookingScreen = ({ navigation, route, onNavigate, bookingData, 
         insuranceRequired: true
       });
 
-      if (response.data.success) {
-        setPricing(response.data.data);
+      if (response.success) {
+        setPricing(response.data);
       }
     } catch (err) {
       console.error('Error calculating price:', err);

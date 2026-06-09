@@ -293,12 +293,14 @@ const HistoryScreen = ({ navigation }) => {
           <View style={styles.transporterInfo}>
             <MaterialIcons name="local-shipping" size={14} color="#6b7280" />
             <Text style={styles.transporterText}>
-              {item.transporter.name || 'Transporter assigned'}
+              {item.transporter.fullName || item.transporter.name || 'Transporter assigned'}
             </Text>
-            {item.transporter.rating && (
+            {(item.transporter.rating?.average ?? (typeof item.transporter.rating === 'number' ? item.transporter.rating : null)) != null && (
               <View style={styles.ratingContainer}>
                 <MaterialIcons name="star" size={12} color="#f59e0b" />
-                <Text style={styles.ratingText}>{item.transporter.rating.toFixed(1)}</Text>
+                <Text style={styles.ratingText}>
+                  {Number(item.transporter.rating?.average ?? item.transporter.rating).toFixed(1)}
+                </Text>
               </View>
             )}
           </View>

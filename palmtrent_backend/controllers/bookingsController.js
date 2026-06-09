@@ -37,6 +37,8 @@ exports.getAllBookings = async (req, res) => {
 
     const bookings = await Booking.find(query)
       .populate('transporter', 'fullName phone rating')
+      .populate('user', 'fullName companyName')
+      .populate('shipper', 'fullName companyName')
       .populate('shipments')
       .sort({ createdAt: -1 })
       .skip(skip)

@@ -45,7 +45,7 @@ const AddDriverScreen = () => {
     }
   });
 
-  const licenseClasses = ['A', 'B', 'C', 'D', 'E', 'F'];
+  const licenseClasses = ['A', 'B', 'C', 'D', 'E', 'EC'];
   const specializations = ['local', 'cross_border', 'hazardous', 'refrigerated', 'heavy_haulage'];
 
   const updateField = (path, value) => {

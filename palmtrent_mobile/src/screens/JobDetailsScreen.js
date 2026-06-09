@@ -326,11 +326,19 @@ const JobDetailsScreen = ({ navigation, route }) => {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Cargo Details</Text>
             <View style={styles.detailsList}>
-              <DetailRow label="Type" value={jobData.cargo} />
-              <DetailRow label="Weight" value="5,000 kg" />
-              <DetailRow label="Quantity" value="100 bags x 50kg" />
-              <DetailRow label="Value" value="$10,000 (Insured ✓)" highlight />
-              <DetailRow label="Special Instructions" value="Keep dry, covered load" />
+              <DetailRow label="Type" value={jobData.cargoDetails?.type || jobData.cargoDetails?.description || jobData.cargo || 'General cargo'} />
+              {jobData.cargoDetails?.weight ? (
+                <DetailRow label="Weight" value={`${jobData.cargoDetails.weight} kg`} />
+              ) : null}
+              {jobData.cargoDetails?.quantity ? (
+                <DetailRow label="Quantity" value={String(jobData.cargoDetails.quantity)} />
+              ) : null}
+              {jobData.cargoDetails?.value ? (
+                <DetailRow label="Value" value={`$${Number(jobData.cargoDetails.value).toLocaleString()}${jobData.insurance?.required || jobData.insurance ? ' (Insured ✓)' : ''}`} highlight />
+              ) : null}
+              {jobData.cargoDetails?.specialInstructions ? (
+                <DetailRow label="Special Instructions" value={jobData.cargoDetails.specialInstructions} />
+              ) : null}
             </View>
           </View>
         </View>
@@ -389,7 +397,7 @@ const JobDetailsScreen = ({ navigation, route }) => {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Payment</Text>
             <View style={styles.detailsList}>
-              <DetailRow label="Method" value="Digital (Escrow) ✓" highlight />
+              <DetailRow label="Method" value={jobData.payment?.method ? `${String(jobData.payment.method).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}` : 'Digital (Escrow) ✓'} highlight />
               <DetailRow label="Platform Fee" value="Paid by shipper" />
               <DetailRow label="Release" value="24 hours after delivery" />
               <DetailRow label="Your Payout" value={`$${displayData.earnings} to your account`} />

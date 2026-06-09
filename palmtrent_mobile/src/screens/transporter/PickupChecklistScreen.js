@@ -171,7 +171,7 @@ const PickupChecklistScreen = ({ navigation, route }) => {
           </TouchableOpacity>
           <View style={styles.headerText}>
             <Text style={styles.headerTitle}>Pickup Checklist</Text>
-            <Text style={styles.jobId}>{jobData.id}</Text>
+            <Text style={styles.jobId}>{jobData.bookingReference || jobData._id?.slice(-8)?.toUpperCase() || 'Job'}</Text>
           </View>
         </View>
       </View>
@@ -186,7 +186,7 @@ const PickupChecklistScreen = ({ navigation, route }) => {
           >
             <TouchableOpacity
               style={[styles.actionButton, checklist.arrived && styles.actionButtonCompleted]}
-              onPress={() => setChecklist({...checklist, arrived: true})}
+              onPress={() => setChecklist({...checklist, arrived: true, arrivedAt: new Date().toISOString()})}
               disabled={checklist.arrived}
             >
               <MaterialIcons name="location-on" size={20} color="white" />
@@ -195,7 +195,10 @@ const PickupChecklistScreen = ({ navigation, route }) => {
             {checklist.arrived && (
               <View style={styles.completedStatus}>
                 <MaterialIcons name="check-circle" size={16} color="#16a34a" />
-                <Text style={styles.completedText}>Checked in at 06:02 AM • Mbare Musika, Harare</Text>
+                <Text style={styles.completedText}>
+                  Checked in at {new Date(checklist.arrivedAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {jobData.route?.pickup?.address ? ` • ${jobData.route.pickup.address}` : ''}
+                </Text>
               </View>
             )}
           </ChecklistCard>

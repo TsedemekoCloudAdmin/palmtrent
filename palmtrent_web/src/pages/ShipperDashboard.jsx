@@ -265,7 +265,9 @@ export const ShipperDashboard = () => {
                   <div className="shipper-user-avatar"><span className="shipper-user-avatar-text">{userInitials}</span></div>
                   <div className="shipper-user-info">
                     <p className="shipper-user-name">{userDisplayName}</p>
-                    <p className="shipper-user-role">Premium Shipper</p>
+                    <p className="shipper-user-role">
+                      {currentUser.corporateAccount ? 'Corporate Shipper' : 'Shipper'}
+                    </p>
                   </div>
                   <ChevronDown className="shipper-dropdown-arrow" size={16} />
                 </button>
@@ -1487,8 +1489,12 @@ const BookingsTab = () => {
           driver: b.transporter?.fullName || 'N/A'
         })));
 
-        if (response.pagination) {
-          setPagination(response.pagination);
+        if (response.pages || response.total != null) {
+          setPagination({
+            pages: response.pages || 1,
+            total: response.total || 0,
+            currentPage: response.currentPage || 1
+          });
         }
       } catch (error) {
         console.error('Error fetching bookings:', error);
@@ -1696,8 +1702,9 @@ const PaymentsTab = () => {
 
         setPayments(data.map(p => ({
           id: p._id,
+          reference: p.paymentReference || p.reference || p._id?.slice(-8).toUpperCase(),
           date: p.createdAt,
-          booking: p.booking?.bookingId || p.bookingId || 'N/A',
+          booking: p.booking?.bookingReference || p.booking?.bookingId || p.bookingId || 'N/A',
           amount: p.amount || 0,
           method: p.method || p.paymentMethod || 'N/A',
           status: p.status || 'pending'
@@ -1747,7 +1754,7 @@ const PaymentsTab = () => {
           <tbody>
             {payments.map(payment => (
               <tr key={payment.id}>
-                <td>{payment.id}</td>
+                <td>{payment.reference}</td>
                 <td>{new Date(payment.date).toLocaleDateString()}</td>
                 <td><span className="shipper-shipment-id">{payment.booking}</span></td>
                 <td>{payment.method}</td>

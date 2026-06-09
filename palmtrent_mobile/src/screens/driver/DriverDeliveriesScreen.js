@@ -24,6 +24,7 @@ import * as ImagePicker from 'expo-image-picker';
 import apiService from '../../services/apiService';
 import socketService from '../../services/socketService';
 import SOSButton from '../components/SOSButton';
+import { vehicleLabel } from '../../utils/labels';
 
 const bookingIdOf = (shipment) => shipment?.booking?._id || shipment?.booking || shipment?.bookingReference;
 
@@ -253,7 +254,7 @@ const DriverDeliveriesScreen = () => {
         <View style={styles.metaRow}>
           <MaterialIcons name="local-shipping" size={18} color="#0C2D48" />
           <Text style={styles.metaText}>
-            {vehicle.registrationNumber ? `${vehicle.registrationNumber}${vehicle.make ? ` · ${vehicle.make} ${vehicle.model || ''}` : ''}` : 'Vehicle not set'}
+            {vehicle.registrationNumber ? vehicleLabel(vehicle) : 'Vehicle not set'}
           </Text>
         </View>
 

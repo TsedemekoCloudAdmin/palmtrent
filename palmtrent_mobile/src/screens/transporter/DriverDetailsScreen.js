@@ -15,6 +15,7 @@ import {
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import apiService from '../../services/apiService';
+import { cleanLabel } from '../../utils/labels';
 
 const DriverDetailsScreen = () => {
   const navigation = useNavigation();
@@ -406,7 +407,7 @@ const DriverDetailsScreen = () => {
               <View style={styles.vehicleInfo}>
                 <Text style={styles.vehicleReg}>{driver.assignedVehicle.registrationNumber}</Text>
                 <Text style={styles.vehicleDetails}>
-                  {driver.assignedVehicle.make} {driver.assignedVehicle.model} • {driver.assignedVehicle.year}
+                  {[cleanLabel(driver.assignedVehicle.makeName) || cleanLabel(driver.assignedVehicle.make), cleanLabel(driver.assignedVehicle.modelName) || cleanLabel(driver.assignedVehicle.model), driver.assignedVehicle.year].filter(Boolean).join(' • ')}
                 </Text>
                 <Text style={styles.vehicleCapacity}>
                   Capacity: {driver.assignedVehicle.capacity?.weight?.value} {driver.assignedVehicle.capacity?.weight?.unit}
@@ -496,7 +497,7 @@ const DriverDetailsScreen = () => {
                   <View style={styles.vehicleOptionInfo}>
                     <Text style={styles.vehicleOptionReg}>{item.registrationNumber}</Text>
                     <Text style={styles.vehicleOptionDetails}>
-                      {item.make} {item.model} • {item.capacity?.weight?.value} {item.capacity?.weight?.unit}
+                      {[cleanLabel(item.makeName) || cleanLabel(item.make), cleanLabel(item.modelName) || cleanLabel(item.model)].filter(Boolean).join(' ')} • {item.capacity?.weight?.value} {item.capacity?.weight?.unit}
                     </Text>
                   </View>
                   {selectedVehicle === item._id && (

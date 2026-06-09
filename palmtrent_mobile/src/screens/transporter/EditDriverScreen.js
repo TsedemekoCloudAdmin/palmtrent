@@ -50,7 +50,7 @@ const EditDriverScreen = () => {
     status: 'available'
   });
 
-  const licenseClasses = ['A', 'B', 'C', 'D', 'E', 'F'];
+  const licenseClasses = ['A', 'B', 'C', 'D', 'E', 'EC'];
   const specializations = ['local', 'cross_border', 'hazardous', 'refrigerated', 'heavy_haulage'];
   const employmentTypes = ['full_time', 'part_time', 'contract', 'freelance'];
   const salaryPeriods = ['hourly', 'daily', 'weekly', 'monthly'];

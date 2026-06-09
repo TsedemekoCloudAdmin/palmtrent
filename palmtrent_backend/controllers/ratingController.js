@@ -11,7 +11,8 @@ exports.submitRating = async (req, res) => {
       overallRating,
       categories,
       review,
-      tags
+      tags,
+      wouldUseAgain
     } = req.body;
 
     const userId = req.user.id;
@@ -67,6 +68,7 @@ exports.submitRating = async (req, res) => {
         isPublic: review?.isPublic !== false
       },
       tags: tags || [],
+      wouldUseAgain: wouldUseAgain ?? undefined,
       tripDetails: {
         distance: booking.route?.distance,
         origin: booking.route?.pickup?.city || booking.route?.pickup?.address,

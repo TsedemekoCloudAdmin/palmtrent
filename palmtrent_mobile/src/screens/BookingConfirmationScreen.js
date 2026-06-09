@@ -42,7 +42,7 @@ const BookingConfirmationScreen = ({ onNavigate, bookingData, onExit }) => {
         if (bookingData._id) {
           // Fetch updated booking status
           const response = await apiService.get(`/bookings/${bookingData._id}`);
-          setBooking(response.data.booking);
+          setBooking(response.data || bookingData);
         }
       } else if (method === 'cash_agent') {
         // Cash via agent - payment will be confirmed manually by agent
@@ -105,21 +105,26 @@ const BookingConfirmationScreen = ({ onNavigate, bookingData, onExit }) => {
               <Text style={styles.detailsTitle}>Booking Details</Text>
               
               <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Booking ID</Text>
-                <Text style={styles.detailValue}>{booking.bookingReference}</Text>
+                <Text style={styles.detailLabel}>Booking Reference</Text>
+                <Text style={styles.detailValue}>{booking.bookingReference || booking._id?.slice(-8).toUpperCase() || 'Pending'}</Text>
               </View>
-              
+
               <View style={styles.detailRow}>
                 <Text style={styles.detailLabel}>Route</Text>
                 <Text style={styles.detailValue}>
-                  {booking.route?.pickup?.address} → {booking.route?.delivery?.address}
+                  {(booking.route?.pickup?.address || booking.pickupLocation || 'Pickup')} → {(booking.route?.delivery?.address || booking.deliveryLocation || 'Delivery')}
                 </Text>
               </View>
-              
+
               <View style={styles.detailRow}>
                 <Text style={styles.detailLabel}>Pickup Time</Text>
                 <Text style={styles.detailValue}>
-                  {new Date(booking.route?.pickup?.date).toLocaleString()}
+                  {(() => {
+                    const raw = booking.route?.pickup?.date || booking.pickupDate;
+                    if (!raw) return 'To be scheduled';
+                    const d = new Date(raw);
+                    return Number.isNaN(d.getTime()) ? String(raw) : d.toLocaleString();
+                  })()}
                 </Text>
               </View>
               

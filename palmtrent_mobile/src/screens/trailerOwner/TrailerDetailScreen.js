@@ -29,6 +29,12 @@ const formatAssetType = (assetType) => String(assetType || 'trailer')
   .replace(/_/g, ' ')
   .replace(/\b\w/g, char => char.toUpperCase());
 
+const formatRentalDate = (value) => {
+  if (!value) return 'TBD';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleDateString();
+};
+
 const normalizeTrailer = (trailer) => {
   if (!trailer) return null;
   const features = Array.isArray(trailer.features)
@@ -63,7 +69,18 @@ const normalizeTrailer = (trailer) => {
     monthlyRate: trailer.rentalSettings?.monthlyRate || 0,
     status: trailer.status || 'available',
     location,
-    currentRental: trailer.currentRental,
+    currentRental: trailer.currentRental ? {
+      reference: trailer.currentRental.rentalReference || '',
+      customer: trailer.currentRental.renterSnapshot?.fullName
+        || trailer.currentRental.renter?.fullName
+        || 'Renter',
+      contact: trailer.currentRental.renterSnapshot?.phone
+        || trailer.currentRental.renter?.phone
+        || '',
+      startDate: trailer.currentRental.rentalPeriod?.startDate,
+      endDate: trailer.currentRental.rentalPeriod?.endDate,
+      totalAmount: trailer.currentRental.pricing?.total || 0
+    } : null,
     maintenanceHistory: trailer.maintenanceHistory || []
   };
 };
@@ -259,12 +276,18 @@ const TrailerDetailScreen = ({ navigation, route }) => {
             <View style={styles.rentalCard}>
               <Text style={styles.cardTitle}>Current Rental</Text>
               <View style={styles.rentalDetails}>
+                {trailerData.currentRental.reference ? (
+                  <DetailRow label="Reference" value={trailerData.currentRental.reference} />
+                ) : null}
                 <DetailRow label="Customer" value={trailerData.currentRental.customer} />
-                <DetailRow label="Contact" value={trailerData.currentRental.contact} />
-                <DetailRow label="Rental Period" value={`${trailerData.currentRental.startDate} to ${trailerData.currentRental.endDate}`} />
-                <DetailRow label="Cargo" value={trailerData.currentRental.cargo} />
-                <DetailRow label="Route" value={trailerData.currentRental.route} />
-                <DetailRow label="Total Amount" value={`$${trailerData.currentRental.totalAmount}`} highlight />
+                {trailerData.currentRental.contact ? (
+                  <DetailRow label="Contact" value={trailerData.currentRental.contact} />
+                ) : null}
+                <DetailRow
+                  label="Rental Period"
+                  value={`${formatRentalDate(trailerData.currentRental.startDate)} – ${formatRentalDate(trailerData.currentRental.endDate)}`}
+                />
+                <DetailRow label="Total Amount" value={`$${Number(trailerData.currentRental.totalAmount || 0).toLocaleString()}`} highlight />
               </View>
               <View style={styles.rentalActions}>
                 <TouchableOpacity style={styles.contactButton}>
@@ -317,22 +340,15 @@ const TrailerDetailScreen = ({ navigation, route }) => {
             </View>
           </View>
 
-          {/* Maintenance History */}
-          <View style={styles.maintenanceCard}>
-            <View style={styles.cardHeader}>
+          {/* Maintenance History — only shown when records exist */}
+          {trailerData.maintenanceHistory.length > 0 && (
+            <View style={styles.maintenanceCard}>
               <Text style={styles.cardTitle}>Maintenance History</Text>
-              <TouchableOpacity>
-                <Text style={styles.seeAllText}>See All</Text>
-              </TouchableOpacity>
+              {trailerData.maintenanceHistory.map((record) => (
+                <MaintenanceRecord key={record.id} record={record} />
+              ))}
             </View>
-            {trailerData.maintenanceHistory.map((record) => (
-              <MaintenanceRecord key={record.id} record={record} />
-            ))}
-            <TouchableOpacity style={styles.addMaintenanceButton}>
-              <MaterialIcons name="add" size={20} color="#0C2D48" />
-              <Text style={styles.addMaintenanceText}>Add Maintenance Record</Text>
-            </TouchableOpacity>
-          </View>
+          )}
 
           <View style={styles.bottomPadding} />
         </View>

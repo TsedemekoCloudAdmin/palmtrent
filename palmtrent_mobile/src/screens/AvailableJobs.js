@@ -267,7 +267,7 @@ const AvailableJobsScreen = ({ navigation, onNavigate }) => {
             </View>
             <View style={[styles.statItem, styles.statDivider]}>
               <Text style={[styles.statNumber, styles.greenText]}>
-                ${jobs.filter(j => j.recommended).length * 400}
+                ${jobs.reduce((sum, j) => sum + (Number(j.earnings) || 0), 0).toLocaleString()}
               </Text>
               <Text style={styles.statLabel}>Potential</Text>
             </View>
@@ -508,13 +508,17 @@ const JobCard = ({ job, onAccept, onViewDetails, onViewMap, accessBlocker }) => 
       {/* Expanded Details */}
       {expanded && (
         <View style={styles.expandedDetails}>
-          <DetailRow label="Cargo Value" value="$10,000 (Insured ✓)" />
-          <DetailRow label="Special Instructions" value="Keep dry, covered load" />
-          <DetailRow label="Loading" value="Shipper will load" />
-          <DetailRow label="Offloading" value="Recipient will offload" />
-          <DetailRow label="Toll Fees" value="$12 (2 gates)" />
+          {job.cargoDetails?.value ? (
+            <DetailRow label="Cargo Value" value={`$${Number(job.cargoDetails.value).toLocaleString()}${job.insurance?.required || job.insurance ? ' (Insured ✓)' : ''}`} />
+          ) : null}
+          {job.cargoDetails?.weight ? (
+            <DetailRow label="Weight" value={`${job.cargoDetails.weight} kg`} />
+          ) : null}
+          {job.cargoDetails?.specialInstructions ? (
+            <DetailRow label="Special Instructions" value={job.cargoDetails.specialInstructions} />
+          ) : null}
           <DetailRow label="Payment Release" value="24 hours after delivery" />
-          
+
           <TouchableOpacity style={styles.viewMapButton} onPress={onViewMap}>
             <Text style={styles.viewMapText}>📍 View Route Map</Text>
           </TouchableOpacity>

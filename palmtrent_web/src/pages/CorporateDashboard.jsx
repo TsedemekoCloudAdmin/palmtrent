@@ -118,7 +118,7 @@ const CorporateDashboard = () => {
     const loadUnreadCount = async () => {
       try {
         const response = await notificationsAPI.getUnreadCount();
-        setUnreadCount(response.data?.count || response.count || 0);
+        setUnreadCount(response.data?.unreadCount ?? response.unreadCount ?? 0);
       } catch {
         setUnreadCount(0);
       }
@@ -186,8 +186,12 @@ const CorporateDashboard = () => {
             <div className="corp-plan-badge">
               <Shield className="icon" />
               <div>
-                <span className="plan-name">Enterprise Plan</span>
-                <span className="plan-status">Active</span>
+                <span className="plan-name">
+                  {currentUser.corporateAccount?.plan
+                    ? `${currentUser.corporateAccount.plan.charAt(0).toUpperCase()}${currentUser.corporateAccount.plan.slice(1)} Plan`
+                    : 'Corporate Account'}
+                </span>
+                <span className="plan-status">{currentUser.corporateAccount?.status || 'active'}</span>
               </div>
             </div>
           </div>
@@ -265,11 +269,10 @@ const CorporateDashboard = () => {
 const OverviewTab = ({ setActiveNav }) => {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
-    totalBookings: 0,
     activeShipments: 0,
+    completedBookings: 0,
     monthlySpend: 0,
-    teamMembers: 0,
-    growth: { bookings: 0, spend: 0 }
+    onTimeRate: '0%'
   });
   const [recentBookings, setRecentBookings] = useState([]);
   const [topRoutes, setTopRoutes] = useState([]);
@@ -283,26 +286,22 @@ const OverviewTab = ({ setActiveNav }) => {
         const statsRes = await corporateAPI.getDashboardStats();
         if (statsRes.success && statsRes.data) {
           setStats({
-            totalBookings: statsRes.data.totalBookings || 0,
-            activeShipments: statsRes.data.activeShipments || 0,
-            monthlySpend: statsRes.data.monthlySpend || 0,
-            teamMembers: statsRes.data.teamMembers || 0,
-            growth: statsRes.data.growth || { bookings: 0, spend: 0 }
+            activeShipments: statsRes.data.activeBookings || 0,
+            completedBookings: statsRes.data.completedBookings || 0,
+            monthlySpend: statsRes.data.totalSpend || 0,
+            onTimeRate: statsRes.data.onTimeRate || '0%'
           });
-          if (statsRes.data.topRoutes) {
-            setTopRoutes(statsRes.data.topRoutes);
-          }
         }
 
         // Fetch recent bookings
         const bookingsRes = await bookingsAPI.getAll({ limit: 5 });
         if (bookingsRes.data) {
           setRecentBookings(bookingsRes.data.map(b => ({
-            id: b.bookingId || b._id,
-            route: `${b.pickup?.city || 'N/A'} → ${b.delivery?.city || 'N/A'}`,
+            id: b.bookingReference || b.bookingId || b._id,
+            route: getCorporateBookingRoute(b),
             status: b.status,
-            bookedBy: b.shipper?.fullName || 'N/A',
-            amount: b.pricing?.total || 0
+            bookedBy: b.user?.fullName || b.shipper?.fullName || b.user?.companyName || 'Team member',
+            amount: b.pricing?.totals?.total || b.pricing?.total || b.totalAmount || 0
           })));
         }
 
@@ -331,10 +330,10 @@ const OverviewTab = ({ setActiveNav }) => {
     <>
       {/* Stats Grid */}
       <div className="corp-stats-grid">
-        <StatCard title="Total Bookings" value={stats.totalBookings} change={stats.growth.bookings} icon={<Package className="icon" />} color="primary" />
         <StatCard title="Active Shipments" value={stats.activeShipments} icon={<Truck className="icon" />} color="accent" />
-        <StatCard title="Monthly Spend" value={`$${stats.monthlySpend.toLocaleString()}`} change={stats.growth.spend} icon={<DollarSign className="icon" />} color="success" />
-        <StatCard title="Team Members" value={stats.teamMembers} icon={<Users className="icon" />} color="secondary" />
+        <StatCard title="Completed Bookings" value={stats.completedBookings} icon={<Package className="icon" />} color="primary" />
+        <StatCard title="Total Spend" value={`$${Number(stats.monthlySpend || 0).toLocaleString()}`} icon={<DollarSign className="icon" />} color="success" />
+        <StatCard title="On-Time Rate" value={stats.onTimeRate} icon={<Users className="icon" />} color="secondary" />
       </div>
 
       {/* Quick Actions */}
@@ -1258,8 +1257,12 @@ const BillingTab = () => {
         <div className="payment-method-card">
           <div className="payment-icon"><CreditCard className="icon" /></div>
           <div className="payment-details">
-            <span className="payment-type">Bank Transfer</span>
-            <span className="payment-info">CBZ Bank - ****4521</span>
+            <span className="payment-type">
+              {String(currentUser.corporateAccount?.preferredPaymentMethod || paymentMethodForm || 'monthly_invoice')
+                .replace(/_/g, ' ')
+                .replace(/\b\w/g, c => c.toUpperCase())}
+            </span>
+            <span className="payment-info">Used for corporate invoices</span>
           </div>
           <span className="payment-default">Default</span>
         </div>

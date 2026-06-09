@@ -11,9 +11,23 @@ import {
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../../hook/useAuth';
 
+const formatClock = (value) => {
+  if (!value) return '—';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
 export const DeliveryCompletedScreen = ({ navigation, route, onNavigate }) => {
   const { user } = useAuth();
   const job = route.params?.job;
+
+  const earnings = job?.transporterEarnings
+    ?? job?.pricing?.totals?.transporterTotal
+    ?? job?.earnings
+    ?? 0;
+  const pickupTime = formatClock(job?.timeline?.pickedUpAt || job?.schedule?.actualPickupTime);
+  const deliveryTime = formatClock(job?.timeline?.deliveredAt || job?.schedule?.actualDeliveryTime);
+  const distanceKm = job?.route?.distance;
 
   const navigateTo = (screen, params = {}) => {
     if (onNavigate && typeof onNavigate === 'function') {
@@ -68,27 +82,29 @@ export const DeliveryCompletedScreen = ({ navigation, route, onNavigate }) => {
           <View style={styles.summaryCard}>
             <View style={styles.earningsSection}>
               <Text style={styles.earningsLabel}>Your Earnings</Text>
-              <Text style={styles.earningsAmount}>${job?.earnings || 400}</Text>
-              <Text style={styles.earningsSubtext}>Release time: Tomorrow, 5:45 PM</Text>
+              <Text style={styles.earningsAmount}>${Number(earnings).toLocaleString()}</Text>
+              <Text style={styles.earningsSubtext}>Released 24 hours after delivery</Text>
             </View>
 
             <View style={styles.statsContainer}>
               <View style={styles.statRow}>
                 <Text style={styles.statLabel}>Pickup</Text>
-                <Text style={styles.statValue}>06:15 AM</Text>
+                <Text style={styles.statValue}>{pickupTime}</Text>
               </View>
               <View style={styles.statRow}>
                 <Text style={styles.statLabel}>Delivery</Text>
-                <Text style={styles.statValue}>05:45 PM</Text>
+                <Text style={styles.statValue}>{deliveryTime}</Text>
               </View>
               <View style={styles.statRow}>
                 <Text style={styles.statLabel}>Status</Text>
-                <Text style={[styles.statValue, styles.successText]}>15 mins early ✓</Text>
+                <Text style={[styles.statValue, styles.successText]}>Delivered ✓</Text>
               </View>
-              <View style={styles.statRow}>
-                <Text style={styles.statLabel}>Distance</Text>
-                <Text style={styles.statValue}>442 km</Text>
-              </View>
+              {distanceKm != null && (
+                <View style={styles.statRow}>
+                  <Text style={styles.statLabel}>Distance</Text>
+                  <Text style={styles.statValue}>{Number(distanceKm).toFixed(2)} km</Text>
+                </View>
+              )}
             </View>
           </View>
 

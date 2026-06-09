@@ -7,13 +7,19 @@ import {
   StyleSheet,
   SafeAreaView,
   StatusBar,
-  Dimensions
+  Dimensions,
+  Alert,
+  ActivityIndicator,
+  Image
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import * as ImagePicker from 'expo-image-picker';
+import apiService from '../../services/apiService';
 
 const { width } = Dimensions.get('window');
 
-const VehiclePhotosScreen = ({ navigation, onNavigate }) => {
+const VehiclePhotosScreen = ({ navigation, onNavigate, route }) => {
+  const vehicleId = route?.params?.vehicleId;
   const [photos, setPhotos] = useState({
     front: null,
     back: null,
@@ -22,6 +28,7 @@ const VehiclePhotosScreen = ({ navigation, onNavigate }) => {
     interior: null,
     cargoArea: null
   });
+  const [uploadingKey, setUploadingKey] = useState(null);
 
   const requiredPhotos = [
     { key: 'front', label: 'Front View', required: true },
@@ -43,11 +50,37 @@ const VehiclePhotosScreen = ({ navigation, onNavigate }) => {
     }
   };
 
-  const handleTakePhoto = (photoKey) => {
-    setPhotos(prev => ({
-      ...prev,
-      [photoKey]: `photo_${photoKey}_${Date.now()}`
-    }));
+  const handleTakePhoto = async (photoKey) => {
+    if (!vehicleId) {
+      Alert.alert('Vehicle required', 'Open this from a saved vehicle to upload its photos.');
+      return;
+    }
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Camera permission', 'Allow camera access to capture vehicle photos.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.8
+      });
+      if (result.canceled || !result.assets?.length) return;
+
+      const uri = result.assets[0].uri;
+      setUploadingKey(photoKey);
+      const response = await apiService.uploadVehiclePhoto(vehicleId, uri, photoKey);
+      if (response.success) {
+        setPhotos(prev => ({ ...prev, [photoKey]: { uri, url: response.data?.url } }));
+      } else {
+        Alert.alert('Upload failed', response.message || 'Could not upload the photo.');
+      }
+    } catch (error) {
+      Alert.alert('Upload failed', error.message || 'Could not capture or upload the photo.');
+    } finally {
+      setUploadingKey(null);
+    }
   };
 
   return (
@@ -93,6 +126,8 @@ const VehiclePhotosScreen = ({ navigation, onNavigate }) => {
                 key={photo.key}
                 photo={photo}
                 taken={!!photos[photo.key]}
+                uri={photos[photo.key]?.uri}
+                uploading={uploadingKey === photo.key}
                 onTake={() => handleTakePhoto(photo.key)}
               />
             ))}
@@ -105,7 +140,11 @@ const VehiclePhotosScreen = ({ navigation, onNavigate }) => {
               styles.submitButton,
               completedCount < requiredCount && styles.submitButtonDisabled
             ]}
-            onPress={() => navigateTo('TransporterVerification', { submittedPhotos: photos })}
+            onPress={() => {
+              Alert.alert('Photos saved', 'Vehicle photos uploaded successfully.', [
+                { text: 'OK', onPress: () => (navigation?.goBack ? navigation.goBack() : navigateTo('FleetDashboard')) }
+              ]);
+            }}
             disabled={completedCount < requiredCount}
           >
             <Text style={styles.submitButtonText}>
@@ -129,19 +168,22 @@ const GuidelineItem = ({ text }) => (
   </View>
 );
 
-const VehiclePhotoCard = ({ photo, taken, onTake }) => (
+const VehiclePhotoCard = ({ photo, taken, uri, uploading, onTake }) => (
   <TouchableOpacity
     style={[
       styles.photoCard,
       taken ? styles.photoCardTaken : styles.photoCardEmpty
     ]}
     onPress={onTake}
+    disabled={uploading}
   >
-    {taken ? (
+    {uploading ? (
+      <ActivityIndicator size="large" color="#0C2D48" />
+    ) : taken ? (
       <>
-        <MaterialIcons name="check-circle" size={48} color="#16a34a" />
+        {uri ? <Image source={{ uri }} style={styles.photoPreview} /> : <MaterialIcons name="check-circle" size={48} color="#16a34a" />}
         <Text style={styles.photoLabelTaken}>{photo.label}</Text>
-        <Text style={styles.photoStatusTaken}>✓ Taken</Text>
+        <Text style={styles.photoStatusTaken}>✓ Uploaded</Text>
       </>
     ) : (
       <>
@@ -267,6 +309,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#16a34a',
     marginTop: 4,
+  },
+  photoPreview: {
+    width: 64,
+    height: 64,
+    borderRadius: 8,
   },
   submitButton: {
     backgroundColor: '#0C2D48',

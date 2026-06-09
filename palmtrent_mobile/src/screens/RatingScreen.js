@@ -132,6 +132,7 @@ export const RatingScreen = ({ route, navigation, onNavigate }) => {
           isPublic: true,
         },
         tags: selectedTags,
+        wouldUseAgain,
       };
 
       const response = await apiService.submitRating(bookingId, ratingData);

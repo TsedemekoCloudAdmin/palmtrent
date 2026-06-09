@@ -47,7 +47,7 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
   const expectedCargo = cargoDetails.description ||
     `${cargoDetails.quantity ? `${cargoDetails.quantity} ` : ''}${cargoDetails.type || 'cargo'}${cargoDetails.weight ? ` (${cargoDetails.weight} kg)` : ''}`;
   const paymentTotal = job?.pricing?.totals?.total || job?.pricing?.total || job?.totalAmount || job?.amount || 0;
-  const platformFee = job?.pricing?.totals?.platformCommission || job?.pricing?.breakdown?.platformCommission || 0;
+  const platformFee = job?.pricing?.totals?.platformTotal || job?.pricing?.feeAllocation?.platform?.amount || job?.pricing?.totals?.platformCommission || 0;
 
   const handleCompleteDelivery = async () => {
     if (!checklist.signature || (isCashOnDelivery && !checklist.cashCollected)) return;
@@ -187,7 +187,7 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
           </TouchableOpacity>
           <View>
             <Text style={styles.headerTitle}>Delivery Checklist</Text>
-            <Text style={styles.jobId}>Job ID: {job?.id || job?.bookingReference || shipmentId || 'Unavailable'}</Text>
+            <Text style={styles.jobId}>{job?.bookingReference || job?._id?.slice(-8)?.toUpperCase() || 'Job'}</Text>
           </View>
         </View>
       </View>
@@ -201,7 +201,7 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
           >
             <TouchableOpacity
               style={[styles.button, styles.primaryButton]}
-              onPress={() => setChecklist({...checklist, arrived: true})}
+              onPress={() => setChecklist({...checklist, arrived: true, arrivedAt: new Date().toISOString()})}
               activeOpacity={0.7}
             >
               <MaterialIcons name="location-on" size={20} color="white" />
@@ -210,7 +210,9 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
             {checklist.arrived && (
               <View style={styles.successMessage}>
                 <MaterialIcons name="check-circle" size={16} color="#166534" />
-                <Text style={styles.successText}>Arrived at 05:45 PM (15 mins early!)</Text>
+                <Text style={styles.successText}>
+                  Arrived at {new Date(checklist.arrivedAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
               </View>
             )}
           </ChecklistCard>

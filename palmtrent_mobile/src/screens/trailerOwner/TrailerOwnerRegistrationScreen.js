@@ -218,9 +218,12 @@ const TrailerOwnerRegistrationScreen = ({ navigation }) => {
       assetName: `${formData.make} ${formData.model}`.trim(),
       registrationNumber: formData.licensePlate,
       year: Number(formData.year),
+      // Send the selected type so the backend can resolve/persist it.
+      trailerType: formData.trailerType,
       capacity: {
         weight: {
-          value: Number(formData.capacity),
+          // The field is entered in tonnes; store in kg for platform consistency.
+          value: Number(formData.capacity) * 1000,
           unit: 'kg'
         }
       },

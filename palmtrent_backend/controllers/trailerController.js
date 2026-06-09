@@ -1,5 +1,29 @@
 const Trailer = require('../models/Trailer');
 const Rental = require('../models/Rental');
+const TrailerType = require('../models/TrailerType');
+
+const isObjectId = (value) => /^[a-f\d]{24}$/i.test(String(value || ''));
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Clients may send trailerType as a human label ("Flatbed") rather than an
+// ObjectId. Resolve (or create) the matching TrailerType so it persists.
+async function resolveTrailerTypeId(value) {
+  if (!value || isObjectId(value)) return value || undefined;
+  const name = String(value).trim();
+  if (!name) return undefined;
+  const lower = name.toLowerCase();
+  const category = lower.includes('flat') ? 'flatbed'
+    : lower.includes('reefer') || lower.includes('refriger') ? 'refrigerated'
+      : lower.includes('tank') ? 'tanker'
+        : lower.includes('enclos') || lower.includes('box') || lower.includes('curtain') ? 'enclosed'
+          : 'specialized';
+  const doc = await TrailerType.findOneAndUpdate(
+    { name: new RegExp(`^${escapeRegex(name)}$`, 'i') },
+    { $setOnInsert: { name, category } },
+    { new: true, upsert: true, setDefaultsOnInsert: true }
+  );
+  return doc._id;
+}
 const {
   assertRentalOwnerCanList,
   getRentalOwnerSubscriptionIssues,
@@ -98,7 +122,7 @@ exports.getTrailerById = async (req, res) => {
     const trailer = await Trailer.findById(req.params.id)
       .populate('trailerType', 'name category description')
       .populate('owner', 'name phone email')
-      .populate('currentRental');
+      .populate({ path: 'currentRental', populate: { path: 'renter', select: 'fullName phone' } });
 
     if (!trailer) {
       return res.status(404).json({
@@ -146,6 +170,11 @@ exports.createTrailer = async (req, res) => {
       ...req.body,
       assetType: req.body.assetType || 'trailer'
     };
+
+    // Accept a trailerType label or id and store it as a proper reference.
+    if (payload.trailerType) {
+      payload.trailerType = await resolveTrailerTypeId(payload.trailerType);
+    }
 
     if (payload.assetType !== 'trailer' && !payload.assetName) {
       payload.assetName = `${payload.tractorUnit?.make || 'Fleet'} ${payload.tractorUnit?.model || 'Asset'}`.trim();
@@ -213,6 +242,10 @@ exports.updateTrailer = async (req, res) => {
       ...req.body,
       updatedBy: req.user.id
     };
+
+    if (payload.trailerType) {
+      payload.trailerType = await resolveTrailerTypeId(payload.trailerType);
+    }
 
     if (payload.rentalSettings?.availableForRental === true) {
       await assertRentalOwnerCanList(getRentalOwnerScopeId(req.user));
