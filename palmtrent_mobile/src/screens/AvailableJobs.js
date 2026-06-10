@@ -41,6 +41,10 @@ const AvailableJobsScreen = ({ navigation, onNavigate }) => {
   const [error, setError] = useState(null);
   const [subscription, setSubscription] = useState(null);
   const [subscriptionLoading, setSubscriptionLoading] = useState(true);
+  const [selectedBatch, setSelectedBatch] = useState([]); // courier booking ids
+  const [batchAccepting, setBatchAccepting] = useState(false);
+  const [vehicles, setVehicles] = useState([]);
+  const [batchVehicleId, setBatchVehicleId] = useState(null);
 
   const transporterVerified = isUserVerifiedForJobs(user);
   const hasActiveSubscription = isUsableSubscription(subscription);
@@ -104,6 +108,9 @@ const AvailableJobsScreen = ({ navigation, onNavigate }) => {
             returnLoads: 0,
             cargoDetails: job.cargoDetails,
             insurance: job.insurance,
+            isCourier: job.isCourier || job.serviceType === 'courier_delivery',
+            pickupPoint: job.pickupPoint || job.route?.pickup?.address || job.origin || '',
+            weight: job.cargoDetails?.weight || 0,
             rawData: job
           };
         });
@@ -121,10 +128,20 @@ const AvailableJobsScreen = ({ navigation, onNavigate }) => {
     }
   }, []);
 
+  const fetchVehicles = useCallback(async () => {
+    try {
+      const response = await apiService.getMyVehicles();
+      setVehicles(response.data || []);
+    } catch (err) {
+      setVehicles([]);
+    }
+  }, []);
+
   useEffect(() => {
     fetchJobs();
     fetchSubscription();
-  }, [fetchJobs, fetchSubscription]);
+    fetchVehicles();
+  }, [fetchJobs, fetchSubscription, fetchVehicles]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -163,18 +180,77 @@ const AvailableJobsScreen = ({ navigation, onNavigate }) => {
 
   const filteredJobs = jobs.filter(job => {
     if (selectedFilter === 'all') return true;
+    if (selectedFilter === 'courier') return job.isCourier;
     if (selectedFilter === 'today') return job.pickup.date === 'Today';
     if (selectedFilter === 'recommended') return job.recommended;
     if (selectedFilter === 'high_pay') return job.earnings >= 350;
     return true;
   });
 
+  const courierJobs = jobs.filter(j => j.isCourier);
   const filters = [
     { id: 'all', label: 'All Jobs', count: jobs.length },
+    { id: 'courier', label: 'Courier (batch)', count: courierJobs.length, icon: 'local-shipping' },
     { id: 'recommended', label: 'Recommended', count: jobs.filter(j => j.recommended).length, icon: 'star' },
     { id: 'today', label: 'Today', count: jobs.filter(j => j.pickup.date === 'Today').length },
     { id: 'high_pay', label: 'High Pay', count: jobs.filter(j => j.earnings >= 350).length, icon: 'attach-money' }
   ];
+
+  const depotKey = (j) => String(j?.pickupPoint || '').trim().toLowerCase();
+  const vehicleCapacityKg = (v) => {
+    const value = Number(v?.capacity?.weight?.value || 0);
+    return v?.capacity?.weight?.unit === 'tonnes' ? value * 1000 : value;
+  };
+  // The run's capacity = chosen vehicle, else the transporter's largest vehicle.
+  const batchVehicle = vehicles.find(v => v._id === batchVehicleId) || null;
+  const batchCapacityKg = batchVehicle
+    ? vehicleCapacityKg(batchVehicle)
+    : vehicles.reduce((max, v) => Math.max(max, vehicleCapacityKg(v)), 0);
+  const batchWeightKg = jobs.filter(j => selectedBatch.includes(j.id)).reduce((sum, j) => sum + Number(j.weight || 0), 0);
+  const overCapacity = batchCapacityKg > 0 && batchWeightKg > batchCapacityKg;
+
+  const toggleBatchSelect = (job) => {
+    setSelectedBatch(prev => {
+      if (prev.includes(job.id)) return prev.filter(id => id !== job.id);
+      // A run must come from one depot — block mixing.
+      const firstSelected = jobs.find(j => prev.includes(j.id));
+      if (firstSelected && depotKey(firstSelected) !== depotKey(job)) {
+        Alert.alert('Same depot only', `A run must depart from one depot. These jobs leave from "${firstSelected.pickupPoint || 'a depot'}". Finish or clear that run before picking jobs from another depot.`);
+        return prev;
+      }
+      // Block exceeding the carrying vehicle's weight.
+      const prospective = batchWeightKg + Number(job.weight || 0);
+      if (batchCapacityKg > 0 && prospective > batchCapacityKg) {
+        Alert.alert('Vehicle full', `Adding this parcel (${job.weight || 0}kg) would make the run ${prospective}kg, over your ${batchVehicle ? 'selected' : 'largest'} vehicle capacity of ${batchCapacityKg}kg. Pick a bigger vehicle or leave it for another run.`);
+        return prev;
+      }
+      return [...prev, job.id];
+    });
+  };
+
+  const acceptBatch = async () => {
+    if (accessBlocker) { Alert.alert('Action Required', accessBlocker); return; }
+    if (selectedBatch.length === 0) return;
+    if (overCapacity) {
+      Alert.alert('Vehicle full', `The selected run is ${batchWeightKg}kg, over your vehicle capacity of ${batchCapacityKg}kg. Remove some parcels or pick a larger vehicle.`);
+      return;
+    }
+    setBatchAccepting(true);
+    try {
+      const response = await apiService.acceptCourierBatch(selectedBatch, batchVehicleId || undefined);
+      if (response.success) {
+        Alert.alert('Batch accepted', `You took ${response.data?.accepted || selectedBatch.length} courier deliveries as one run. Pick the parcels up from the depot together.`);
+        setSelectedBatch([]);
+        await fetchJobs();
+      } else {
+        Alert.alert('Batch', response.message || 'Could not accept the selected jobs.');
+      }
+    } catch (err) {
+      Alert.alert('Batch', err.message || 'Could not accept the selected jobs.');
+    } finally {
+      setBatchAccepting(false);
+    }
+  };
 
   const handleAcceptJob = async (job) => {
     try {
@@ -316,13 +392,16 @@ const AvailableJobsScreen = ({ navigation, onNavigate }) => {
           {filteredJobs.length > 0 ? (
             <View style={styles.jobsList}>
               {filteredJobs.map((job) => (
-                <JobCard 
-                  key={job.id} 
+                <JobCard
+                  key={job.id}
                   job={job}
                   onAccept={() => handleAcceptJob(job)}
                   onViewDetails={() => handleViewDetails(job)}
                   onViewMap={() => handleViewRouteMap(job)}
                   accessBlocker={accessBlocker}
+                  batchSelectable={job.isCourier}
+                  batchSelected={selectedBatch.includes(job.id)}
+                  onToggleBatch={() => toggleBatchSelect(job)}
                 />
               ))}
             </View>
@@ -344,6 +423,45 @@ const AvailableJobsScreen = ({ navigation, onNavigate }) => {
         {/* Reduced bottom padding */}
         <View style={styles.bottomPadding} />
       </ScrollView>
+
+      {selectedBatch.length > 0 && (
+        <View style={styles.batchBar}>
+          {vehicles.length > 0 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.batchVehicles} contentContainerStyle={{ gap: 8 }}>
+              {vehicles.map(v => {
+                const cap = vehicleCapacityKg(v);
+                const selected = batchVehicleId === v._id;
+                return (
+                  <TouchableOpacity
+                    key={v._id}
+                    style={[styles.vehChip, selected && styles.vehChipActive]}
+                    onPress={() => setBatchVehicleId(selected ? null : v._id)}
+                  >
+                    <Text style={[styles.vehChipText, selected && styles.vehChipTextActive]}>
+                      {v.registrationNumber || v.make || 'Vehicle'}{cap ? ` · ${cap}kg` : ''}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          )}
+          <View style={styles.batchBarRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.batchBarTitle}>
+                {selectedBatch.length} {selectedBatch.length === 1 ? 'delivery' : 'deliveries'} · {batchWeightKg}kg{batchCapacityKg ? ` / ${batchCapacityKg}kg` : ''}
+              </Text>
+              <Text style={[styles.batchBarHint, overCapacity && styles.batchBarHintWarn]}>
+                {overCapacity
+                  ? 'Over vehicle capacity — remove parcels or pick a bigger vehicle.'
+                  : `One run from ${jobs.find(j => selectedBatch.includes(j.id))?.pickupPoint || 'the depot'} — pick them up together.`}
+              </Text>
+            </View>
+            <TouchableOpacity style={[styles.batchBarBtn, overCapacity && styles.batchBarBtnDisabled]} onPress={acceptBatch} disabled={batchAccepting || overCapacity}>
+              {batchAccepting ? <ActivityIndicator color="#fff" /> : <Text style={styles.batchBarBtnText}>Accept run</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -387,15 +505,21 @@ const FilterChip = ({ label, active, count, icon, onPress }) => (
 );
 
 // Job Card Component
-const JobCard = ({ job, onAccept, onViewDetails, onViewMap, accessBlocker }) => {
+const JobCard = ({ job, onAccept, onViewDetails, onViewMap, accessBlocker, batchSelectable, batchSelected, onToggleBatch }) => {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <View style={styles.jobCard}>
+    <View style={[styles.jobCard, batchSelected && styles.jobCardSelected]}>
       {/* Header */}
       <View style={styles.jobHeader}>
         <View style={styles.jobIdContainer}>
           <Text style={styles.jobId}>{job.bookingReference}</Text>
+          {job.isCourier && (
+            <View style={styles.courierBadge}>
+              <MaterialIcons name="local-shipping" size={12} color="#1e40af" />
+              <Text style={styles.courierBadgeText}>Courier</Text>
+            </View>
+          )}
           {job.recommended && (
             <View style={styles.recommendedBadge}>
               <MaterialIcons name="star" size={12} color="#92400e" />
@@ -408,6 +532,15 @@ const JobCard = ({ job, onAccept, onViewDetails, onViewMap, accessBlocker }) => 
           <Text style={styles.expiryText}>{job.expiresIn}m left</Text>
         </View>
       </View>
+
+      {batchSelectable && (
+        <TouchableOpacity style={styles.batchSelectRow} onPress={onToggleBatch}>
+          <MaterialIcons name={batchSelected ? 'check-box' : 'check-box-outline-blank'} size={22} color="#0C2D48" />
+          <Text style={styles.batchSelectText}>
+            Add to a multi-drop run{job.pickupPoint ? ` from ${job.pickupPoint}` : ''}{job.weight ? ` · ${job.weight}kg` : ''}
+          </Text>
+        </TouchableOpacity>
+      )}
 
       {/* Route */}
       <View style={styles.jobRow}>
@@ -702,6 +835,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#f3f4f6',
   },
+  jobCardSelected: { borderColor: '#0C2D48', borderWidth: 2, backgroundColor: '#f8fafc' },
+  courierBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#dbeafe', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, marginLeft: 6 },
+  courierBadgeText: { color: '#1e40af', fontSize: 10, fontWeight: '800' },
+  batchSelectRow: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#eff6ff', borderRadius: 10, padding: 10, marginTop: 10 },
+  batchSelectText: { flex: 1, color: '#1e3a5f', fontSize: 13, fontWeight: '600' },
+  batchBar: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: '#0C2D48', paddingHorizontal: 16, paddingTop: 10, paddingBottom: 14 },
+  batchVehicles: { marginBottom: 10 },
+  vehChip: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.4)', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
+  vehChipActive: { backgroundColor: '#fff', borderColor: '#fff' },
+  vehChipText: { color: '#cbd5e1', fontWeight: '700', fontSize: 12 },
+  vehChipTextActive: { color: '#0C2D48' },
+  batchBarRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  batchBarTitle: { color: '#fff', fontWeight: '800', fontSize: 14 },
+  batchBarHint: { color: '#cbd5e1', fontSize: 11, marginTop: 2 },
+  batchBarHintWarn: { color: '#fca5a5' },
+  batchBarBtn: { backgroundColor: '#F37021', borderRadius: 12, paddingHorizontal: 18, paddingVertical: 12, alignItems: 'center', justifyContent: 'center' },
+  batchBarBtnDisabled: { opacity: 0.5 },
+  batchBarBtnText: { color: '#fff', fontWeight: '800' },
   jobHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',

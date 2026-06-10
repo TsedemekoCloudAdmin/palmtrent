@@ -460,8 +460,8 @@ const AddVehicleScreen = () => {
   const validateStep = (step) => {
     switch (step) {
       case 4:
-        return vehicleData.registrationNumber && vehicleData.make && vehicleData.model && 
-               vehicleData.year && vehicleData.capacity.weight.value;
+        return vehicleData.registrationNumber && vehicleData.make && vehicleData.model &&
+               vehicleData.year && Number(vehicleData.capacity.weight.value) > 0;
       default:
         return true;
     }

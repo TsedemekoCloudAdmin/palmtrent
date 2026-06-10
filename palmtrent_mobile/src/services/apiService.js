@@ -1376,6 +1376,14 @@ async getTrailerPairingOptions(jobId, vehicleId) {
   return this.request(`/transporter/jobs/${jobId}/trailer-options?vehicleId=${vehicleId}`);
 }
 
+// Accept several courier last-mile delivery jobs as one batched run.
+async acceptCourierBatch(bookingIds, vehicleId) {
+  return this.request('/transporter/jobs/accept-batch', {
+    method: 'POST',
+    body: JSON.stringify({ bookingIds, vehicleId }),
+  });
+}
+
 async requestTrailerPairing(jobId, vehicleId, trailerId) {
   return this.request(`/transporter/jobs/${jobId}/trailer-rental`, {
     method: 'POST',

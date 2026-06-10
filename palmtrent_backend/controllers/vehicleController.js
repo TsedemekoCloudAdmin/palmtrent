@@ -382,6 +382,16 @@ exports.createVehicle = async (req, res) => {
     await resolveVehicleReferences(vehicleData);
     syncVehicleRentalFields(vehicleData);
 
+    // A positive weight capacity is mandatory so load limits (e.g. batched
+    // courier runs) can always be enforced.
+    const capacityValue = Number(vehicleData.capacity?.weight?.value);
+    if (!Number.isFinite(capacityValue) || capacityValue <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'A vehicle weight capacity (greater than zero) is required.'
+      });
+    }
+
     let message = 'Vehicle added successfully';
     if (wantsVehicleRentalListing(vehicleData)) {
       const subscriptionIssues = await getRentalOwnerSubscriptionIssues(getRentalOwnerScopeId(req.user));
@@ -455,6 +465,17 @@ exports.updateVehicle = async (req, res) => {
     const payload = { ...req.body };
     await resolveVehicleReferences(payload);
     syncVehicleRentalFields(payload);
+
+    // If the weight capacity is being changed, it must stay positive.
+    if (payload.capacity?.weight?.value !== undefined) {
+      const capacityValue = Number(payload.capacity.weight.value);
+      if (!Number.isFinite(capacityValue) || capacityValue <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'A vehicle weight capacity (greater than zero) is required.'
+        });
+      }
+    }
 
     if (payload.status) {
       const statusOpensBookings = payload.status === 'available';

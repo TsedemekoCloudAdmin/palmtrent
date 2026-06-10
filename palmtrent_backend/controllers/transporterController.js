@@ -317,7 +317,7 @@ exports.getAvailableJobs = async (req, res) => {
       .skip(skip)
       .limit(parseInt(limit))
       .populate('shipper', 'fullName email phone rating')
-      .select('origin destination vehicleType amount totalAmount pricing pickupDate deliveryDate cargoDetails route bookingReference')
+      .select('origin destination vehicleType amount totalAmount pricing pickupDate deliveryDate cargoDetails route bookingReference serviceType courierShipment')
       .lean();
     const normalizedJobs = jobs.map(job => {
       // Transporter-facing screens must always show the transporter's EARNINGS,
@@ -329,7 +329,10 @@ exports.getAvailableJobs = async (req, res) => {
         ...job,
         id: job._id,
         transporterEarnings,
-        amount: transporterEarnings
+        amount: transporterEarnings,
+        // Flag courier last-mile jobs (batchable from the same pickup depot).
+        isCourier: job.serviceType === 'courier_delivery',
+        pickupPoint: job.route?.pickup?.address || job.origin || ''
       };
     });
 
@@ -710,6 +713,157 @@ exports.acceptJob = async (req, res) => {
       success: false,
       message: error.message || 'Failed to accept job'
     });
+  }
+};
+
+// Accept several courier last-mile delivery jobs as ONE batched run. Courier
+// parcels are usually small, so a transporter can carry many at once on a single
+// trip; an optional vehicle-capacity check stops oversized/over-weight batches.
+exports.acceptCourierBatch = async (req, res) => {
+  try {
+    const transporterId = req.user.id;
+    const { bookingIds = [], vehicleId } = req.body || {};
+
+    if (!Array.isArray(bookingIds) || bookingIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'Select at least one job to accept' });
+    }
+
+    const bookings = await Booking.find({ _id: { $in: bookingIds }, serviceType: 'courier_delivery' });
+    if (bookings.length !== bookingIds.length) {
+      return res.status(400).json({ success: false, message: 'Some jobs were not found or are not courier deliveries' });
+    }
+    for (const booking of bookings) {
+      if (matchingService.bookingBelongsToUser(booking, transporterId)) {
+        return res.status(403).json({ success: false, message: 'You cannot accept your own booking' });
+      }
+      if (booking.status !== 'finding_transporter') {
+        return res.status(400).json({ success: false, message: `Job ${booking.bookingReference} is no longer available` });
+      }
+      if (!isPaymentConfirmed(booking)) {
+        return res.status(400).json({ success: false, message: `Job ${booking.bookingReference} is not payment-confirmed` });
+      }
+    }
+
+    // All jobs in one run must depart from the SAME depot (the last-mile pickup
+    // point). Resolve by the linked courier shipment's destination depot, with a
+    // pickup-name fallback.
+    const CourierShipment = require('../models/CourierShipment');
+    const courierIds = bookings.map(b => b.courierShipment).filter(Boolean);
+    const couriers = courierIds.length
+      ? await CourierShipment.find({ _id: { $in: courierIds } }).select('destinationDepot destinationName')
+      : [];
+    const courierById = new Map(couriers.map(c => [String(c._id), c]));
+    const depotKeyOf = (b) => {
+      const c = b.courierShipment ? courierById.get(String(b.courierShipment)) : null;
+      return String(c?.destinationDepot || c?.destinationName || b.route?.pickup?.address || b.origin || '').trim().toLowerCase();
+    };
+    if (new Set(bookings.map(depotKeyOf)).size > 1) {
+      return res.status(400).json({
+        success: false,
+        message: 'All deliveries in one run must depart from the same depot. Select jobs from a single depot only.'
+      });
+    }
+
+    await assertTransporterEligible(transporterId);
+
+    // Weight guard: combined parcel weight must fit the carrying vehicle.
+    // Vehicle capacity may be stored in tonnes or kg; normalise to kg (parcel
+    // weights are in kg).
+    const toKg = (capacity) => {
+      const value = Number(capacity?.weight?.value || 0);
+      return capacity?.weight?.unit === 'tonnes' ? value * 1000 : value;
+    };
+    const totalWeight = bookings.reduce((sum, b) => sum + Number(b.cargoDetails?.weight || 0), 0);
+
+    let assignedDriver;
+    let capacityKg = 0;
+    let capacityLabel = '';
+    if (vehicleId) {
+      await assertVehicleAssignable(vehicleId, transporterId);
+      const vehicle = await Vehicle.findOne({ _id: vehicleId, owner: transporterId }).select('capacity assignedDriver');
+      assignedDriver = vehicle?.assignedDriver;
+      capacityKg = toKg(vehicle?.capacity);
+      capacityLabel = 'the selected vehicle';
+    } else {
+      // No explicit vehicle chosen — cap against the transporter's largest vehicle,
+      // since no single vehicle could otherwise carry the run.
+      const myVehicles = await Vehicle.find({ owner: transporterId }).select('capacity');
+      capacityKg = myVehicles.reduce((max, v) => Math.max(max, toKg(v.capacity)), 0);
+      capacityLabel = 'your largest vehicle';
+    }
+    if (capacityKg > 0 && totalWeight > capacityKg) {
+      return res.status(400).json({
+        success: false,
+        message: `Combined parcel weight (${totalWeight}kg) exceeds ${capacityLabel} capacity (${capacityKg}kg). Remove some parcels${vehicleId ? ' or pick a larger vehicle' : ''}.`
+      });
+    }
+
+    const batchId = `BATCH-${Date.now().toString(36).toUpperCase()}`;
+    const jobs = [];
+
+    for (const booking of bookings) {
+      assertBookingTransition(booking.status, 'transporter_assigned');
+      booking.transporter = transporterId;
+      booking.status = 'transporter_assigned';
+      booking.deliveryBatch = batchId;
+      booking.timeline = { ...booking.timeline, transporterAssignedAt: new Date() };
+      await booking.save();
+
+      const earningsSplit = await calculateEarningsSplit(booking, []);
+      const shipment = await Shipment.create({
+        bookingReference: booking.bookingReference,
+        booking: booking._id,
+        shipper: booking.user,
+        transporter: transporterId,
+        vehicle: vehicleId || undefined,
+        assignedDriver,
+        status: 'assigned',
+        deliveryBatch: batchId,
+        cargoDetails: booking.cargoDetails,
+        route: booking.route,
+        pricing: {
+          total: booking.pricing?.totals?.total,
+          platformFee: booking.pricing?.totals?.platformTotal,
+          currency: booking.pricing?.currency || 'USD'
+        },
+        origin: booking.origin,
+        destination: booking.destination,
+        amount: booking.totalAmount,
+        transporterEarnings: booking.pricing?.totals?.transporterTotal,
+        earningsSplit,
+        schedule: { pickupDate: booking.route?.pickup?.date, deliveryDate: booking.route?.delivery?.date },
+        statusHistory: [{ status: 'assigned', notes: `Batched courier delivery ${batchId}` }]
+      });
+
+      try { await notificationService.notifyTransporterAssigned(booking, req.user); } catch (e) { /* non-fatal */ }
+      try { await whatsappController.sendBookingStatusUpdate(booking, 'matched'); } catch (e) { /* non-fatal */ }
+
+      jobs.push({ bookingId: booking._id, bookingReference: booking.bookingReference, shipmentId: shipment._id });
+    }
+
+    if (vehicleId) {
+      await Vehicle.updateMany({ _id: vehicleId }, { status: 'in_use' });
+    }
+    try { await matchingService.recordTransporterOfferResponse(transporterId, 'accepted'); } catch (e) { /* non-fatal */ }
+
+    await recordAudit({
+      actor: req.user,
+      action: 'job.batch_accepted',
+      entityType: 'Booking',
+      entityId: batchId,
+      entityRef: batchId,
+      after: { batchId, count: jobs.length, shipmentIds: jobs.map(j => j.shipmentId) },
+      req
+    });
+
+    res.status(200).json({
+      success: true,
+      data: { batchId, accepted: jobs.length, jobs },
+      message: `Accepted ${jobs.length} courier delivery job(s) as one run`
+    });
+  } catch (error) {
+    console.error('Accept courier batch error:', error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Failed to accept jobs' });
   }
 };
 

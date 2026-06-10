@@ -175,7 +175,7 @@ async function syncFromDeliveryBooking(shipment) {
   if (!shipment.deliveryBooking || shipment.status === 'delivered') return shipment;
   const booking = await Booking.findById(shipment.deliveryBooking).select('status');
   if (!booking) return shipment;
-  if (['matched', 'in_progress', 'picked_up', 'in_transit'].includes(booking.status) && shipment.status === 'awaiting_delivery') {
+  if (['transporter_assigned', 'matched', 'in_progress', 'picked_up', 'in_transit'].includes(booking.status) && shipment.status === 'awaiting_delivery') {
     shipment.status = 'out_for_delivery';
     pushHistory(shipment, 'out_for_delivery', null, 'Transporter assigned for last-mile delivery');
     await shipment.save();

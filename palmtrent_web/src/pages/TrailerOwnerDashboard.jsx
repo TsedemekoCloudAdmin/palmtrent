@@ -1231,8 +1231,8 @@ const TrailerOwnerDashboard = () => {
                       <label>Year
                         <input type="number" value={form.year} onChange={(e) => updateForm('year', e.target.value)} />
                       </label>
-                      <label>Capacity (tonnes)
-                        <input type="number" value={form.capacityWeight} onChange={(e) => updateForm('capacityWeight', e.target.value)} />
+                      <label>Capacity (tonnes) {form.assetType === 'small_vehicle' ? '*' : ''}
+                        <input type="number" min="0.1" step="0.1" required={form.assetType === 'small_vehicle'} value={form.capacityWeight} onChange={(e) => updateForm('capacityWeight', e.target.value)} />
                       </label>
                     </div>
                     <div className="form-row">

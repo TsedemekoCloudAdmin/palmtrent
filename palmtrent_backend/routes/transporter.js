@@ -11,6 +11,7 @@ const {
   getMyJobs,
   getJobDetails,
   acceptJob,
+  acceptCourierBatch,
   rejectJob,
   startPickup,
   confirmPickup,
@@ -79,6 +80,7 @@ router.get('/my-jobs', getMyJobs);
 router.get('/jobs/:jobId', getJobDetails);
 router.get('/jobs/:jobId/trailer-options', requireVerified('transporter'), getTrailerPairingOptions);
 router.post('/jobs/:jobId/trailer-rental', requireVerified('transporter'), requestTrailerPairing);
+router.post('/jobs/accept-batch', requireVerified('transporter'), acceptCourierBatch);
 router.post('/jobs/:jobId/accept', requireVerified('transporter'), acceptJob);
 router.post('/jobs/:jobId/reject', rejectJob);
 

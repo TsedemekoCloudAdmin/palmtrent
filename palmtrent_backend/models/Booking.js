@@ -595,6 +595,11 @@ const bookingSchema = new mongoose.Schema({
   courierShipment: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'CourierShipment'
+  },
+  // Groups several courier last-mile jobs a transporter accepted as one run.
+  deliveryBatch: {
+    type: String,
+    index: true
   }
 }, {
   timestamps: true

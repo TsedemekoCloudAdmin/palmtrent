@@ -276,6 +276,12 @@ const shipmentSchema = new mongoose.Schema({
     type: String,
     enum: ['any', 'same_fleet', 'coordinated'],
     default: 'any'
+  },
+
+  // Set when this shipment is part of a batched multi-drop courier run.
+  deliveryBatch: {
+    type: String,
+    index: true
   }
 }, {
   timestamps: true
