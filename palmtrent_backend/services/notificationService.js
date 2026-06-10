@@ -29,6 +29,7 @@ const notificationSchema = new mongoose.Schema({
       'document_expiry',
       'emergency_alert',
       'new_job',
+      'courier_update',
       'corporate_invoice',
       'cross_border_document',
       'safety_alert',

@@ -659,6 +659,68 @@ class ApiService {
     });
   }
 
+  // Bus/depot courier endpoints
+  async getCourierDepots() {
+    return this.request('/courier/depots');
+  }
+
+  async createCourierShipment(data) {
+    return this.request('/courier/shipments', { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async courierQuote(data) {
+    return this.request('/courier/quote', { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async getCourierShipments(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    return this.request(`/courier/shipments${query ? `?${query}` : ''}`);
+  }
+
+  async getCourierShipment(idOrReference) {
+    return this.request(`/courier/shipments/${idOrReference}`);
+  }
+
+  async getCourierLabel(id) {
+    return this.request(`/courier/shipments/${id}/label`);
+  }
+
+  async courierPrintZpl(id, data) {
+    return this.request(`/courier/shipments/${id}/zpl/print`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async getMyCourierShipments() {
+    return this.request('/courier/my-shipments');
+  }
+
+  async courierLoad(id, data = {}) {
+    return this.request(`/courier/shipments/${id}/load`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async courierDepart(id, data = {}) {
+    return this.request(`/courier/shipments/${id}/depart`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async courierArrive(id, data = {}) {
+    return this.request(`/courier/shipments/${id}/arrive`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async courierCollect(id, data) {
+    return this.request(`/courier/shipments/${id}/collect`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async courierCancel(id, data = {}) {
+    return this.request(`/courier/shipments/${id}/cancel`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async shareCourierShipment(id, data) {
+    return this.request(`/courier/shipments/${id}/share`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async addCourierContact(id, data) {
+    return this.request(`/courier/shipments/${id}/contacts`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
   async getPublicPlans(audience = null) {
     const response = await this.request('/public/plans');
     if (!audience) return response;

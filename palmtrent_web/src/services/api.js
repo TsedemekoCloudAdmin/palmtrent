@@ -939,6 +939,26 @@ export const notificationsAPI = {
   getUnreadCount: () => apiFetch('/notifications/unread-count'),
 };
 
+// Bus/depot courier API
+export const courierAPI = {
+  getDepots: () => apiFetch('/courier/depots'),
+  createDepot: (data) => apiFetch('/courier/depots', { method: 'POST', body: JSON.stringify(data) }),
+  quote: (data) => apiFetch('/courier/quote', { method: 'POST', body: JSON.stringify(data) }),
+  listShipments: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/courier/shipments${q ? `?${q}` : ''}`);
+  },
+  getShipment: (id) => apiFetch(`/courier/shipments/${id}`),
+  createShipment: (data) => apiFetch('/courier/shipments', { method: 'POST', body: JSON.stringify(data) }),
+  getZpl: (id, copies) => apiFetch(`/courier/shipments/${id}/zpl${copies ? `?copies=${copies}` : ''}`),
+  printZpl: (id, data) => apiFetch(`/courier/shipments/${id}/zpl/print`, { method: 'POST', body: JSON.stringify(data) }),
+  load: (id, data = {}) => apiFetch(`/courier/shipments/${id}/load`, { method: 'POST', body: JSON.stringify(data) }),
+  depart: (id, data = {}) => apiFetch(`/courier/shipments/${id}/depart`, { method: 'POST', body: JSON.stringify(data) }),
+  arrive: (id, data = {}) => apiFetch(`/courier/shipments/${id}/arrive`, { method: 'POST', body: JSON.stringify(data) }),
+  collect: (id, data) => apiFetch(`/courier/shipments/${id}/collect`, { method: 'POST', body: JSON.stringify(data) }),
+  cancel: (id, data = {}) => apiFetch(`/courier/shipments/${id}/cancel`, { method: 'POST', body: JSON.stringify(data) }),
+};
+
 // Export all APIs
 export default {
   auth: authAPI,
@@ -955,4 +975,5 @@ export default {
   admin: adminAPI,
   public: publicAPI,
   notifications: notificationsAPI,
+  courier: courierAPI,
 };

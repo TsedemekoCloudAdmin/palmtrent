@@ -776,6 +776,11 @@ const ProfileScreen = ({ navigation }) => {
                 onPress={() => navigation.navigate('ActivityHistory')}
               />
               <ActionItem
+                icon="menu-book"
+                label="User Guide"
+                onPress={() => navigation.navigate('Help')}
+              />
+              <ActionItem
                 icon="help"
                 label="Help & Support"
                 onPress={() => navigation.navigate('Support')}

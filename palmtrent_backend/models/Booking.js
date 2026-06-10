@@ -584,6 +584,17 @@ const bookingSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
+  },
+
+  // When this booking is the last-mile leg of a bus/depot courier shipment.
+  serviceType: {
+    type: String,
+    enum: ['standard', 'courier_delivery'],
+    default: 'standard'
+  },
+  courierShipment: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'CourierShipment'
   }
 }, {
   timestamps: true

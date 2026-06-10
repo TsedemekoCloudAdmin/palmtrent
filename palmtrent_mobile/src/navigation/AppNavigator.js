@@ -6,6 +6,7 @@ import useAuth from '../hook/useAuth';
 
 // Import tab navigators
 import ShipperTabs from './ShipperTabs';
+import ClerkTabs from './ClerkTabs';
 import TransporterTabs from './TransporterTabs';
 import TrailerOwnerTabs from './TrailerOwnerTabs';
 import DriverTabs from './DriverTabs';
@@ -51,6 +52,14 @@ import DriverMarketplaceScreen from '../screens/transporter/DriverMarketplaceScr
 import DriverPortalScreen from '../screens/driver/DriverPortalScreen';
 import RentalStaffScreen from '../screens/trailerOwner/RentalStaffScreen';
 import CorporateTeamScreen from '../screens/corporate/CorporateTeamScreen';
+import CourierShipmentsScreen from '../screens/courier/CourierShipmentsScreen';
+import CourierCreateScreen from '../screens/courier/CourierCreateScreen';
+import CourierDetailScreen from '../screens/courier/CourierDetailScreen';
+import CourierScanScreen from '../screens/courier/CourierScanScreen';
+import CourierArrivalsScreen from '../screens/courier/CourierArrivalsScreen';
+import CourierLabelScreen from '../screens/courier/CourierLabelScreen';
+import MyCourierScreen from '../screens/courier/MyCourierScreen';
+import HelpScreen from '../screens/HelpScreen';
 import ResponderPortalScreen from '../screens/emergency/ResponderPortalScreen';
 import MobileMoneyPaymentScreen from '../screens/MobileMoneyPaymentScreen';
 import CardPaymentScreen from '../screens/CardPaymentScreen';
@@ -75,6 +84,7 @@ const getMainTabs = (userType) => {
   if (userType === 'trailer_owner' || userType === 'rental_owner') return TrailerOwnerTabs;
   if (userType === 'driver') return DriverTabs;
   if (userType === 'roadside_provider') return ResponderTabs;
+  if (userType === 'clerk') return ClerkTabs;
   return ShipperTabs;
 };
 
@@ -169,6 +179,14 @@ const AppNavigator = () => {
       <Stack.Screen name="ResponderPortal" component={ResponderPortalScreen} />
       <Stack.Screen name="MyRentals" component={FleetRentalRequestsScreen} />
       <Stack.Screen name="CorporateTeam" component={CorporateTeamScreen} />
+      <Stack.Screen name="CourierShipments" component={CourierShipmentsScreen} />
+      <Stack.Screen name="CourierCreate" component={CourierCreateScreen} />
+      <Stack.Screen name="CourierDetail" component={CourierDetailScreen} />
+      <Stack.Screen name="CourierScan" component={CourierScanScreen} />
+      <Stack.Screen name="CourierArrivals" component={CourierArrivalsScreen} />
+      <Stack.Screen name="CourierLabel" component={CourierLabelScreen} />
+      <Stack.Screen name="MyCourier" component={MyCourierScreen} />
+      <Stack.Screen name="Help" component={HelpScreen} />
 
       {/* Payment screens */}
       <Stack.Screen name="MobileMoneyPayment" component={MobileMoneyPaymentScreen} />

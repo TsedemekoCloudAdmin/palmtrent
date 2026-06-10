@@ -34,6 +34,7 @@ const HomeScreen = ({ navigation }) => {
   const isTransporter = user?.userType === 'transporter';
   const isTrailerOwner = user?.userType === 'trailer_owner';
   const isShipper = user?.userType === 'shipper' || isCorporate;
+  const isClerk = user?.userType === 'clerk' || user?.userType === 'admin';
 
   // Fetch data based on user type
   const { 
@@ -399,6 +400,13 @@ const HomeScreen = ({ navigation }) => {
                 color="orange"
                 onPress={() => navigation.navigate('MyRentals')}
               />
+              <ActionButton
+                icon="local-shipping"
+                title="My Courier Shipments"
+                subtitle="Track goods sent by bus through an agent"
+                color="blue"
+                onPress={() => navigation.navigate('MyCourier')}
+              />
             </View>
           ) : isTransporter ? (
             <View style={styles.actionsContainer}>
@@ -510,6 +518,44 @@ const HomeScreen = ({ navigation }) => {
                 subtitle="Invite and manage your team members"
                 color="purple"
                 onPress={() => navigation.navigate('CorporateTeam')}
+              />
+              <ActionButton
+                icon="local-shipping"
+                title="My Courier Shipments"
+                subtitle="Track goods sent by bus through an agent"
+                color="blue"
+                onPress={() => navigation.navigate('MyCourier')}
+              />
+            </View>
+          ) : isClerk ? (
+            <View style={styles.actionsContainer}>
+              <ActionButton
+                icon="point-of-sale"
+                title="Courier Desk"
+                subtitle="Capture and manage bus courier shipments"
+                color="blue"
+                onPress={() => navigation.navigate('CourierShipments')}
+              />
+              <ActionButton
+                icon="call-received"
+                title="Arrivals"
+                subtitle="Process shipments arriving at the depot"
+                color="purple"
+                onPress={() => navigation.navigate('CourierArrivals')}
+              />
+              <ActionButton
+                icon="qr-code-scanner"
+                title="Scan Label"
+                subtitle="Scan a shipment to load, arrive or release"
+                color="green"
+                onPress={() => navigation.navigate('CourierScan')}
+              />
+              <ActionButton
+                icon="add-box"
+                title="New Shipment"
+                subtitle="Capture goods for a walk-in customer"
+                color="orange"
+                onPress={() => navigation.navigate('CourierCreate')}
               />
             </View>
           ) : null}

@@ -52,7 +52,14 @@
       "Bash(grep -n \"rental-settings\\\\|updateTrailerStatus\\\\|require\\('../controllers/trailerController'\\)\\\\|{\" routes/trailers.js)",
       "Bash(npx jest *)",
       "Bash(sed -n '/const STATES/,/};/p' controllers/whatsappController.js)",
-      "Bash(sed -n '/async function handleText/,/^}/p' controllers/whatsappController.js)"
+      "Bash(sed -n '/async function handleText/,/^}/p' controllers/whatsappController.js)",
+      "Bash(cd \"c:\\\\Users\\\\sethm\\\\ngrok\\\\logs\\\\palmtrent\" && echo \"=== User userType enum ===\" && grep -n \"userType\" palmtrent_backend/models/User.js | head -3; sed -n '/userType: {/,/}/p' palmtrent_backend/models/User.js | head -20; echo \"=== sendSMS signature ===\"; sed -n '1,30p' palmtrent_backend/utils/sendSMS.js | grep -n \"exports\\\\|function\\\\|sendSMS\\\\|module.exports\"; echo \"=== matching broadcast ===\"; grep -n \"findAndNotifyTransporters\\\\|exports\\\\.\" palmtrent_backend/services/matchingService.js | head; echo \"=== notify type enum has courier? ===\"; grep -n \"system_message\\\\|new_job\\\\|enum: \\\\[\" palmtrent_backend/services/notificationService.js | head -3)",
+      "Bash(npm audit *)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\sethm\\\\ngrok\\\\logs\\\\palmtrent\\\\palmtrent_web\" -Recurse -Directory -Depth 2)",
+      "Bash(Select-Object -First 30 FullName)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\sethm\\ngrok\\logs\\palmtrent\\palmtrent_backend\\models"
     ]
   }
 }
