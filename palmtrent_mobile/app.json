@@ -44,7 +44,7 @@
       "eas": {
         "projectId": "fb040d7e-0ce7-427d-ae2d-c66df60e9d03"
       },
-      "mapboxPublicToken": "pk.eyJ1IjoicGFsbXRyZW50IiwiYSI6ImNtcHpwOTRmYjA3ZjMycHM5Z212dXFsYTkifQ.TvESEQoV3kXXBqxOzd_Wfw"
+      "mapboxPublicToken": "MAPBOX_PUBLIC_TOKEN_PLACEHOLDER"
     },
     "plugins": [
       "expo-camera",
@@ -54,7 +54,7 @@
       [
         "@rnmapbox/maps",
         {
-          "RNMapboxMapsDownloadToken": "sk.eyJ1IjoicGFsbXRyZW50IiwiYSI6ImNtcmF0c2F2YTAxNTEyeHNjcHBramN2ZzcifQ.8D-85j2CkrBqv3SJrD8wUQ"
+          "RNMapboxMapsDownloadToken": "MAPBOX_DOWNLOADS_TOKEN_PLACEHOLDER"
         }
       ]
     ]
