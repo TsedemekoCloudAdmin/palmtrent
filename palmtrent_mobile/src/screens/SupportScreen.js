@@ -5,12 +5,12 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   TextInput,
   Linking,
   Alert,
   ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../services/apiService';
 
@@ -114,7 +114,7 @@ const SupportScreen = ({ navigation }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}

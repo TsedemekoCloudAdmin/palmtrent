@@ -150,8 +150,9 @@ exports.createBooking = async (req, res) => {
     console.log(JSON.stringify(req.body, null, 2));
 
     // Transform frontend data to match backend schema
-    const transformedData = transformFrontendToBackend(req.body, req.user);
-    
+    const routeCoordinates = await resolveRouteCoordinates(req.body);
+    const transformedData = transformFrontendToBackend(req.body, req.user, routeCoordinates);
+
     console.log("Transformed booking data:");
     console.log(JSON.stringify(transformedData, null, 2));
 
@@ -192,8 +193,60 @@ exports.createBooking = async (req, res) => {
   }
 };
 
+// Normalize a client-supplied coordinate pair ({latitude, longitude} or [lng, lat])
+// into a GeoJSON Point, or null when absent/invalid.
+function toGeoPoint(value) {
+  if (!value) return null;
+  let longitude;
+  let latitude;
+  if (Array.isArray(value) && value.length === 2) {
+    [longitude, latitude] = value.map(Number);
+  } else if (typeof value === 'object') {
+    longitude = Number(value.longitude ?? value.lng ?? value.lon);
+    latitude = Number(value.latitude ?? value.lat);
+  }
+  if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) return null;
+  if (longitude === 0 && latitude === 0) return null;
+  return { type: 'Point', coordinates: [longitude, latitude] };
+}
+
+// Resolve precise coordinates for the pickup and delivery addresses. Prefers
+// coordinates captured by the client (address autocomplete / GPS); falls back to
+// geocoding the address string so bookings are never stored at [0,0] silently.
+async function resolveRouteCoordinates(frontendData) {
+  const mapboxService = require('../services/mapboxService');
+
+  const resolveOne = async (clientCoordinates, address) => {
+    const fromClient = toGeoPoint(clientCoordinates);
+    if (fromClient) return fromClient;
+    if (!address) return null;
+    try {
+      const result = await mapboxService.geocode(address);
+      if (result.success && result.data?.coordinates) {
+        return toGeoPoint(result.data.coordinates);
+      }
+    } catch (error) {
+      console.error(`Geocoding failed for address "${address}":`, error.message);
+    }
+    return null;
+  };
+
+  const [pickup, delivery] = await Promise.all([
+    resolveOne(frontendData.pickupCoordinates, frontendData.pickupLocation),
+    resolveOne(frontendData.deliveryCoordinates, frontendData.deliveryLocation)
+  ]);
+
+  if (!pickup) console.warn(`Booking pickup address could not be resolved to coordinates: "${frontendData.pickupLocation}"`);
+  if (!delivery) console.warn(`Booking delivery address could not be resolved to coordinates: "${frontendData.deliveryLocation}"`);
+
+  return {
+    pickup: pickup || { type: 'Point', coordinates: [0, 0] },
+    delivery: delivery || { type: 'Point', coordinates: [0, 0] }
+  };
+}
+
 // NEW: Transform frontend data to backend schema structure
-function transformFrontendToBackend(frontendData, user) {
+function transformFrontendToBackend(frontendData, user, routeCoordinates = null) {
   const userId = user.id || user._id;
   const {
     cargoType, weight, cargoValue, specialInstructions, images,
@@ -239,12 +292,12 @@ function transformFrontendToBackend(frontendData, user) {
         address: pickupLocation || '',
         date: pickupDate ? new Date(pickupDate) : new Date(),
         timeWindow: derivePickupTimeWindow(frontendData),
-        coordinates: { type: 'Point', coordinates: [0, 0] }
+        coordinates: routeCoordinates?.pickup || { type: 'Point', coordinates: [0, 0] }
       },
       delivery: {
         address: deliveryLocation || '',
         deadline: deliveryDate ? new Date(deliveryDate) : undefined,
-        coordinates: { type: 'Point', coordinates: [0, 0] }
+        coordinates: routeCoordinates?.delivery || { type: 'Point', coordinates: [0, 0] }
       },
       distance: routeInfo?.distance || 0,
       estimatedDuration: routeInfo?.duration || ''
@@ -551,8 +604,9 @@ exports.createBookingWithPayment = async (req, res) => {
     console.log("Creating booking with payment:", req.body);
 
     // Transform frontend data
-    const transformedData = transformFrontendToBackend(req.body, req.user);
-    
+    const routeCoordinates = await resolveRouteCoordinates(req.body);
+    const transformedData = transformFrontendToBackend(req.body, req.user, routeCoordinates);
+
     // Create booking
     const bookingAmount = transformedData.totalAmount || transformedData.pricing?.totals?.total || req.body.amount || 0;
     const corporateAccount = await assertCorporateCanBook(req.user, bookingAmount);

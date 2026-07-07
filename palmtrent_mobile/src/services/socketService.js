@@ -126,8 +126,15 @@ class SocketService {
 
     this.socket.emit('tracking:subscribe', { bookingId });
 
+    const subscribedKey = String(bookingId);
     const locationHandler = (data) => {
-      if (data.bookingId === bookingId) {
+      // The server echoes every identifier alias (raw id, booking reference,
+      // booking/shipment ObjectIds). Match on any of them — the driver may key
+      // updates by a different alias than the one we subscribed with.
+      const aliases = [data.bookingId, data.reference, data.bookingObjectId, data.shipmentObjectId]
+        .filter(Boolean)
+        .map(String);
+      if (aliases.includes(subscribedKey)) {
         callback(data);
       }
     };
@@ -204,6 +211,14 @@ class SocketService {
   joinChat(bookingId) {
     if (!this.socket) return;
     this.socket.emit('chat:join', { bookingId });
+  }
+
+  // Listen for chat room join confirmation (carries the canonical booking id)
+  onChatJoined(callback) {
+    if (!this.socket) return;
+
+    this.socket.on('chat:joined', callback);
+    this.listeners.set('chat:joined', callback);
   }
 
   // Send chat message

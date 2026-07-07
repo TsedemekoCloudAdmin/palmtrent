@@ -1,6 +1,6 @@
 const fs = require('fs');
-const { execFile } = require('child_process');
 const storageService = require('./storageService');
+const { scanFile } = require('./uploadScanService');
 
 const MAGIC_BYTES = {
   'image/jpeg': ['ffd8ff'],
@@ -28,21 +28,6 @@ const verifyMagicBytes = (file) => {
   const signature = buffer.subarray(0, 4).toString('hex');
   return allowed.some(prefix => signature.startsWith(prefix));
 };
-
-const scanFile = (filePath) => new Promise((resolve, reject) => {
-  const command = process.env.UPLOAD_SCAN_COMMAND;
-  if (!command) {
-    if (isProduction()) {
-      return reject(new Error('Upload scanning is required in production'));
-    }
-    return resolve({ scanned: false, reason: 'UPLOAD_SCAN_COMMAND not configured' });
-  }
-
-  execFile(command, [filePath], { timeout: 30000 }, (error, stdout, stderr) => {
-    if (error) return reject(new Error(stderr || stdout || error.message));
-    resolve({ scanned: true, stdout });
-  });
-});
 
 const buildDownloadPath = (uploadType, filename) => {
   if (PUBLIC_UPLOAD_TYPES.has(uploadType)) {

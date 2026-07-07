@@ -1,6 +1,7 @@
 import 'react-native-gesture-handler';
 import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
 import { AuthProvider } from './src/context/AuthContext';
 import AuthNavigator from './src/navigation/AuthNavigator';
@@ -68,21 +69,30 @@ export default function App() {
     );
 
     // Handle the case where the app was launched (cold start) by tapping a push.
+    // The stored response persists across launches, so clear it once handled —
+    // otherwise every subsequent cold start replays the old tap and hijacks the
+    // user's home screen. Unknown payloads are ignored on cold start
+    // (allowInboxFallback: false) instead of dumping the user on Notifications.
     pushNotificationService.getLastNotificationResponse().then((response) => {
-      if (response) {
-        routeFromNotificationData(response?.notification?.request?.content?.data);
-      }
+      if (!response) return;
+      pushNotificationService.clearLastNotificationResponse();
+      routeFromNotificationData(
+        response?.notification?.request?.content?.data,
+        { allowInboxFallback: false }
+      );
     });
 
     return cleanup;
   }, []);
 
   return (
-    <AuthProvider>
-      <NavigationContainer ref={navigationRef} onReady={flushPendingNotificationRoute}>
-        <Navigation />
-      </NavigationContainer>
-    </AuthProvider>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <NavigationContainer ref={navigationRef} onReady={flushPendingNotificationRoute}>
+          <Navigation />
+        </NavigationContainer>
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }
 

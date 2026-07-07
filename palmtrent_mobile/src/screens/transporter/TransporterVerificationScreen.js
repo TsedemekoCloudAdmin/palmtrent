@@ -4,7 +4,6 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   ScrollView,
   Image,
@@ -13,6 +12,7 @@ import {
   ActivityIndicator,
   Platform
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import apiService from '../../services/apiService';
@@ -257,7 +257,7 @@ const TransporterVerificationScreen = ({ navigation }) => {
           'Verification Submitted',
           'Your verification documents have been submitted. We will review them within 24-48 hours.',
           [
-            { text: 'OK', onPress: () => navigation.navigate('Home') }
+            { text: 'OK', onPress: () => navigation.navigate('MainTabs', { screen: 'Home' }) }
           ]
         );
       } else {
@@ -630,7 +630,7 @@ const TransporterVerificationScreen = ({ navigation }) => {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
 
       {/* Header */}

@@ -122,6 +122,8 @@ const AdminDashboard = () => {
         return <UsersView setActiveTab={setActiveTab} setJobsUserFilter={setJobsUserFilter} />;
       case 'verifications':
         return <UsersView verificationMode setActiveTab={setActiveTab} setJobsUserFilter={setJobsUserFilter} onVerificationChanged={loadAdminBadges} />;
+      case 'vehicle-verifications':
+        return <VehicleVerificationView onVerificationChanged={loadAdminBadges} />;
       case 'jobs':
         return <JobsView userFilter={jobsUserFilter} clearUserFilter={() => setJobsUserFilter(null)} />;
       case 'payments':
@@ -190,6 +192,13 @@ const AdminDashboard = () => {
             active={activeTab === 'verifications'}
             sidebarOpen={sidebarOpen}
             onClick={() => handleNavClick('verifications')}
+          />
+          <NavItem
+            icon={<Truck />}
+            label="Vehicle Verification"
+            active={activeTab === 'vehicle-verifications'}
+            sidebarOpen={sidebarOpen}
+            onClick={() => handleNavClick('vehicle-verifications')}
           />
           <NavItem
             icon={<Truck />}
@@ -1308,6 +1317,344 @@ const UsersView = ({ setActiveTab, setJobsUserFilter, verificationMode = false, 
             <div className="modal-actions">
               <button className="btn-secondary" onClick={() => setRoleEditUser(null)}>Cancel</button>
               <button className="btn-primary" onClick={saveUserRole}>Save Role</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+// ============ Vehicle Verification View ============
+const VEHICLE_VERIFICATION_BADGES = {
+  approved: { class: 'status-active', label: 'Approved' },
+  pending: { class: 'status-pending', label: 'Pending' },
+  rejected: { class: 'status-suspended', label: 'Rejected' },
+  not_started: { class: 'status-inactive', label: 'Not Started' }
+};
+
+const vehicleDisplayName = (vehicle) => {
+  const make = vehicle.make?.name || '';
+  const model = vehicle.model?.name || '';
+  return [make, model].filter(Boolean).join(' ') || 'Vehicle';
+};
+
+const VehicleVerificationView = ({ onVerificationChanged }) => {
+  const [vehicles, setVehicles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState('');
+  const [filterStatus, setFilterStatus] = useState('pending');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedVehicle, setSelectedVehicle] = useState(null);
+  const [decisionNotes, setDecisionNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const loadVehicles = useCallback(async () => {
+    setLoading(true);
+    try {
+      setMessage('');
+      const params = { limit: 50 };
+      if (filterStatus !== 'all') params.verificationStatus = filterStatus;
+      if (searchTerm) params.search = searchTerm;
+
+      const response = await adminAPI.getVehicles(params);
+      setVehicles(response.data || []);
+    } catch (error) {
+      console.error('Failed to load vehicles:', error);
+      setVehicles([]);
+      setMessage(error.message || 'Unable to load vehicles.');
+    } finally {
+      setLoading(false);
+    }
+  }, [filterStatus, searchTerm]);
+
+  useEffect(() => {
+    loadVehicles();
+  }, [loadVehicles]);
+
+  const openVehicle = (vehicle) => {
+    setSelectedVehicle(vehicle);
+    setDecisionNotes(vehicle.verification?.notes || '');
+  };
+
+  const closeVehicle = () => {
+    setSelectedVehicle(null);
+    setDecisionNotes('');
+  };
+
+  const saveDecision = async (status) => {
+    if (!selectedVehicle) return;
+    try {
+      setSaving(true);
+      await adminAPI.verifyVehicle(selectedVehicle._id, { status, notes: decisionNotes });
+      closeVehicle();
+      await loadVehicles();
+      await onVerificationChanged?.();
+      setMessage(status === 'approved'
+        ? 'Vehicle approved — it can now be assigned to jobs.'
+        : 'Vehicle verification decision saved.');
+    } catch (error) {
+      setMessage(error.message || 'Unable to save vehicle verification decision.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const vehicleDocuments = (vehicle) => {
+    const docs = [];
+    const license = vehicle.documents?.license;
+    const roadworthy = vehicle.documents?.roadworthyCertificate;
+    if (license?.number || license?.document) docs.push({ label: 'Vehicle License', ...license });
+    if (roadworthy?.number || roadworthy?.document) docs.push({ label: 'Roadworthy Certificate', ...roadworthy });
+    (vehicle.documents?.permits || []).forEach((permit, index) => {
+      docs.push({ label: permit.type ? `Permit — ${permit.type}` : `Permit ${index + 1}`, ...permit });
+    });
+    return docs;
+  };
+
+  const verificationBadge = (status) => {
+    const config = VEHICLE_VERIFICATION_BADGES[status] || VEHICLE_VERIFICATION_BADGES.not_started;
+    return <span className={`status-badge ${config.class}`}>{config.label}</span>;
+  };
+
+  return (
+    <>
+      <div className="admin-topbar">
+        <div className="topbar-content">
+          <div className="topbar-left">
+            <h1 className="page-title">Vehicle Verification</h1>
+            <p className="page-subtitle">{vehicles.length} vehicles {filterStatus === 'all' ? 'registered' : filterStatus.replace('_', ' ')}</p>
+          </div>
+          <div className="topbar-right">
+            <button className="btn-secondary" onClick={loadVehicles}>
+              <RefreshCw className="icon" /> Refresh
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="admin-content">
+        {message && (
+          <div className="integration-message">
+            <AlertCircle className="icon" />
+            <span>{message}</span>
+          </div>
+        )}
+
+        <div className="filters-bar">
+          <div className="search-box">
+            <Search className="icon" />
+            <input
+              type="text"
+              placeholder="Search by registration number..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="filter-select">
+            <option value="pending">Pending Review</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+            <option value="not_started">Not Started</option>
+            <option value="all">All</option>
+          </select>
+        </div>
+
+        <div className="data-table-container">
+          {loading ? (
+            <div className="loading-state">
+              <RefreshCw className="icon spinning" />
+              <p>Loading vehicles...</p>
+            </div>
+          ) : (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Vehicle</th>
+                  <th>Owner</th>
+                  <th>Type</th>
+                  <th>Year</th>
+                  <th>Capacity</th>
+                  <th>Verification</th>
+                  <th>Added</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vehicles.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} style={{ textAlign: 'center', padding: '24px' }}>
+                      No vehicles found for this filter.
+                    </td>
+                  </tr>
+                ) : vehicles.map((vehicle) => (
+                  <tr key={vehicle._id}>
+                    <td>
+                      <div className="user-cell">
+                        <div className="user-avatar"><Truck className="icon" /></div>
+                        <div className="user-info">
+                          <span className="user-name">{vehicle.registrationNumber}</span>
+                          <span className="user-email">{vehicleDisplayName(vehicle)}</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="user-info">
+                        <span className="user-name">{vehicle.owner?.fullName || vehicle.owner?.name || 'N/A'}</span>
+                        <span className="user-email">{vehicle.owner?.phone || vehicle.owner?.email || ''}</span>
+                      </div>
+                    </td>
+                    <td>{vehicle.vehicleType?.name || 'N/A'}</td>
+                    <td>{vehicle.year || 'N/A'}</td>
+                    <td>
+                      {vehicle.capacity?.weight?.value
+                        ? `${vehicle.capacity.weight.value} ${vehicle.capacity.weight.unit || 'tonnes'}`
+                        : 'N/A'}
+                    </td>
+                    <td>{verificationBadge(vehicle.verification?.status)}</td>
+                    <td>{vehicle.createdAt ? new Date(vehicle.createdAt).toLocaleDateString() : 'N/A'}</td>
+                    <td>
+                      <div className="action-buttons">
+                        <button className="action-btn" onClick={() => openVehicle(vehicle)} title="Review Vehicle">
+                          <Eye className="icon" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      {/* Vehicle Review Modal */}
+      {selectedVehicle && (
+        <div className="modal-overlay" onClick={closeVehicle}>
+          <div className="modal-content user-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Review Vehicle — {selectedVehicle.registrationNumber}</h2>
+              <button className="modal-close" onClick={closeVehicle}>
+                <XCircle className="icon" />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="detail-section">
+                <h3>Vehicle Details</h3>
+                <div className="detail-grid">
+                  <div className="detail-item">
+                    <span className="detail-label">Make & Model</span>
+                    <span className="detail-value">{vehicleDisplayName(selectedVehicle)}</span>
+                  </div>
+                  <div className="detail-item">
+                    <span className="detail-label">Type</span>
+                    <span className="detail-value">{selectedVehicle.vehicleType?.name || 'N/A'}</span>
+                  </div>
+                  <div className="detail-item">
+                    <span className="detail-label">Year</span>
+                    <span className="detail-value">{selectedVehicle.year || 'N/A'}</span>
+                  </div>
+                  <div className="detail-item">
+                    <span className="detail-label">Color</span>
+                    <span className="detail-value">{selectedVehicle.color || 'N/A'}</span>
+                  </div>
+                  <div className="detail-item">
+                    <span className="detail-label">VIN</span>
+                    <span className="detail-value">{selectedVehicle.vin || 'N/A'}</span>
+                  </div>
+                  <div className="detail-item">
+                    <span className="detail-label">Owner</span>
+                    <span className="detail-value">
+                      {selectedVehicle.owner?.fullName || selectedVehicle.owner?.name || 'N/A'}
+                      {selectedVehicle.owner?.phone ? ` · ${selectedVehicle.owner.phone}` : ''}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="detail-section">
+                <h3>Photos ({(selectedVehicle.photos || []).length})</h3>
+                {(selectedVehicle.photos || []).length === 0 ? (
+                  <p className="page-subtitle">No photos uploaded for this vehicle.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    {selectedVehicle.photos.map((photo, index) => (
+                      <a
+                        key={index}
+                        href={resolveApiUrl(photo.url)}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={photo.type || `Photo ${index + 1}`}
+                      >
+                        <img
+                          src={resolveApiUrl(photo.url)}
+                          alt={photo.type || `Vehicle photo ${index + 1}`}
+                          style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 8, border: '1px solid #e5e7eb' }}
+                        />
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="detail-section">
+                <h3>Documents</h3>
+                {vehicleDocuments(selectedVehicle).length === 0 ? (
+                  <p className="page-subtitle">No documents uploaded for this vehicle.</p>
+                ) : (
+                  <div className="detail-grid">
+                    {vehicleDocuments(selectedVehicle).map((doc, index) => (
+                      <div className="detail-item" key={index}>
+                        <span className="detail-label">{doc.label}</span>
+                        <span className="detail-value">
+                          {doc.number || 'No number'}
+                          {doc.expiryDate ? ` · Expires ${new Date(doc.expiryDate).toLocaleDateString()}` : ''}
+                          {doc.document ? (
+                            <>
+                              {' · '}
+                              <a href={resolveApiUrl(doc.document)} target="_blank" rel="noreferrer">View</a>
+                            </>
+                          ) : null}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="detail-section">
+                <h3>Verification Decision</h3>
+                {selectedVehicle.verification?.verifiedAt && (
+                  <p className="page-subtitle">
+                    Last decision: {selectedVehicle.verification.status}
+                    {' on '}{new Date(selectedVehicle.verification.verifiedAt).toLocaleDateString()}
+                    {selectedVehicle.verification.verifiedBy?.fullName
+                      ? ` by ${selectedVehicle.verification.verifiedBy.fullName}`
+                      : ''}
+                  </p>
+                )}
+                <textarea
+                  className="filter-select"
+                  style={{ width: '100%', minHeight: 80, resize: 'vertical' }}
+                  placeholder="Notes for this decision (visible in the audit trail)..."
+                  value={decisionNotes}
+                  onChange={(e) => setDecisionNotes(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button className="btn-secondary" onClick={closeVehicle} disabled={saving}>Cancel</button>
+              <button
+                className="btn-secondary"
+                style={{ color: '#dc2626', borderColor: '#dc2626' }}
+                onClick={() => saveDecision('rejected')}
+                disabled={saving}
+              >
+                <Ban className="icon" /> Reject
+              </button>
+              <button className="btn-primary" onClick={() => saveDecision('approved')} disabled={saving}>
+                <CheckCircle className="icon" /> {saving ? 'Saving...' : 'Approve Vehicle'}
+              </button>
             </div>
           </div>
         </div>

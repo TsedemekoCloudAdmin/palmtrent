@@ -5,14 +5,14 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   Image
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const WelcomeScreen = ({ navigation }) => {
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       <View style={styles.content}>
         

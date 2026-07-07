@@ -7,7 +7,6 @@ import {
   TextInput,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   Switch,
   Image,
@@ -17,6 +16,7 @@ import {
   TouchableWithoutFeedback,
   ActivityIndicator
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../../hook/useAuth';
 import * as ImagePicker from 'expo-image-picker';
@@ -37,6 +37,13 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
   const [locationSearchResults, setLocationSearchResults] = useState({
     pickup: [],
     delivery: []
+  });
+  // Precise coordinates for the typed addresses, captured from autocomplete
+  // selection, "use current location", or a geocode at continue-time. Bookings
+  // must carry real coordinates so tracking/distance work.
+  const [locationCoords, setLocationCoords] = useState({
+    pickup: bookingData.pickupCoordinates || null,
+    delivery: bookingData.deliveryCoordinates || null
   });
 
   // Reference data from API
@@ -201,8 +208,14 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
         location.latitude,
         location.longitude
       );
-      
-      updateField(field, address.fullAddress);
+
+      const stateKey = field === 'pickupLocation' ? 'pickup' : 'delivery';
+      setFormData(prev => ({ ...prev, [field]: address.fullAddress }));
+      setLocationCoords(prev => ({
+        ...prev,
+        [stateKey]: { latitude: location.latitude, longitude: location.longitude }
+      }));
+      setLocationSearchResults(prev => ({ ...prev, [stateKey]: [] }));
       Alert.alert('Location Set', `Your current location has been set to: ${address.fullAddress}`);
     } catch (error) {
       Alert.alert('Location Error', error.message);
@@ -230,9 +243,14 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
 
   const updateField = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
-    
-    if ((field === 'pickupLocation' || field === 'deliveryLocation') && value.length >= 3) {
-      handleLocationSearch(value, field);
+
+    if (field === 'pickupLocation' || field === 'deliveryLocation') {
+      // Manual edits invalidate any previously captured coordinates.
+      const stateKey = field === 'pickupLocation' ? 'pickup' : 'delivery';
+      setLocationCoords(prev => (prev[stateKey] ? { ...prev, [stateKey]: null } : prev));
+      if (value.length >= 3) {
+        handleLocationSearch(value, field);
+      }
     }
   };
 
@@ -364,8 +382,55 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
     );
   };
 
+  // Resolve precise coordinates for both addresses before submitting. Prefers
+  // coordinates already captured from autocomplete/current-location; otherwise
+  // geocodes the typed address. Returns null when an address cannot be resolved.
+  const ensureLocationCoordinates = async () => {
+    const resolved = { ...locationCoords };
+    const targets = [
+      ['pickup', formData.pickupLocation],
+      ['delivery', formData.deliveryLocation]
+    ];
+
+    for (const [key, address] of targets) {
+      if (resolved[key]) continue;
+      try {
+        const result = await locationService.geocode(address);
+        if (result?.coordinates?.latitude != null && result?.coordinates?.longitude != null) {
+          resolved[key] = {
+            latitude: result.coordinates.latitude,
+            longitude: result.coordinates.longitude
+          };
+        }
+      } catch (error) {
+        console.error(`Could not geocode ${key} address:`, error);
+      }
+    }
+
+    setLocationCoords(resolved);
+    return resolved;
+  };
+
   // UPDATED: Handle continue with proper data mapping
-  const handleContinue = () => {
+  const handleContinue = async () => {
+    let resolvedCoords = null;
+    if (step === 2 && isStep2Valid) {
+      setLoading(true);
+      try {
+        resolvedCoords = await ensureLocationCoordinates();
+      } finally {
+        setLoading(false);
+      }
+      if (!resolvedCoords.pickup || !resolvedCoords.delivery) {
+        const which = !resolvedCoords.pickup ? 'pickup' : 'delivery';
+        Alert.alert(
+          'Address not found',
+          `We could not find the ${which} address on the map. Please select an address from the suggestions or use your current location so the transporter can navigate precisely.`
+        );
+        return;
+      }
+    }
+
     if (step === 2 && isCrossBorderDestination(formData.deliveryLocation)) {
       // Prepare data for cross-border booking
       const bookingDataForReview = {
@@ -382,8 +447,10 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
         // Route details (mapped to backend structure)
         pickupLocation: formData.pickupLocation,
         deliveryLocation: formData.deliveryLocation,
+        pickupCoordinates: resolvedCoords?.pickup || locationCoords.pickup,
+        deliveryCoordinates: resolvedCoords?.delivery || locationCoords.delivery,
         pickupDate: formData.pickupDate,
-        
+
         // Additional data
         insurance: formData.insurance,
         isCrossBorder: true,
@@ -412,8 +479,10 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
         // Route details (mapped to backend structure)
         pickupLocation: formData.pickupLocation,
         deliveryLocation: formData.deliveryLocation,
+        pickupCoordinates: resolvedCoords?.pickup || locationCoords.pickup,
+        deliveryCoordinates: resolvedCoords?.delivery || locationCoords.delivery,
         pickupDate: formData.pickupDate,
-        
+
         // Insurance and cross-border
         insurance: formData.insurance,
         isCrossBorder: isCrossBorderDestination(formData.deliveryLocation),
@@ -455,6 +524,13 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
                 // re-trigger the location search, which would immediately
                 // repopulate and reopen this dropdown over the next field.
                 setFormData(prev => ({ ...prev, [formField]: item.address }));
+                // Keep the selected result's precise coordinates for the booking.
+                setLocationCoords(prev => ({
+                  ...prev,
+                  [stateKey]: (item.latitude != null && item.longitude != null)
+                    ? { latitude: item.latitude, longitude: item.longitude }
+                    : null
+                }));
                 setLocationSearchResults(prev => ({ ...prev, [stateKey]: [] }));
               }}
             >
@@ -468,7 +544,7 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       
       {/* Header */}

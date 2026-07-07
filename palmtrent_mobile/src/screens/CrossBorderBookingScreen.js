@@ -5,12 +5,12 @@ import {
   Text,
   TouchableOpacity,
   ScrollView,
-  SafeAreaView,
   StatusBar,
   StyleSheet,
   ActivityIndicator,
   Alert
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../services/apiService';
 
@@ -147,7 +147,7 @@ const CrossBorderBookingScreen = ({ navigation, route, onNavigate, bookingData, 
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
         <View style={styles.header}>
           <TouchableOpacity
@@ -171,7 +171,7 @@ const CrossBorderBookingScreen = ({ navigation, route, onNavigate, bookingData, 
 
   if (error) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
         <View style={styles.header}>
           <TouchableOpacity
@@ -196,7 +196,7 @@ const CrossBorderBookingScreen = ({ navigation, route, onNavigate, bookingData, 
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
 
       {/* Header */}

@@ -5,12 +5,12 @@ import {
   Text,
   TouchableOpacity,
   ScrollView,
-  SafeAreaView,
   StatusBar,
   StyleSheet,
   ActivityIndicator,
   Alert
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../services/apiService';
 
@@ -71,7 +71,7 @@ const BookingConfirmationScreen = ({ onNavigate, bookingData, onExit }) => {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#0C2D48" />
           <Text style={styles.loadingText}>Creating your booking...</Text>
@@ -81,7 +81,7 @@ const BookingConfirmationScreen = ({ onNavigate, bookingData, onExit }) => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>

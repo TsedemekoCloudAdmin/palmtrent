@@ -5,11 +5,11 @@ import {
   Text,
   TouchableOpacity,
   ScrollView,
-  SafeAreaView,
   StatusBar,
   TextInput,
   StyleSheet
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
 const MultipleVehiclesBooking = ({ onNavigate, bookingData, updateBookingData }) => {
@@ -67,7 +67,7 @@ const MultipleVehiclesBooking = ({ onNavigate, bookingData, updateBookingData })
   const finalTotal = baseTotal - discountAmount;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       
       {/* Header */}

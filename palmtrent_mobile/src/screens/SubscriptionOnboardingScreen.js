@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -10,6 +9,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../hook/useAuth';
@@ -136,7 +136,7 @@ const SubscriptionOnboardingScreen = ({ navigation }) => {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#F37021" />
@@ -147,7 +147,7 @@ const SubscriptionOnboardingScreen = ({ navigation }) => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       <View style={styles.header}>
         <View style={styles.headerIcon}>

@@ -156,6 +156,28 @@ const setupSocketHandler = (io) => {
         // Store latest location
         transporterLocations.set(locationKey, locationData);
 
+        // Persist to the shipment (fire-and-forget) so tracking survives app
+        // reloads and REST consumers see the latest position too.
+        if (shipment?._id) {
+          Shipment.updateOne(
+            { _id: shipment._id },
+            {
+              currentLocation: { type: 'Point', coordinates: [longitude, latitude] },
+              $push: {
+                tracking: {
+                  $each: [{
+                    location: { type: 'Point', coordinates: [longitude, latitude] },
+                    timestamp: new Date(),
+                    event: 'location_updated',
+                    note: 'Live location update'
+                  }],
+                  $slice: -200 // cap history growth from frequent live updates
+                }
+              }
+            }
+          ).catch(err => console.error('Persist live location error:', err.message));
+        }
+
         // If tracking a specific booking or shipment reference, notify the shipper
         if (bookingId) {
           if (booking && booking.shipper) {
@@ -319,12 +341,20 @@ const setupSocketHandler = (io) => {
     });
 
     // ============ CHAT/MESSAGING ============
+    // Chat rooms are always named by the canonical Booking _id so that clients holding
+    // different identifiers (booking _id vs bookingReference) land in the same room.
+    const chatRoomAliases = new Map(); // requested bookingId -> canonical room name
+
+    const chatRoomFor = (bookingId) => chatRoomAliases.get(String(bookingId)) || `chat:${bookingId}`;
+
     socket.on('chat:join', async (data) => {
       try {
         const { bookingId } = data;
-        await chatService.assertBookingChatAccess(bookingId, socket.user);
-        socket.join(`chat:${bookingId}`);
-        socket.emit('chat:joined', { bookingId });
+        const booking = await chatService.assertBookingChatAccess(bookingId, socket.user);
+        const room = `chat:${booking._id}`;
+        chatRoomAliases.set(String(bookingId), room);
+        socket.join(room);
+        socket.emit('chat:joined', { bookingId, canonicalBookingId: booking._id.toString() });
       } catch (error) {
         socket.emit('error', { message: error.message || 'Failed to join chat' });
       }
@@ -340,8 +370,8 @@ const setupSocketHandler = (io) => {
           message
         });
 
-        // Broadcast to chat room
-        io.to(`chat:${bookingId}`).emit('chat:newMessage', {
+        // Broadcast to the canonical chat room (serialized bookingId is the Booking _id)
+        io.to(`chat:${chatMessage.bookingId}`).emit('chat:newMessage', {
           ...chatMessage,
           sender: undefined
         });
@@ -353,7 +383,9 @@ const setupSocketHandler = (io) => {
 
     socket.on('chat:leave', (data) => {
       const { bookingId } = data;
-      socket.leave(`chat:${bookingId}`);
+      const room = chatRoomFor(bookingId);
+      chatRoomAliases.delete(String(bookingId));
+      socket.leave(room);
     });
 
     // ============ SOS/EMERGENCY ============
@@ -399,7 +431,7 @@ const setupSocketHandler = (io) => {
     // ============ TYPING INDICATORS ============
     socket.on('chat:typing', (data) => {
       const { bookingId, isTyping } = data;
-      socket.to(`chat:${bookingId}`).emit('chat:userTyping', {
+      socket.to(chatRoomFor(bookingId)).emit('chat:userTyping', {
         userId,
         userName: socket.user.fullName,
         isTyping

@@ -1,5 +1,6 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
 import ResponderPortalScreen from '../screens/emergency/ResponderPortalScreen';
@@ -8,7 +9,9 @@ import ProfileScreen from '../screens/ProfileScreen';
 
 const Tab = createBottomTabNavigator();
 
-const ResponderTabs = () => (
+const ResponderTabs = () => {
+  const insets = useSafeAreaInsets();
+  return (
   <Tab.Navigator
     screenOptions={{
       headerShown: false,
@@ -16,9 +19,9 @@ const ResponderTabs = () => (
         backgroundColor: 'white',
         borderTopWidth: 1,
         borderTopColor: '#e5e7eb',
-        paddingBottom: 8,
+        paddingBottom: 8 + insets.bottom,
         paddingTop: 8,
-        height: 60,
+        height: 60 + insets.bottom,
       },
       tabBarActiveTintColor: '#0C2D48',
       tabBarInactiveTintColor: '#9ca3af',
@@ -49,6 +52,7 @@ const ResponderTabs = () => (
       }}
     />
   </Tab.Navigator>
-);
+  );
+};
 
 export default ResponderTabs;

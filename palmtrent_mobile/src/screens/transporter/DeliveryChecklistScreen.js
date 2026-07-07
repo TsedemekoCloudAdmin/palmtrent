@@ -5,13 +5,13 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   Alert,
   ActivityIndicator,
   Image,
   Platform
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import * as ImagePicker from 'expo-image-picker';
 import apiService from '../../services/apiService';
@@ -173,7 +173,7 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
      
       {/* Header - Updated to match HomeScreen pattern */}

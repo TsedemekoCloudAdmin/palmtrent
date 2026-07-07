@@ -6,12 +6,12 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   Alert,
   Modal,
   FlatList
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import apiService from '../../services/apiService';
@@ -202,7 +202,7 @@ const DriverDetailsScreen = () => {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
@@ -219,7 +219,7 @@ const DriverDetailsScreen = () => {
 
   if (!driver) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
@@ -235,7 +235,7 @@ const DriverDetailsScreen = () => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       
       {/* Header */}

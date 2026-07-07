@@ -6,12 +6,12 @@ import {
   ScrollView,
   TextInput,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   Switch,
   Alert,
   Image
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import * as ImagePicker from 'expo-image-picker';
 import useAuth from '../../hook/useAuth';
@@ -283,7 +283,7 @@ const TrailerOwnerRegistrationScreen = ({ navigation }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       
       {/* Header */}

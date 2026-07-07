@@ -7,10 +7,10 @@ import {
   TextInput,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   Alert,
   ActivityIndicator
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import useAuth from '../../hook/useAuth';
@@ -105,7 +105,7 @@ const RegisterDetailsScreen = ({ navigation, route }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         <TouchableOpacity 
           onPress={() => navigation.goBack()} 

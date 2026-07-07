@@ -5,7 +5,6 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   TextInput,
   Alert,
@@ -13,6 +12,7 @@ import {
   Image,
   Platform
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -192,7 +192,7 @@ export const DisputeScreen = () => {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#dc2626" />
           <Text style={styles.loadingText}>Loading booking details...</Text>
@@ -202,7 +202,7 @@ export const DisputeScreen = () => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#dc2626" />
 
       {/* Header */}

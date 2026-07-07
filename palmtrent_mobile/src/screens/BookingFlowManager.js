@@ -37,7 +37,7 @@ const BookingFlowManager = ({ navigation, route }) => {
 
   // Function to exit the flow and return to home
   const exitToHome = () => {
-    navigation.navigate('Home');
+    navigation.navigate('MainTabs', { screen: 'Home' });
   };
 
   const renderScreen = () => {

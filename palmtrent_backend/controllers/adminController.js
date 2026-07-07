@@ -639,6 +639,44 @@ exports.verifyCorporateAccount = async (req, res) => {
   }
 };
 
+exports.getVehicles = async (req, res) => {
+  try {
+    const { page = 1, limit = 20, verificationStatus, status, search } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const query = {};
+    if (verificationStatus) query['verification.status'] = verificationStatus;
+    if (status) query.status = status;
+    if (search) query.registrationNumber = { $regex: search, $options: 'i' };
+
+    const vehicles = await Vehicle.find(query)
+      .populate('owner', 'fullName name email phone userType')
+      .populate('make', 'name')
+      .populate('model', 'name')
+      .populate('vehicleType', 'name')
+      .populate('verification.verifiedBy', 'fullName name email')
+      .sort('-createdAt')
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await Vehicle.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      data: vehicles,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+  } catch (error) {
+    console.error('Get vehicles error:', error);
+    res.status(500).json({ success: false, message: 'Error fetching vehicles' });
+  }
+};
+
 exports.verifyVehicle = async (req, res) => {
   try {
     const { status = 'approved', notes, authorityChecks = [] } = req.body;

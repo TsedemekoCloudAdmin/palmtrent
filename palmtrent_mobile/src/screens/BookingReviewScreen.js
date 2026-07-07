@@ -4,13 +4,13 @@ import {
   Text,
   TouchableOpacity,
   ScrollView,
-  SafeAreaView,
   StatusBar,
   StyleSheet,
   Switch,
   ActivityIndicator,
   Alert
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import PricingBreakdown from '../screens/components/PricingBreakdown';
 import apiService from '../services/apiService';
@@ -138,6 +138,8 @@ const handleConfirmBooking = async () => {
       images: bookingData.images || [],
       pickupLocation: bookingData.pickupLocation,
       deliveryLocation: bookingData.deliveryLocation,
+      pickupCoordinates: bookingData.pickupCoordinates || null,
+      deliveryCoordinates: bookingData.deliveryCoordinates || null,
       pickupDate: bookingData.pickupDate,
       insurance: insuranceEnabled,
       isCrossBorder: bookingData.isCrossBorder || false,
@@ -204,7 +206,7 @@ const handleConfirmBooking = async () => {
   const isValid = selectedPaymentMethod !== null && pricing !== null;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       
       {/* Header */}

@@ -4,7 +4,6 @@ import {
   Text,
   TouchableOpacity,
   ScrollView,
-  SafeAreaView,
   StatusBar,
   StyleSheet,
   TextInput,
@@ -14,6 +13,7 @@ import {
   Platform,
   Linking
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../services/apiService';
 import WebView from 'react-native-webview'; // For handling redirects
@@ -303,7 +303,7 @@ const CardPaymentScreen = ({ route, navigation, onNavigate, bookingData, updateB
 
   if (showWebView) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
         <View style={styles.webViewHeader}>
           <TouchableOpacity 
@@ -334,7 +334,7 @@ const CardPaymentScreen = ({ route, navigation, onNavigate, bookingData, updateB
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#0C2D48" />
@@ -346,7 +346,7 @@ const CardPaymentScreen = ({ route, navigation, onNavigate, bookingData, updateB
 
   if (paymentStatus === 'success') {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
         <View style={styles.successContainer}>
           <MaterialIcons name="check-circle" size={80} color="#059669" />
@@ -360,7 +360,7 @@ const CardPaymentScreen = ({ route, navigation, onNavigate, bookingData, updateB
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       
       {/* Header */}

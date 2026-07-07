@@ -5,9 +5,9 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   ScrollView
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const PHONE_VERIFICATION_DISABLED = process.env.EXPO_PUBLIC_DISABLE_PHONE_VERIFICATION === 'true';
 
@@ -62,7 +62,7 @@ const UserTypeScreen = ({ navigation }) => {
   const handleContinue = () => navigateWithType(selectedType);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Text style={styles.backButtonText}>← Back</Text>

@@ -5,12 +5,12 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   TextInput,
   ActivityIndicator,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../services/apiService';
 import useAuth from '../hook/useAuth';
@@ -146,7 +146,7 @@ export const RatingScreen = ({ route, navigation, onNavigate }) => {
               text: 'OK',
               onPress: () => {
                 if (navigation) {
-                  navigation.navigate('Home');
+                  navigation.navigate('MainTabs', { screen: 'Home' });
                 } else if (onNavigate) {
                   onNavigate('home');
                 }
@@ -168,7 +168,7 @@ export const RatingScreen = ({ route, navigation, onNavigate }) => {
 
   const handleSkip = () => {
     if (navigation) {
-      navigation.navigate('Home');
+      navigation.navigate('MainTabs', { screen: 'Home' });
     } else if (onNavigate) {
       onNavigate('home');
     }
@@ -210,7 +210,7 @@ export const RatingScreen = ({ route, navigation, onNavigate }) => {
   // Loading state while checking eligibility
   if (checkingEligibility) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#0C2D48" />
@@ -223,7 +223,7 @@ export const RatingScreen = ({ route, navigation, onNavigate }) => {
   // Cannot rate state
   if (!canRate) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
         <View style={styles.header}>
           <TouchableOpacity onPress={handleBack} style={styles.backButton}>
@@ -244,7 +244,7 @@ export const RatingScreen = ({ route, navigation, onNavigate }) => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
 
       {/* Header */}

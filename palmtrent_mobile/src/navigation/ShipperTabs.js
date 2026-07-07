@@ -1,5 +1,6 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
 // Shipper Screens
@@ -12,6 +13,7 @@ import ProfileScreen from '../screens/ProfileScreen';
 const Tab = createBottomTabNavigator();
 
 const ShipperTabs = () => {
+  const insets = useSafeAreaInsets();
   return (
     <Tab.Navigator
       screenOptions={{
@@ -20,9 +22,9 @@ const ShipperTabs = () => {
           backgroundColor: 'white',
           borderTopWidth: 1,
           borderTopColor: '#e5e7eb',
-          paddingBottom: 8,
+          paddingBottom: 8 + insets.bottom,
           paddingTop: 8,
-          height: 60,
+          height: 60 + insets.bottom,
         },
         tabBarActiveTintColor: '#0C2D48',
         tabBarInactiveTintColor: '#9ca3af',

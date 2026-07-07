@@ -5,9 +5,9 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   StatusBar
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
 const JobAcceptedScreen = ({ navigation, route }) => {
@@ -36,7 +36,7 @@ const JobAcceptedScreen = ({ navigation, route }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       {navigation.canGoBack?.() ? (
         <TouchableOpacity style={styles.topBackButton} onPress={() => navigation.goBack()}>

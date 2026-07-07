@@ -1,6 +1,7 @@
 // src/screens/ForgotPasswordScreen.js
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, StyleSheet, SafeAreaView, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useApi } from '../../hook/useApi';
 import apiService from '../../services/apiService';
 
@@ -44,7 +45,7 @@ const ForgotPasswordScreen = ({ navigation }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} disabled={isLoading}>
         <Text style={styles.backButtonText}>← Back</Text>
       </TouchableOpacity>

@@ -11,7 +11,7 @@ const storageService = require('../services/storageService');
 const { recordAudit } = require('../services/auditService');
 const { isUploadOwnedByUser } = require('../services/resourceAccessService');
 const { canAccessPrivateUpload } = require('../services/privateUploadAccessService');
-const { execFile } = require('child_process');
+const { scanFile, UploadScanError } = require('../services/uploadScanService');
 
 const MAGIC_BYTES = {
   'image/jpeg': ['ffd8ff'],
@@ -88,19 +88,16 @@ const cleanupFile = (filePath) => {
   }
 };
 
-const scanFile = (filePath) => new Promise((resolve, reject) => {
-  const command = process.env.UPLOAD_SCAN_COMMAND;
-  if (!command) {
-    if (isProduction()) {
-      return reject(new Error('Upload scanning is required in production'));
-    }
-    return resolve({ scanned: false, reason: 'UPLOAD_SCAN_COMMAND not configured' });
+const scanFailureResponse = (res, scanError, filename) => {
+  if (scanError instanceof UploadScanError && scanError.kind === 'unavailable') {
+    return res.status(503).json({
+      success: false,
+      message: 'Uploads cannot be scanned right now. Please try again later or contact support.'
+    });
   }
-  execFile(command, [filePath], { timeout: 30000 }, (error, stdout, stderr) => {
-    if (error) return reject(new Error(stderr || stdout || error.message));
-    resolve({ scanned: true, stdout });
-  });
-});
+  const suffix = filename ? `: ${filename}` : `: ${scanError.message}`;
+  return res.status(400).json({ success: false, message: `File failed security scan${suffix}` });
+};
 
 const persistUpload = async (file, uploadType) => {
   await storageService.refreshConfig();
@@ -222,7 +219,7 @@ const handleUpload = (uploadType) => {
         scanResult = await scanFile(req.file.path);
       } catch (scanError) {
         cleanupFile(req.file.path);
-        return res.status(400).json({ success: false, message: `File failed security scan: ${scanError.message}` });
+        return scanFailureResponse(res, scanError);
       }
 
       let storage;
@@ -297,7 +294,7 @@ const handleMultipleUpload = (uploadType) => {
           scanResults[file.filename] = await scanFile(file.path);
         } catch (scanError) {
           req.files.forEach(uploaded => cleanupFile(uploaded.path));
-          return res.status(400).json({ success: false, message: `File failed security scan: ${file.originalname}` });
+          return scanFailureResponse(res, scanError, file.originalname);
         }
       }
 

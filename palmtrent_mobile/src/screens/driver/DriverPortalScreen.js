@@ -5,7 +5,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -15,6 +14,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../../services/apiService';
 
@@ -158,7 +158,7 @@ const DriverPortalScreen = ({ navigation }) => {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#F37021" />
@@ -169,7 +169,7 @@ const DriverPortalScreen = ({ navigation }) => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       <KeyboardAvoidingView style={styles.keyboardAvoid} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView

@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   Dimensions,
   Alert,
@@ -15,13 +14,19 @@ import {
   Modal,
   FlatList
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
-import MapView, { Marker } from 'react-native-maps';
+import { MapView, Camera, PointAnnotation } from '@rnmapbox/maps';
+import { initMapbox, isMapboxConfigured } from '../services/mapboxConfig';
 import useAuth from '../hook/useAuth';
 import apiService from '../services/apiService';
 import socketService from '../services/socketService';
+import { vehicleSubLabel } from '../utils/labels';
 
 const { width } = Dimensions.get('window');
+
+// Configure the Mapbox access token once for this screen's maps.
+initMapbox();
 
 // Convert a GeoJSON [lng, lat] pair into a { latitude, longitude } map coord,
 // ignoring unset [0,0] placeholders.
@@ -30,6 +35,67 @@ const toLatLng = (coordinates) => {
   const [lng, lat] = coordinates;
   if (!lat || !lng) return null;
   return { latitude: lat, longitude: lng };
+};
+
+// Straight-line distance between two { latitude, longitude } points in km.
+const haversineKm = (a, b) => {
+  if (!a || !b) return 0;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(b.latitude - a.latitude);
+  const dLng = toRad(b.longitude - a.longitude);
+  const sinLat = Math.sin(dLat / 2);
+  const sinLng = Math.sin(dLng / 2);
+  const h = sinLat * sinLat +
+    Math.cos(toRad(a.latitude)) * Math.cos(toRad(b.latitude)) * sinLng * sinLng;
+  return 2 * R * Math.asin(Math.sqrt(h));
+};
+
+// Statuses in which the cargo is physically moving toward the destination.
+const CARGO_MOVING_STATUSES = ['picked_up', 'in_transit', 'arrived_delivery'];
+const CARGO_DELIVERED_STATUSES = ['delivered', 'completed'];
+
+// Compute covered / remaining / percent from the vehicle's actual position when
+// coordinates are available. Falls back to zero-progress before pickup and full
+// progress after delivery; never fabricates distance from a status table.
+const computeTripMetrics = ({ status, distance, pickupCoords, deliveryCoords, currentCoords }) => {
+  const total = distance || (pickupCoords && deliveryCoords ? haversineKm(pickupCoords, deliveryCoords) : 0);
+
+  if (CARGO_DELIVERED_STATUSES.includes(status)) {
+    return { distance: total, covered: total, remaining: 0, progress: 100 };
+  }
+
+  if (CARGO_MOVING_STATUSES.includes(status) && currentCoords && pickupCoords && deliveryCoords && total > 0) {
+    const fromPickup = haversineKm(pickupCoords, currentCoords);
+    const toDelivery = haversineKm(currentCoords, deliveryCoords);
+    const travelled = fromPickup + toDelivery;
+    const ratio = travelled > 0 ? Math.min(Math.max(fromPickup / travelled, 0), 1) : 0;
+    const covered = total * ratio;
+    return {
+      distance: total,
+      covered,
+      remaining: Math.max(total - covered, 0),
+      progress: Math.round(ratio * 100)
+    };
+  }
+
+  // No live position yet (or trip not started): nothing has been covered.
+  return { distance: total, covered: 0, remaining: total, progress: 0 };
+};
+
+// Human-readable "current location" line derived from the freshest data we have.
+const describeCurrentLocation = (shipment) => {
+  const current = toLatLng(shipment.currentLocation?.coordinates);
+  if (current) {
+    return `${current.latitude.toFixed(5)}, ${current.longitude.toFixed(5)}`;
+  }
+  const lastTracked = Array.isArray(shipment.tracking) && shipment.tracking.length > 0
+    ? toLatLng(shipment.tracking[shipment.tracking.length - 1]?.location?.coordinates)
+    : null;
+  if (lastTracked) {
+    return `${lastTracked.latitude.toFixed(5)}, ${lastTracked.longitude.toFixed(5)}`;
+  }
+  return 'Waiting for the driver’s live location…';
 };
 
 // Forward status actions the transporter can take from the tracking screen.
@@ -183,16 +249,23 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
           const shipment = Array.isArray(response.data) ? response.data[0] : response.data;
 
           if (shipment) {
-            const distance = shipment.route?.distance || 0;
-            const progress = calculateProgress(shipment);
-            const covered = distance * (progress / 100);
+            const pickupCoords = toLatLng(shipment.route?.pickup?.coordinates?.coordinates);
+            const deliveryCoords = toLatLng(shipment.route?.delivery?.coordinates?.coordinates);
+            const currentCoords = toLatLng(shipment.currentLocation?.coordinates);
+            const metrics = computeTripMetrics({
+              status: shipment.status,
+              distance: shipment.route?.distance || 0,
+              pickupCoords,
+              deliveryCoords,
+              currentCoords
+            });
 
             setJobDetails({
               id: shipment.bookingReference || shipment._id,
               shipmentId: shipment._id,
               bookingId: shipment.booking?._id || shipment.booking,
               status: shipment.status,
-              progress,
+              progress: metrics.progress,
               isRental: false,
               weight: shipment.cargoDetails?.weight ?? null,
               cargoType: shipment.cargoDetails?.type || '',
@@ -206,19 +279,19 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
               route: {
                 from: shipment.route?.pickup?.address || shipment.route?.pickup?.city || 'Pickup',
                 to: shipment.route?.delivery?.address || shipment.route?.delivery?.city || 'Delivery',
-                distance,
-                covered,
-                remaining: Math.max(distance - covered, 0),
-                pickupCoords: toLatLng(shipment.route?.pickup?.coordinates?.coordinates),
-                deliveryCoords: toLatLng(shipment.route?.delivery?.coordinates?.coordinates)
+                distance: metrics.distance,
+                covered: metrics.covered,
+                remaining: metrics.remaining,
+                pickupCoords,
+                deliveryCoords
               },
-              currentCoords: toLatLng(shipment.currentLocation?.coordinates),
+              currentCoords,
               timing: {
                 started: formatTime(shipment.timeline?.pickedUpAt),
                 eta: calculateETA(shipment),
                 elapsed: calculateElapsed(shipment.timeline?.pickedUpAt)
               },
-              currentLocation: shipment.tracking?.currentLocation?.address || 'Location updating...',
+              currentLocation: describeCurrentLocation(shipment),
               recentActivity: formatActivityLog(shipment),
               rawData: shipment
             });
@@ -309,25 +382,22 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
     fetchShipmentData();
   }, [fetchShipmentData]);
 
-  const calculateProgress = (shipment) => {
-    // Progress reflects how far the load has actually moved. Nothing has started
-    // until the driver is en route, so pre-pickup statuses are 0%.
-    const statusProgress = {
-      'pending': 0,
-      'payment_confirmed': 0,
-      'finding_transporter': 0,
-      'transporter_assigned': 0,
-      'assigned': 0,
-      'matched': 0,
-      'en_route_pickup': 10,
-      'picked_up': 30,
-      'in_transit': 60,
-      'arrived_delivery': 90,
-      'delivered': 100,
-      'completed': 100
-    };
-    return statusProgress[shipment.status] || 0;
-  };
+  // Recompute trip metrics live as socket location packets arrive, without
+  // waiting for the next 30s REST refresh.
+  const liveMetrics = useMemo(() => {
+    if (!jobDetails || jobDetails.isRental) return null;
+    return computeTripMetrics({
+      status: jobDetails.status,
+      distance: jobDetails.route?.distance || 0,
+      pickupCoords: jobDetails.route?.pickupCoords,
+      deliveryCoords: jobDetails.route?.deliveryCoords,
+      currentCoords: liveLocation || jobDetails.currentCoords
+    });
+  }, [jobDetails, liveLocation]);
+
+  const displayProgress = liveMetrics?.progress ?? jobDetails?.progress ?? 0;
+  const displayCovered = liveMetrics?.covered ?? jobDetails?.route?.covered ?? 0;
+  const displayRemaining = liveMetrics?.remaining ?? jobDetails?.route?.remaining ?? 0;
 
   const formatTime = (dateStr) => {
     if (!dateStr) return '--:--';
@@ -399,8 +469,13 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
   };
 
   const handleMessageDriver = () => {
+    // The chat API accepts a booking _id or a bookingReference, so fall back to
+    // the reference when the shipment has no populated booking.
     navigateTo('Chat', {
-      bookingId: jobDetails.bookingId || jobDetails.rawData?.booking?._id || jobDetails.rawData?.booking,
+      bookingId: jobDetails.bookingId ||
+        jobDetails.rawData?.booking?._id ||
+        jobDetails.rawData?.booking ||
+        jobDetails.rawData?.bookingReference,
       recipientName: jobDetails.driver?.name
     });
   };
@@ -459,8 +534,11 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
   };
 
   const handleViewFullMap = () => {
-    if (liveLocation?.latitude != null && liveLocation?.longitude != null) {
-      const query = `${liveLocation.latitude},${liveLocation.longitude}`;
+    // Prefer the live socket position, then the last persisted position, then
+    // the pickup point — so the button still works before the driver goes live.
+    const coord = liveLocation || jobDetails?.currentCoords || jobDetails?.route?.pickupCoords;
+    if (coord?.latitude != null && coord?.longitude != null) {
+      const query = `${coord.latitude},${coord.longitude}`;
       Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`)
         .catch(() => Alert.alert('Map', 'Unable to open the map.'));
     } else {
@@ -510,7 +588,7 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
         <View style={styles.header}>
           <Text style={styles.jobId}>Tracking</Text>
@@ -544,7 +622,7 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
     };
 
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
         <View style={styles.header}>
           <View style={styles.headerWithBack}>
@@ -594,7 +672,7 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
   const waitingStatuses = ['pending', 'payment_confirmed', 'finding_transporter'];
   if (waitingStatuses.includes(jobDetails.status)) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
         <View style={styles.header}>
           <View style={styles.headerWithBack}>
@@ -708,7 +786,7 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
 
       {/* Header */}
@@ -736,6 +814,15 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
           {(() => {
             const liveCoord = liveLocation || jobDetails.currentCoords;
             const center = liveCoord || jobDetails.route.pickupCoords || jobDetails.route.deliveryCoords;
+            if (!isMapboxConfigured()) {
+              return (
+                <View style={styles.mapPlaceholder}>
+                  <MaterialIcons name="map" size={48} color="#0C2D48" />
+                  <Text style={styles.mapTitle}>Map unavailable</Text>
+                  <Text style={styles.mapSubtitle}>Mapbox access token is not configured.</Text>
+                </View>
+              );
+            }
             if (!center) {
               return (
                 <View style={styles.mapPlaceholder}>
@@ -746,22 +833,40 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
               );
             }
             return (
-              <MapView
-                style={styles.map}
-                region={{ latitude: center.latitude, longitude: center.longitude, latitudeDelta: 0.5, longitudeDelta: 0.5 }}
-              >
+              <MapView style={styles.map} styleURL="mapbox://styles/mapbox/streets-v12">
+                <Camera
+                  centerCoordinate={[center.longitude, center.latitude]}
+                  zoomLevel={liveCoord ? 12 : 9}
+                  animationDuration={600}
+                />
                 {jobDetails.route.pickupCoords && (
-                  <Marker coordinate={jobDetails.route.pickupCoords} title="Pickup" description={jobDetails.route.from} pinColor="#16a34a" />
+                  <PointAnnotation
+                    id="pickup"
+                    coordinate={[jobDetails.route.pickupCoords.longitude, jobDetails.route.pickupCoords.latitude]}
+                    title="Pickup"
+                  >
+                    <View style={[styles.mapPin, styles.mapPinPickup]} />
+                  </PointAnnotation>
                 )}
                 {jobDetails.route.deliveryCoords && (
-                  <Marker coordinate={jobDetails.route.deliveryCoords} title="Delivery" description={jobDetails.route.to} pinColor="#dc2626" />
+                  <PointAnnotation
+                    id="delivery"
+                    coordinate={[jobDetails.route.deliveryCoords.longitude, jobDetails.route.deliveryCoords.latitude]}
+                    title="Delivery"
+                  >
+                    <View style={[styles.mapPin, styles.mapPinDelivery]} />
+                  </PointAnnotation>
                 )}
                 {liveCoord && (
-                  <Marker coordinate={liveCoord} title="Current location">
+                  <PointAnnotation
+                    id="current"
+                    coordinate={[liveCoord.longitude, liveCoord.latitude]}
+                    title="Current location"
+                  >
                     <View style={styles.marker}>
                       <MaterialIcons name="local-shipping" size={22} color="#0C2D48" />
                     </View>
-                  </Marker>
+                  </PointAnnotation>
                 )}
               </MapView>
             );
@@ -789,23 +894,23 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
           <View style={styles.card}>
             <View style={styles.progressHeader}>
               <Text style={styles.cardTitle}>Trip Progress</Text>
-              <Text style={styles.progressPercentage}>{jobDetails.progress}%</Text>
+              <Text style={styles.progressPercentage}>{displayProgress}%</Text>
             </View>
-            
+
             {/* Progress Bar */}
             <View style={styles.progressBar}>
-              <View 
-                style={[styles.progressFill, { width: `${jobDetails.progress}%` }]}
+              <View
+                style={[styles.progressFill, { width: `${displayProgress}%` }]}
               />
             </View>
-            
+
             <View style={styles.progressStats}>
               <View style={styles.progressStat}>
-                <Text style={styles.progressStatValue}>{Number(jobDetails.route.covered || 0).toFixed(2)} km</Text>
+                <Text style={styles.progressStatValue}>{Number(displayCovered || 0).toFixed(2)} km</Text>
                 <Text style={styles.progressStatLabel}>Covered</Text>
               </View>
               <View style={styles.progressStat}>
-                <Text style={styles.progressStatValue}>{Number(jobDetails.route.remaining || 0).toFixed(2)} km</Text>
+                <Text style={styles.progressStatValue}>{Number(displayRemaining || 0).toFixed(2)} km</Text>
                 <Text style={styles.progressStatLabel}>Remaining</Text>
               </View>
               <View style={styles.progressStat}>
@@ -1020,7 +1125,7 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
                   <MaterialIcons name="local-shipping" size={20} color="#0C2D48" />
                   <View style={{ flex: 1 }}>
                     <Text style={styles.vehicleOptionTitle}>{item.registrationNumber}</Text>
-                    <Text style={styles.vehicleOptionSub}>{[item.make, item.model].filter(Boolean).join(' ')}</Text>
+                    <Text style={styles.vehicleOptionSub}>{vehicleSubLabel(item)}</Text>
                   </View>
                   {jobDetails.driver.vehicle === item.registrationNumber && (
                     <MaterialIcons name="check-circle" size={20} color="#16a34a" />
@@ -1092,6 +1197,19 @@ const styles = StyleSheet.create({
   map: {
     height: 220,
     width: '100%',
+  },
+  mapPin: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 3,
+    borderColor: 'white',
+  },
+  mapPinPickup: {
+    backgroundColor: '#16a34a',
+  },
+  mapPinDelivery: {
+    backgroundColor: '#dc2626',
   },
   assignVehicleButton: {
     flexDirection: 'row',

@@ -43,13 +43,20 @@
     "extra": {
       "eas": {
         "projectId": "fb040d7e-0ce7-427d-ae2d-c66df60e9d03"
-      }
+      },
+      "mapboxPublicToken": "MAPBOX_PUBLIC_TOKEN_PLACEHOLDER"
     },
     "plugins": [
       "expo-camera",
       "expo-image-picker",
       "expo-location",
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "@rnmapbox/maps",
+        {
+          "RNMapboxMapsDownloadToken": "MAPBOX_DOWNLOADS_TOKEN_PLACEHOLDER"
+        }
+      ]
     ]
   }
 }

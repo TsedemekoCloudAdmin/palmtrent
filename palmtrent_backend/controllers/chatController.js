@@ -32,7 +32,9 @@ exports.sendMessage = async (req, res) => {
 
     const io = req.app.get('io');
     if (io) {
-      io.to(`chat:${req.params.bookingId}`).emit('chat:newMessage', {
+      // message.bookingId is the canonical Booking _id even when the route param
+      // was a bookingReference, so this reaches everyone in the chat room.
+      io.to(`chat:${message.bookingId}`).emit('chat:newMessage', {
         ...message,
         sender: undefined
       });

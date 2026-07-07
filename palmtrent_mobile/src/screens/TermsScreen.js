@@ -5,8 +5,8 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
 const TermsScreen = ({ navigation }) => {
@@ -115,7 +115,7 @@ We provide the platform "as is" without warranties of any kind.`
   ];
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}

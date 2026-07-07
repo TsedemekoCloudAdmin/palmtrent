@@ -1,5 +1,6 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
 import DriverDeliveriesScreen from '../screens/driver/DriverDeliveriesScreen';
@@ -10,7 +11,9 @@ import NotificationScreen from '../screens/NotificationScreen';
 
 const Tab = createBottomTabNavigator();
 
-const DriverTabs = () => (
+const DriverTabs = () => {
+  const insets = useSafeAreaInsets();
+  return (
   <Tab.Navigator
     screenOptions={{
       headerShown: false,
@@ -18,9 +21,9 @@ const DriverTabs = () => (
         backgroundColor: 'white',
         borderTopWidth: 1,
         borderTopColor: '#e5e7eb',
-        paddingBottom: 8,
+        paddingBottom: 8 + insets.bottom,
         paddingTop: 8,
-        height: 60,
+        height: 60 + insets.bottom,
       },
       tabBarActiveTintColor: '#0C2D48',
       tabBarInactiveTintColor: '#9ca3af',
@@ -67,6 +70,7 @@ const DriverTabs = () => (
       }}
     />
   </Tab.Navigator>
-);
+  );
+};
 
 export default DriverTabs;

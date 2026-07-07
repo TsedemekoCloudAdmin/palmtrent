@@ -13,7 +13,6 @@ import DriverTabs from './DriverTabs';
 import ResponderTabs from './ResponderTabs';
 
 // Import other screens
-import HomeScreen from '../screens/HomeScreen';
 import TransporterVerificationScreen from '../screens/transporter/TransporterVerificationScreen';
 import CreateBookingScreen from '../screens/shipper/CreateBookingScreen';
 import PendingJobsScreen from '../screens/transporter/PendingJobsScreen';
@@ -130,8 +129,10 @@ const AppNavigator = () => {
         component={getMainTabs(user?.userType)}
       />
       
-      {/* Common screens accessible from both user types */}
-      <Stack.Screen name="Home" component={HomeScreen} />
+      {/* Common screens accessible from both user types. Note: "Home" is NOT
+          registered here — each tab navigator owns its "Home" tab. A duplicate
+          root-level Home made navigate('Home') collapse the stack to a tab-less
+          HomeScreen and broke hardware-back behaviour. */}
       <Stack.Screen name="TransporterVerification" component={TransporterVerificationScreen} />
       <Stack.Screen name="CreateBooking" component={CreateBookingScreen} />
       <Stack.Screen name="PendingJobs" component={PendingJobsScreen} />

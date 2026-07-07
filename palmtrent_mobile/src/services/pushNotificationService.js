@@ -241,6 +241,16 @@ class PushNotificationService {
     }
   }
 
+  // Clear the stored last notification response so a previously tapped push is
+  // not replayed as a deep link on subsequent cold starts.
+  async clearLastNotificationResponse() {
+    try {
+      await Notifications.clearLastNotificationResponseAsync();
+    } catch (error) {
+      // Older SDKs may not support this; ignore.
+    }
+  }
+
   // Dismiss all notifications from notification center
   async dismissAllNotifications() {
     try {

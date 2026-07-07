@@ -699,6 +699,11 @@ export const adminAPI = {
     body: JSON.stringify(data),
   }),
 
+  getVehicles: (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    return apiFetch(`/admin/vehicles${queryString ? `?${queryString}` : ''}`);
+  },
+
   verifyVehicle: (id, data) => apiFetch(`/admin/vehicles/${id}/verify`, {
     method: 'PUT',
     body: JSON.stringify(data),

@@ -5,7 +5,6 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   Image,
   Alert,
@@ -15,6 +14,7 @@ import {
   TextInput,
   Modal
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../hook/useAuth';
 import apiService from '../services/apiService';
@@ -378,7 +378,7 @@ const ProfileScreen = ({ navigation }) => {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right']} style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Profile</Text>
@@ -392,7 +392,7 @@ const ProfileScreen = ({ navigation }) => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
 
       {/* Header */}

@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import {
-  View, Text, TouchableOpacity, ScrollView, StyleSheet, SafeAreaView, StatusBar, TextInput
+  View, Text, TouchableOpacity, ScrollView, StyleSheet, StatusBar, TextInput
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { helpSections, PLATFORMS } from '../data/helpContent';
 
@@ -30,7 +31,7 @@ const HelpScreen = ({ navigation }) => {
   }, [platform, q]);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}><MaterialIcons name="arrow-back" size={24} color="#fff" /></TouchableOpacity>

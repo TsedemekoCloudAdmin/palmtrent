@@ -6,16 +6,17 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   Alert,
   Image,
   Modal,
   FlatList
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import apiService from '../../services/apiService';
+import { vehicleSubLabel } from '../../utils/labels';
 
 const VehicleDetailsScreen = () => {
   const navigation = useNavigation();
@@ -225,7 +226,7 @@ const VehicleDetailsScreen = () => {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
@@ -242,7 +243,7 @@ const VehicleDetailsScreen = () => {
 
   if (!vehicle) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
@@ -258,7 +259,7 @@ const VehicleDetailsScreen = () => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       
       {/* Header */}
@@ -282,7 +283,7 @@ const VehicleDetailsScreen = () => {
             <Text style={styles.vehicleIcon}>{getCategoryIcon(vehicle.category)}</Text>
             <View style={styles.vehicleTextInfo}>
               <Text style={styles.registrationNumber}>{vehicle.registrationNumber}</Text>
-              <Text style={styles.vehicleMakeModel}>{vehicle.make} {vehicle.model} • {vehicle.year}</Text>
+              <Text style={styles.vehicleMakeModel}>{vehicleSubLabel(vehicle)} • {vehicle.year}</Text>
             </View>
           </View>
           <View style={[styles.statusBadge, { backgroundColor: getStatusColor(vehicle.status) + '20' }]}>
@@ -291,6 +292,34 @@ const VehicleDetailsScreen = () => {
             </Text>
           </View>
         </View>
+
+        {/* Verification status */}
+        {vehicle.verification?.status === 'approved' ? (
+          <View style={[styles.verificationBanner, styles.verificationBannerApproved]}>
+            <MaterialIcons name="verified" size={20} color="#16a34a" />
+            <Text style={[styles.verificationBannerText, { color: '#166534' }]}>
+              Verified{vehicle.verification.verifiedAt
+                ? ` on ${new Date(vehicle.verification.verifiedAt).toLocaleDateString()}`
+                : ''} — this vehicle can be assigned to jobs.
+            </Text>
+          </View>
+        ) : vehicle.verification?.status === 'rejected' ? (
+          <View style={[styles.verificationBanner, styles.verificationBannerRejected]}>
+            <MaterialIcons name="gpp-bad" size={20} color="#dc2626" />
+            <Text style={[styles.verificationBannerText, { color: '#991b1b' }]}>
+              Verification rejected{vehicle.verification?.notes ? `: ${vehicle.verification.notes}` : ''}.
+              Update the vehicle documents and contact support to re-submit.
+            </Text>
+          </View>
+        ) : (
+          <View style={[styles.verificationBanner, styles.verificationBannerPending]}>
+            <MaterialIcons name="pending" size={20} color="#d97706" />
+            <Text style={[styles.verificationBannerText, { color: '#92400e' }]}>
+              Awaiting admin verification. This vehicle cannot be assigned to jobs until
+              Palmtrent approves it. Make sure its photos and documents are uploaded.
+            </Text>
+          </View>
+        )}
 
         {/* Quick Actions */}
         <View style={styles.actionButtons}>
@@ -697,6 +726,32 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 12,
     fontWeight: '600',
+  },
+  verificationBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  verificationBannerApproved: {
+    backgroundColor: '#f0fdf4',
+    borderColor: '#bbf7d0',
+  },
+  verificationBannerPending: {
+    backgroundColor: '#fffbeb',
+    borderColor: '#fde68a',
+  },
+  verificationBannerRejected: {
+    backgroundColor: '#fef2f2',
+    borderColor: '#fecaca',
+  },
+  verificationBannerText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
   },
   actionButtons: {
     flexDirection: 'row',

@@ -1,5 +1,6 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
 import CourierShipmentsScreen from '../screens/courier/CourierShipmentsScreen';
@@ -11,11 +12,13 @@ const Tab = createBottomTabNavigator();
 
 // Tab bar for PalmTrent depot agents (clerks): their day revolves around the
 // courier desk and scanning labels.
-const ClerkTabs = () => (
+const ClerkTabs = () => {
+  const insets = useSafeAreaInsets();
+  return (
   <Tab.Navigator
     screenOptions={{
       headerShown: false,
-      tabBarStyle: { backgroundColor: 'white', borderTopWidth: 1, borderTopColor: '#e5e7eb', paddingBottom: 8, paddingTop: 8, height: 60 },
+      tabBarStyle: { backgroundColor: 'white', borderTopWidth: 1, borderTopColor: '#e5e7eb', paddingBottom: 8 + insets.bottom, paddingTop: 8, height: 60 + insets.bottom },
       tabBarActiveTintColor: '#0C2D48',
       tabBarInactiveTintColor: '#9ca3af'
     }}
@@ -41,6 +44,7 @@ const ClerkTabs = () => (
       options={{ title: 'Profile', tabBarIcon: ({ color, size }) => <MaterialIcons name="person" size={size} color={color} /> }}
     />
   </Tab.Navigator>
-);
+  );
+};
 
 export default ClerkTabs;

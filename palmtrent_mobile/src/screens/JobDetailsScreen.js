@@ -5,7 +5,6 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   Dimensions,
   ActivityIndicator,
@@ -14,9 +13,11 @@ import {
   Modal,
   FlatList
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../hook/useAuth';
 import apiService from '../services/apiService';
+import { vehicleSubLabel } from '../utils/labels';
 
 const { width } = Dimensions.get('window');
 
@@ -166,7 +167,7 @@ const JobDetailsScreen = ({ navigation, route }) => {
 
   if (!jobData) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <View style={styles.loadingContainer}>
           <MaterialIcons name="assignment" size={48} color="#9ca3af" />
           <Text style={styles.loadingText}>Job details are not available.</Text>
@@ -202,6 +203,17 @@ const JobDetailsScreen = ({ navigation, route }) => {
   const shipmentId = route.params?.shipmentId || jobData.shipmentId;
   const canAssignVehicle = isTransporter && Boolean(shipmentId) && displayData.status !== 'finding_transporter';
 
+  const chatBookingId = jobData.booking?._id || jobData.booking || bookingId || jobData._id;
+  const openChat = () => {
+    const recipient = isShipper ? displayData.transporter : displayData.shipper;
+    navigateTo('Chat', {
+      bookingId: chatBookingId,
+      recipientId: recipient?._id,
+      recipientName: recipient?.fullName || recipient?.name || (isShipper ? 'Transporter' : 'Shipper'),
+      recipientType: isShipper ? 'transporter' : 'shipper'
+    });
+  };
+
   const openVehicleAssign = async () => {
     setShowVehicleModal(true);
     try {
@@ -232,7 +244,7 @@ const JobDetailsScreen = ({ navigation, route }) => {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#0C2D48" />
           <Text style={styles.loadingText}>Loading details...</Text>
@@ -242,7 +254,7 @@ const JobDetailsScreen = ({ navigation, route }) => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       
       {/* Header */}
@@ -462,6 +474,10 @@ const JobDetailsScreen = ({ navigation, route }) => {
                   >
                     <Text style={styles.acceptButtonText}>Track Job</Text>
                   </TouchableOpacity>
+                  <TouchableOpacity style={styles.secondaryButton} onPress={openChat}>
+                    <MaterialIcons name="chat" size={20} color="#0C2D48" />
+                    <Text style={styles.secondaryButtonText}>Message Shipper</Text>
+                  </TouchableOpacity>
                   {canAssignVehicle && (
                     <TouchableOpacity style={styles.assignVehicleBtn} onPress={openVehicleAssign}>
                       <MaterialIcons name="local-shipping" size={18} color="#0C2D48" />
@@ -493,6 +509,14 @@ const JobDetailsScreen = ({ navigation, route }) => {
                 >
                   <MaterialIcons name="phone" size={20} color="#0C2D48" />
                   <Text style={styles.secondaryButtonText}>Contact Transporter</Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Message Transporter */}
+              {displayData.transporter && (
+                <TouchableOpacity style={styles.secondaryButton} onPress={openChat}>
+                  <MaterialIcons name="chat" size={20} color="#0C2D48" />
+                  <Text style={styles.secondaryButtonText}>Message Transporter</Text>
                 </TouchableOpacity>
               )}
 
@@ -550,7 +574,7 @@ const JobDetailsScreen = ({ navigation, route }) => {
                   <MaterialIcons name="local-shipping" size={20} color="#0C2D48" />
                   <View style={{ flex: 1 }}>
                     <Text style={styles.vehicleOptionTitle}>{item.registrationNumber}</Text>
-                    <Text style={styles.vehicleOptionSub}>{[item.make, item.model].filter(Boolean).join(' ')}</Text>
+                    <Text style={styles.vehicleOptionSub}>{vehicleSubLabel(item)}</Text>
                   </View>
                 </TouchableOpacity>
               )}

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, Image, ScrollView, StyleSheet, SafeAreaView, StatusBar,
+  View, Text, Image, ScrollView, StyleSheet, StatusBar,
   TouchableOpacity, ActivityIndicator, Alert, TextInput
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Print from 'expo-print';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
@@ -109,13 +110,13 @@ const CourierLabelScreen = ({ navigation, route }) => {
   }, [id, passedLabel]);
 
   if (loading || !label) {
-    return <SafeAreaView style={styles.container}><View style={styles.center}><ActivityIndicator color="#0C2D48" /></View></SafeAreaView>;
+    return <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}><View style={styles.center}><ActivityIndicator color="#0C2D48" /></View></SafeAreaView>;
   }
 
   const isDelivery = label.deliveryPreference === 'delivery';
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       <View style={styles.topbar}>
         <TouchableOpacity onPress={() => navigation.goBack()}><MaterialIcons name="arrow-back" size={26} color="#0C2D48" /></TouchableOpacity>

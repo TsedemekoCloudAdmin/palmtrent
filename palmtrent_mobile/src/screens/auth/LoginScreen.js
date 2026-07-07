@@ -7,10 +7,10 @@ import {
   TextInput,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   ActivityIndicator,
   Alert
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../../hook/useAuth';
 import { localZimbabwePhone, normalizeZimbabwePhone } from '../../services/apiService';
@@ -48,7 +48,7 @@ const LoginScreen = ({ navigation }) => {
   const isFormValid = localZimbabwePhone(phone).length === 9 && password.length >= 8;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         <TouchableOpacity 
           onPress={() => navigation.goBack()} 

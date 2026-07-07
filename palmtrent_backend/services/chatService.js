@@ -1,7 +1,22 @@
+const mongoose = require('mongoose');
 const Booking = require('../models/Booking');
 const ChatMessage = require('../models/ChatMessage');
 const Driver = require('../models/Driver');
 const Shipment = require('../models/Shipment');
+
+// Accepts either a Booking ObjectId or a bookingReference (e.g. "PT-mr56awe8-66TPLD"),
+// so callers that only hold a reference (driver flows) can still open the conversation.
+const resolveBooking = async (bookingIdOrRef) => {
+  const value = String(bookingIdOrRef || '').trim();
+  if (!value) return null;
+
+  const select = 'shipper user transporter corporateAccount bookingReference';
+  if (mongoose.Types.ObjectId.isValid(value)) {
+    const byId = await Booking.findById(value).select(select);
+    if (byId) return byId;
+  }
+  return Booking.findOne({ bookingReference: value }).select(select);
+};
 
 const isParticipant = (booking, user) => {
   const userId = (user.id || user._id).toString();
@@ -26,7 +41,7 @@ const isAssignedDriver = async (booking, user) => {
 };
 
 const assertBookingChatAccess = async (bookingId, user) => {
-  const booking = await Booking.findById(bookingId).select('shipper user transporter corporateAccount bookingReference');
+  const booking = await resolveBooking(bookingId);
   if (!booking) {
     const error = new Error('Booking not found');
     error.statusCode = 404;
@@ -63,9 +78,9 @@ const serializeMessage = (message, currentUserId) => {
 };
 
 const listMessages = async ({ bookingId, user, limit = 50, before }) => {
-  await assertBookingChatAccess(bookingId, user);
+  const booking = await assertBookingChatAccess(bookingId, user);
 
-  const query = { booking: bookingId };
+  const query = { booking: booking._id };
   if (before) {
     query.createdAt = { $lt: new Date(before) };
   }
@@ -88,10 +103,10 @@ const sendMessage = async ({ bookingId, user, message }) => {
     throw error;
   }
 
-  await assertBookingChatAccess(bookingId, user);
+  const booking = await assertBookingChatAccess(bookingId, user);
 
   const chatMessage = await ChatMessage.create({
-    booking: bookingId,
+    booking: booking._id,
     sender: user.id || user._id,
     senderRole: user.userType,
     message: trimmed,
@@ -103,11 +118,11 @@ const sendMessage = async ({ bookingId, user, message }) => {
 };
 
 const markRead = async ({ bookingId, user }) => {
-  await assertBookingChatAccess(bookingId, user);
+  const booking = await assertBookingChatAccess(bookingId, user);
 
   await ChatMessage.updateMany(
     {
-      booking: bookingId,
+      booking: booking._id,
       sender: { $ne: user.id || user._id },
       'readBy.user': { $ne: user.id || user._id }
     },

@@ -1,6 +1,7 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import SOSButton from '../screens/components/SOSButton';
 
@@ -17,6 +18,7 @@ const Tab = createBottomTabNavigator();
 const EmergencyTabScreen = () => null;
 
 const TransporterTabs = () => {
+  const insets = useSafeAreaInsets();
   return (
     <Tab.Navigator
       screenOptions={{
@@ -25,9 +27,9 @@ const TransporterTabs = () => {
           backgroundColor: 'white',
           borderTopWidth: 1,
           borderTopColor: '#e5e7eb',
-          paddingBottom: 8,
+          paddingBottom: 8 + insets.bottom,
           paddingTop: 8,
-          height: 60,
+          height: 60 + insets.bottom,
           position: 'relative',
         },
         tabBarActiveTintColor: '#0C2D48',

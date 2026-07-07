@@ -5,12 +5,12 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   ActivityIndicator,
   RefreshControl,
   Alert
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../../services/apiService';
 
@@ -70,7 +70,7 @@ const VehicleRentalScreen = ({ navigation, route }) => {
 
     Alert.alert(
       'Confirm Rental',
-      `Rent ${selectedVehicle.make} ${selectedVehicle.model} for ${selectedVehicle.quote ? `$${Number(selectedVehicle.quote.total || 0).toFixed(2)} total` : `$${selectedVehicle.rentalSettings?.dailyRate || 0}/day`}?`,
+      `Rent ${selectedVehicle.makeName || getRecordLabel(selectedVehicle.make)} ${selectedVehicle.modelName || getRecordLabel(selectedVehicle.model)} for ${selectedVehicle.quote ? `$${Number(selectedVehicle.quote.total || 0).toFixed(2)} total` : `$${selectedVehicle.rentalSettings?.dailyRate || 0}/day`}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -125,7 +125,7 @@ const VehicleRentalScreen = ({ navigation, route }) => {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
@@ -143,7 +143,7 @@ const VehicleRentalScreen = ({ navigation, route }) => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
 
       <View style={styles.header}>

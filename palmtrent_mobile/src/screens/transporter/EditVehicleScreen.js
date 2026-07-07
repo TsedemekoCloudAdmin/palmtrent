@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   TextInput,
   Alert,
@@ -14,6 +13,7 @@ import {
   Modal,
   FlatList
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import apiService from '../../services/apiService';
@@ -323,7 +323,7 @@ const EditVehicleScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       
       {/* Header */}
@@ -644,7 +644,7 @@ const EditVehicleScreen = () => {
       </ScrollView>
 
       <Modal visible={showMakeModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowMakeModal(false)}>
-        <SafeAreaView style={styles.modalContainer}>
+        <SafeAreaView edges={['top','left','right','bottom']} style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Select Vehicle Make</Text>
             <TouchableOpacity onPress={() => setShowMakeModal(false)}>
@@ -669,7 +669,7 @@ const EditVehicleScreen = () => {
       </Modal>
 
       <Modal visible={showModelModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowModelModal(false)}>
-        <SafeAreaView style={styles.modalContainer}>
+        <SafeAreaView edges={['top','left','right','bottom']} style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Select Model</Text>
             <TouchableOpacity onPress={() => setShowModelModal(false)}>

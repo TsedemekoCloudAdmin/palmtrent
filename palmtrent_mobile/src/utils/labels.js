@@ -25,3 +25,11 @@ export const vehicleLabel = (vehicle = {}, fallback = 'Vehicle') => {
 export const vehicleTypeLabel = (vehicle = {}) => (
   cleanLabel(vehicle.vehicleTypeName) || cleanLabel(vehicle.vehicleType) || cleanLabel(vehicle.subType) || ''
 );
+
+// Sub-label shown under a registration number: "Make Model", falling back to the
+// vehicle type when make/model are unresolved ids.
+export const vehicleSubLabel = (vehicle = {}) => {
+  const make = cleanLabel(vehicle.makeName) || cleanLabel(vehicle.make);
+  const model = cleanLabel(vehicle.modelName) || cleanLabel(vehicle.model);
+  return [make, model].filter(Boolean).join(' ') || vehicleTypeLabel(vehicle);
+};

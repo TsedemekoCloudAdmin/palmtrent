@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   ScrollView,
   TouchableOpacity,
@@ -12,6 +11,7 @@ import {
   ActivityIndicator,
   Alert
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../../hook/useAuth';
 import apiService from '../../services/apiService';
@@ -350,7 +350,7 @@ const HistoryScreen = ({ navigation }) => {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
 
       {/* Header */}

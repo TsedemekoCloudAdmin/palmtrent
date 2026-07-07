@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet,
-  SafeAreaView, StatusBar, ActivityIndicator, Alert, KeyboardAvoidingView, Platform
+  View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, StatusBar, ActivityIndicator, Alert, KeyboardAvoidingView, Platform
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../../services/apiService';
 
@@ -86,7 +86,7 @@ const CourierCreateScreen = ({ navigation }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}><MaterialIcons name="arrow-back" size={24} color="#fff" /></TouchableOpacity>

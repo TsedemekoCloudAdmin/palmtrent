@@ -5,16 +5,20 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   Dimensions,
   Alert,
   ActivityIndicator,
   Linking
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
-import MapView, { Marker } from 'react-native-maps';
+import { MapView, Camera, PointAnnotation } from '@rnmapbox/maps';
+import { initMapbox, isMapboxConfigured } from '../../services/mapboxConfig';
 import apiService from '../../services/apiService';
+
+// Configure the Mapbox access token once for this screen's map.
+initMapbox();
 
 const { width, height } = Dimensions.get('window');
 
@@ -104,7 +108,7 @@ const TrailerTrackingScreen = ({ navigation, route }) => {
   const progress = `${trackingData?.route?.progress || 0}%`;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       
       {/* Header */}
@@ -139,24 +143,35 @@ const TrailerTrackingScreen = ({ navigation, route }) => {
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Map View */}
         <View style={styles.mapContainer}>
-          <MapView
-            style={styles.map}
-            region={region}
-            onRegionChangeComplete={setRegion}
-          >
-            {currentLocation?.latitude && currentLocation?.longitude && (
-              <Marker
-                coordinate={currentLocation}
-                title={trackingData?.asset?.name || trailer?.name}
-                description={currentLocation.address}
-              >
-                <View style={styles.marker}>
-                  <MaterialIcons name="local-shipping" size={24} color="#0C2D48" />
-                </View>
-              </Marker>
-            )}
-          </MapView>
-          
+          {isMapboxConfigured() ? (
+            <MapView style={styles.map} styleURL="mapbox://styles/mapbox/streets-v12">
+              <Camera
+                centerCoordinate={[
+                  currentLocation?.longitude ?? region.longitude,
+                  currentLocation?.latitude ?? region.latitude
+                ]}
+                zoomLevel={currentLocation?.latitude ? 12 : 9}
+                animationDuration={600}
+              />
+              {currentLocation?.latitude && currentLocation?.longitude && (
+                <PointAnnotation
+                  id="asset"
+                  coordinate={[currentLocation.longitude, currentLocation.latitude]}
+                  title={trackingData?.asset?.name || trailer?.name}
+                >
+                  <View style={styles.marker}>
+                    <MaterialIcons name="local-shipping" size={24} color="#0C2D48" />
+                  </View>
+                </PointAnnotation>
+              )}
+            </MapView>
+          ) : (
+            <View style={[styles.map, styles.mapUnavailable]}>
+              <MaterialIcons name="map" size={40} color="#0C2D48" />
+              <Text style={styles.mapUnavailableText}>Map unavailable — Mapbox token not configured.</Text>
+            </View>
+          )}
+
           {/* Refresh Button */}
           <TouchableOpacity style={styles.refreshButton} onPress={refreshLocation}>
             <MaterialIcons name="refresh" size={24} color="#0C2D48" />
@@ -393,6 +408,18 @@ const styles = StyleSheet.create({
   map: {
     width: '100%',
     height: '100%',
+  },
+  mapUnavailable: {
+    backgroundColor: '#e5e7eb',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    padding: 16,
+  },
+  mapUnavailableText: {
+    color: '#0C2D48',
+    fontSize: 13,
+    textAlign: 'center',
   },
   refreshButton: {
     position: 'absolute',

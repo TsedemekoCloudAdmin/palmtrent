@@ -5,12 +5,12 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   RefreshControl,
   FlatList,
   Alert
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation } from '@react-navigation/native';
 import apiService from '../../services/apiService';
@@ -137,6 +137,23 @@ const FleetDashboardScreen = () => {
           <View style={styles.rentalBadge}>
             <MaterialIcons name="attach-money" size={12} color="#7c3aed" />
             <Text style={styles.rentalText}>Available for Rent</Text>
+          </View>
+        )}
+        {item.verification?.status !== 'approved' && (
+          <View style={styles.verificationBadge}>
+            <MaterialIcons
+              name={item.verification?.status === 'rejected' ? 'gpp-bad' : 'pending'}
+              size={12}
+              color={item.verification?.status === 'rejected' ? '#dc2626' : '#d97706'}
+            />
+            <Text style={[
+              styles.verificationText,
+              item.verification?.status === 'rejected' && styles.verificationTextRejected
+            ]}>
+              {item.verification?.status === 'rejected'
+                ? 'Verification rejected — contact support'
+                : 'Awaiting admin verification — cannot take jobs yet'}
+            </Text>
           </View>
         )}
       </View>
@@ -351,7 +368,7 @@ const FleetDashboardScreen = () => {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       
       {/* Header */}
@@ -658,6 +675,25 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#7c3aed',
     fontWeight: '500',
+  },
+  verificationBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#fef3c7',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    gap: 4,
+    marginTop: 4,
+  },
+  verificationText: {
+    fontSize: 12,
+    color: '#d97706',
+    fontWeight: '500',
+  },
+  verificationTextRejected: {
+    color: '#dc2626',
   },
   driverCard: {
     backgroundColor: 'white',

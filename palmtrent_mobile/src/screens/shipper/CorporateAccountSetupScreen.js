@@ -6,11 +6,11 @@ import {
   ScrollView,
   TextInput,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   ActivityIndicator,
   Alert
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import CustomSelect from '../components/CustomSelect';
 import apiService from '../../services/apiService';
@@ -188,7 +188,7 @@ const CorporateAccountSetupScreen = ({ navigation }) => {
                   });
                   return;
                 }
-                navigation.navigate('Home');
+                navigation.navigate('MainTabs', { screen: 'Home' });
               }
             }
           ]
@@ -204,7 +204,7 @@ const CorporateAccountSetupScreen = ({ navigation }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       
       {/* Header */}

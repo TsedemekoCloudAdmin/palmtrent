@@ -9,7 +9,6 @@ import {
   Linking,
   Platform,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -17,6 +16,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation } from '@react-navigation/native';
 import * as Location from 'expo-location';
@@ -27,6 +27,11 @@ import SOSButton from '../components/SOSButton';
 import { vehicleLabel } from '../../utils/labels';
 
 const bookingIdOf = (shipment) => shipment?.booking?._id || shipment?.booking || shipment?.bookingReference;
+
+// Statuses during which the driver's position should be streamed automatically —
+// the moment the trip is under way, the shipper must see live movement without
+// the driver having to remember to tap "Go live".
+const AUTO_TRACK_STATUSES = ['en_route_pickup', 'picked_up', 'in_transit', 'arrived_delivery'];
 
 // Maps the current shipment status to the next forward action a driver can take.
 // Mirrors the backend shipment transition rules.
@@ -71,16 +76,35 @@ const DriverDeliveriesScreen = () => {
     setLiveId('');
   }, []);
 
-  const startLiveTracking = async (shipment) => {
+  const startLiveTracking = async (shipment, { silent = false } = {}) => {
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Location', 'Location permission is required to broadcast your position.');
+      if (!silent) {
+        Alert.alert('Location', 'Location permission is required to broadcast your position.');
+      }
       return;
     }
     if (!socketService.getConnectionStatus().isConnected) {
       await socketService.connect();
     }
     const bookingId = bookingIdOf(shipment);
+    // Replace any previous watch before starting a new one.
+    if (watchRef.current) {
+      watchRef.current.remove();
+      watchRef.current = null;
+    }
+    // Send an immediate fix so trackers don't wait for the first movement.
+    Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
+      .then((position) => {
+        socketService.updateLocation(
+          position.coords.latitude,
+          position.coords.longitude,
+          bookingId,
+          position.coords.heading || 0,
+          position.coords.speed || 0
+        );
+      })
+      .catch(() => {});
     watchRef.current = await Location.watchPositionAsync(
       { accuracy: Location.Accuracy.High, timeInterval: 10000, distanceInterval: 25 },
       (position) => {
@@ -94,7 +118,9 @@ const DriverDeliveriesScreen = () => {
       }
     );
     setLiveId(shipment._id);
-    Alert.alert('Live tracking on', 'Your location is now shared live with the shipper and transporter.');
+    if (!silent) {
+      Alert.alert('Live tracking on', 'Your location is now shared live with the shipper and transporter.');
+    }
   };
 
   const toggleLiveTracking = (shipment) => {
@@ -123,6 +149,27 @@ const DriverDeliveriesScreen = () => {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Auto-start live tracking when a delivery is under way, and stop it when the
+  // tracked shipment is no longer active. The manual "Go live" toggle remains as
+  // an override.
+  useEffect(() => {
+    if (liveId) {
+      const stillActive = shipments.some(
+        (shipment) => shipment._id === liveId && AUTO_TRACK_STATUSES.includes(shipment.status)
+      );
+      if (!stillActive) stopLiveTracking();
+      return;
+    }
+
+    const activeShipment = shipments.find((shipment) => AUTO_TRACK_STATUSES.includes(shipment.status));
+    if (activeShipment) {
+      startLiveTracking(activeShipment, { silent: true }).catch((error) => {
+        console.error('Auto live tracking error:', error);
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shipments, liveId]);
 
   const advanceStatus = async (shipment) => {
     const action = NEXT_ACTION[shipment.status];
@@ -325,7 +372,7 @@ const DriverDeliveriesScreen = () => {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right']} style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
         <View style={styles.loading}>
           <ActivityIndicator size="large" color="#F37021" />
@@ -336,7 +383,7 @@ const DriverDeliveriesScreen = () => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       <ScrollView
         contentContainerStyle={styles.content}

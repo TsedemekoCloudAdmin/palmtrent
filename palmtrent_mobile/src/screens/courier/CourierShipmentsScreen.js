@@ -1,8 +1,9 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, FlatList, StyleSheet, SafeAreaView, StatusBar,
+  View, Text, TouchableOpacity, FlatList, StyleSheet, StatusBar,
   ActivityIndicator, TextInput, RefreshControl
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../../services/apiService';
@@ -61,7 +62,7 @@ const CourierShipmentsScreen = ({ navigation }) => {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Courier Desk</Text>

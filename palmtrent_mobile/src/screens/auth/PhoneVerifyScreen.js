@@ -6,11 +6,11 @@ import {
   TouchableOpacity,
   TextInput,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   Alert,
   ActivityIndicator
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useApi } from '../../hook/useApi';
 import apiService, { localZimbabwePhone } from '../../services/apiService';
 
@@ -108,7 +108,7 @@ const PhoneVerifyScreen = ({ navigation, route }) => {
   const isLoading = sendLoading || verifyLoading;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         <TouchableOpacity 
           onPress={() => navigation.goBack()} 

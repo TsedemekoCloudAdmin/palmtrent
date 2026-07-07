@@ -6,11 +6,11 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   ActivityIndicator,
   RefreshControl
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../hook/useAuth';
 import SOSButton from './components/SOSButton';
@@ -225,7 +225,7 @@ const HomeScreen = ({ navigation }) => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       
       {/* Header with reduced padding for stats card overlap */}

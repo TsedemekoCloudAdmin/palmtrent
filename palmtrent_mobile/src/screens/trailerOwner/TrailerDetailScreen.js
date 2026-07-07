@@ -5,7 +5,6 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   Image,
   Alert,
@@ -13,6 +12,7 @@ import {
   Modal,
   TextInput
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../../services/apiService';
 
@@ -177,7 +177,7 @@ const TrailerDetailScreen = ({ navigation, route }) => {
 
   if (loading || !trailerData) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator color="#0C2D48" />
           <Text style={styles.loadingText}>Loading trailer details...</Text>
@@ -188,7 +188,7 @@ const TrailerDetailScreen = ({ navigation, route }) => {
 
   if (error || !trailerData) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <View style={styles.loadingContainer}>
           <MaterialIcons name="error-outline" size={32} color="#dc2626" />
           <Text style={styles.errorText}>{error || 'Trailer details are unavailable.'}</Text>
@@ -238,7 +238,7 @@ const TrailerDetailScreen = ({ navigation, route }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       
       {/* Header */}

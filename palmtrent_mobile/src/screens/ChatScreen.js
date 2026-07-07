@@ -6,13 +6,13 @@ import {
   TextInput,
   FlatList,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
   Alert
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../hook/useAuth';
 import apiService from '../services/apiService';
@@ -26,6 +26,9 @@ const ChatScreen = ({ navigation, route }) => {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const flatListRef = useRef(null);
+  // The server may resolve a bookingReference to the canonical Booking _id;
+  // incoming socket messages always carry the canonical id.
+  const canonicalBookingIdRef = useRef(null);
 
   useEffect(() => {
     let mounted = true;
@@ -40,8 +43,16 @@ const ChatScreen = ({ navigation, route }) => {
       }
 
       socketService.joinChat(bookingId);
+      socketService.onChatJoined((data) => {
+        if (mounted && data?.canonicalBookingId) {
+          canonicalBookingIdRef.current = data.canonicalBookingId;
+        }
+      });
       socketService.onNewMessage((message) => {
-        if (!mounted || message.bookingId !== bookingId) return;
+        if (!mounted) return;
+        const matchesBooking = message.bookingId === bookingId ||
+          message.bookingId === canonicalBookingIdRef.current;
+        if (!matchesBooking) return;
         const normalized = normalizeMessage(message);
         setMessages(prev => (
           prev.some(item => item.id === normalized.id)
@@ -59,6 +70,7 @@ const ChatScreen = ({ navigation, route }) => {
         socketService.leaveChat(bookingId);
       }
       socketService.removeListener('chat:newMessage');
+      socketService.removeListener('chat:joined');
     };
   }, [bookingId]);
 
@@ -173,7 +185,7 @@ const ChatScreen = ({ navigation, route }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
 
       {/* Header */}
@@ -215,7 +227,16 @@ const ChatScreen = ({ navigation, route }) => {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
-        {loading ? (
+        {!bookingId ? (
+          <View style={styles.emptyContainer}>
+            <MaterialIcons name="error-outline" size={64} color="#f59e0b" />
+            <Text style={styles.emptyTitle}>Conversation unavailable</Text>
+            <Text style={styles.emptyText}>
+              This chat could not be linked to a booking. Please open it again from the
+              booking or job details screen.
+            </Text>
+          </View>
+        ) : loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#0C2D48" />
             <Text style={styles.loadingText}>Loading messages...</Text>

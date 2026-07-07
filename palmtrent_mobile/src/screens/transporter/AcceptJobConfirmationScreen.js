@@ -5,11 +5,11 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   ActivityIndicator,
   Alert
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../../services/apiService';
 import { cleanLabel } from '../../utils/labels';
@@ -231,7 +231,7 @@ const AcceptJobConfirmationScreen = ({ navigation, route }) => {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
@@ -252,7 +252,7 @@ const AcceptJobConfirmationScreen = ({ navigation, route }) => {
 
   if (!displayData) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
@@ -273,7 +273,7 @@ const AcceptJobConfirmationScreen = ({ navigation, route }) => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
 
       {/* Header */}

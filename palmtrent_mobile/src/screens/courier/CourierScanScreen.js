@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, StatusBar } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, StatusBar } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
@@ -24,12 +25,12 @@ const CourierScanScreen = ({ navigation }) => {
   };
 
   if (!permission) {
-    return <SafeAreaView style={styles.container}><View style={styles.center}><Text style={styles.info}>Checking camera…</Text></View></SafeAreaView>;
+    return <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}><View style={styles.center}><Text style={styles.info}>Checking camera…</Text></View></SafeAreaView>;
   }
 
   if (!permission.granted) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <View style={styles.center}>
           <MaterialIcons name="photo-camera" size={48} color="#94a3b8" />
           <Text style={styles.info}>We need camera access to scan shipment labels.</Text>
@@ -40,7 +41,7 @@ const CourierScanScreen = ({ navigation }) => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
       <CameraView
         style={StyleSheet.absoluteFill}

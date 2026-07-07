@@ -4,7 +4,6 @@ import {
   Text,
   TouchableOpacity,
   ScrollView,
-  SafeAreaView,
   StatusBar,
   StyleSheet,
   TextInput,
@@ -15,6 +14,7 @@ import {
   Animated,
   Linking
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../services/apiService';
 import useAuth from '../hook/useAuth';
@@ -633,7 +633,7 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
 
       {/* Header */}

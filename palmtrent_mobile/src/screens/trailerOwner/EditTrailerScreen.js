@@ -5,7 +5,6 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   TextInput,
   Alert,
@@ -14,6 +13,7 @@ import {
   FlatList,
   ActivityIndicator
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../../services/apiService';
 
@@ -328,7 +328,7 @@ const EditTrailerScreen = ({ navigation, route }) => {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator color="#0C2D48" />
           <Text style={styles.loadingText}>Loading...</Text>
@@ -339,7 +339,7 @@ const EditTrailerScreen = ({ navigation, route }) => {
 
   if (error) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <View style={styles.loadingContainer}>
           <MaterialIcons name="error-outline" size={32} color="#dc2626" />
           <Text style={styles.errorText}>{error}</Text>
@@ -352,7 +352,7 @@ const EditTrailerScreen = ({ navigation, route }) => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       
       {/* Header */}
@@ -648,7 +648,7 @@ const EditTrailerScreen = ({ navigation, route }) => {
         animationType="slide"
         presentationStyle="pageSheet"
       >
-        <SafeAreaView style={styles.modalContainer}>
+        <SafeAreaView edges={['top','left','right','bottom']} style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Add Features</Text>
             <TouchableOpacity 

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, ScrollView, StyleSheet, SafeAreaView, StatusBar,
+  View, Text, TouchableOpacity, ScrollView, StyleSheet, StatusBar,
   ActivityIndicator, Alert, Image, Modal, TextInput, RefreshControl
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import * as ImagePicker from 'expo-image-picker';
 import apiService from '../../services/apiService';
@@ -102,7 +103,7 @@ const CourierDetailScreen = ({ navigation, route }) => {
   };
 
   if (loading || !shipment) {
-    return <SafeAreaView style={styles.container}><View style={styles.center}><ActivityIndicator color="#0C2D48" /></View></SafeAreaView>;
+    return <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}><View style={styles.center}><ActivityIndicator color="#0C2D48" /></View></SafeAreaView>;
   }
 
   const agentActions = [];
@@ -114,7 +115,7 @@ const CourierDetailScreen = ({ navigation, route }) => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}><MaterialIcons name="arrow-back" size={24} color="#fff" /></TouchableOpacity>

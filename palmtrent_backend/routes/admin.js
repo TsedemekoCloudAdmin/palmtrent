@@ -22,6 +22,7 @@ const {
   getReports,
   getPendingVerifications,
   verifyCorporateAccount,
+  getVehicles,
   verifyVehicle,
   getAuditLogs,
   getIntegrationSettings,
@@ -134,6 +135,7 @@ router.put('/users/:id/verify', verifyUser);
 // Verifications
 router.get('/verifications', getPendingVerifications);
 router.put('/corporate/:id/verify', verifyCorporateAccount);
+router.get('/vehicles', getVehicles);
 router.put('/vehicles/:id/verify', verifyVehicle);
 router.get('/audit-logs', getAuditLogs);
 
