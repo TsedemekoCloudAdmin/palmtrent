@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,12 +13,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
-import { MapView, Camera, PointAnnotation } from '@rnmapbox/maps';
-import { initMapbox, isMapboxConfigured } from '../../services/mapboxConfig';
+import { WebView } from 'react-native-webview';
+import { isMapboxConfigured, buildTrackingMapHtml } from '../../services/mapboxConfig';
 import apiService from '../../services/apiService';
-
-// Configure the Mapbox access token once for this screen's map.
-initMapbox();
 
 const { width, height } = Dimensions.get('window');
 
@@ -27,6 +24,7 @@ const TrailerTrackingScreen = ({ navigation, route }) => {
   const [trackingData, setTrackingData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const mapRef = useRef(null);
 
   const [region, setRegion] = useState({
     latitude: -17.8292,
@@ -107,6 +105,30 @@ const TrailerTrackingScreen = ({ navigation, route }) => {
   const currentLocation = trackingData?.currentLocation;
   const progress = `${trackingData?.route?.progress || 0}%`;
 
+  const mapCenter = (currentLocation?.latitude && currentLocation?.longitude)
+    ? { latitude: currentLocation.latitude, longitude: currentLocation.longitude }
+    : { latitude: region.latitude, longitude: region.longitude };
+  // Build the map document once; move the marker via injectJavaScript on updates.
+  const mapHtml = useMemo(() => {
+    if (!isMapboxConfigured()) return null;
+    return buildTrackingMapHtml({
+      center: mapCenter,
+      vehicle: (currentLocation?.latitude && currentLocation?.longitude)
+        ? { latitude: currentLocation.latitude, longitude: currentLocation.longitude }
+        : null,
+      zoom: currentLocation?.latitude ? 12 : 9
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (mapRef.current && currentLocation?.latitude && currentLocation?.longitude) {
+      mapRef.current.injectJavaScript(
+        `window.updateVehicle && window.updateVehicle(${currentLocation.longitude}, ${currentLocation.latitude}); true;`
+      );
+    }
+  }, [currentLocation?.latitude, currentLocation?.longitude]);
+
   return (
     <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
@@ -143,28 +165,23 @@ const TrailerTrackingScreen = ({ navigation, route }) => {
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Map View */}
         <View style={styles.mapContainer}>
-          {isMapboxConfigured() ? (
-            <MapView style={styles.map} styleURL="mapbox://styles/mapbox/streets-v12">
-              <Camera
-                centerCoordinate={[
-                  currentLocation?.longitude ?? region.longitude,
-                  currentLocation?.latitude ?? region.latitude
-                ]}
-                zoomLevel={currentLocation?.latitude ? 12 : 9}
-                animationDuration={600}
-              />
-              {currentLocation?.latitude && currentLocation?.longitude && (
-                <PointAnnotation
-                  id="asset"
-                  coordinate={[currentLocation.longitude, currentLocation.latitude]}
-                  title={trackingData?.asset?.name || trailer?.name}
-                >
-                  <View style={styles.marker}>
-                    <MaterialIcons name="local-shipping" size={24} color="#0C2D48" />
-                  </View>
-                </PointAnnotation>
-              )}
-            </MapView>
+          {isMapboxConfigured() && mapHtml ? (
+            <WebView
+              ref={mapRef}
+              style={styles.map}
+              originWhitelist={['*']}
+              source={{ html: mapHtml }}
+              javaScriptEnabled
+              domStorageEnabled
+              scrollEnabled={false}
+              onLoadEnd={() => {
+                if (currentLocation?.latitude && currentLocation?.longitude) {
+                  mapRef.current?.injectJavaScript(
+                    `window.updateVehicle && window.updateVehicle(${currentLocation.longitude}, ${currentLocation.latitude}); true;`
+                  );
+                }
+              }}
+            />
           ) : (
             <View style={[styles.map, styles.mapUnavailable]}>
               <MaterialIcons name="map" size={40} color="#0C2D48" />

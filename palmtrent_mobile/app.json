@@ -50,13 +50,7 @@
       "expo-camera",
       "expo-image-picker",
       "expo-location",
-      "expo-notifications",
-      [
-        "@rnmapbox/maps",
-        {
-          "RNMapboxMapsDownloadToken": "sk.eyJ1IjoicGFsbXRyZW50IiwiYSI6ImNtcmF0c2F2YTAxNTEyeHNjcHBramN2ZzcifQ.8D-85j2CkrBqv3SJrD8wUQ"
-        }
-      ]
+      "expo-notifications"
     ]
   }
 }

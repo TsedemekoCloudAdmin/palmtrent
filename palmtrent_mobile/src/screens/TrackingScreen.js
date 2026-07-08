@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -16,17 +16,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
-import { MapView, Camera, PointAnnotation } from '@rnmapbox/maps';
-import { initMapbox, isMapboxConfigured } from '../services/mapboxConfig';
+import { WebView } from 'react-native-webview';
+import { isMapboxConfigured, buildTrackingMapHtml } from '../services/mapboxConfig';
 import useAuth from '../hook/useAuth';
 import apiService from '../services/apiService';
 import socketService from '../services/socketService';
 import { vehicleSubLabel } from '../utils/labels';
 
 const { width } = Dimensions.get('window');
-
-// Configure the Mapbox access token once for this screen's maps.
-initMapbox();
 
 // Convert a GeoJSON [lng, lat] pair into a { latitude, longitude } map coord,
 // ignoring unset [0,0] placeholders.
@@ -175,6 +172,7 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
   const [showVehicleModal, setShowVehicleModal] = useState(false);
   const [vehicleOptions, setVehicleOptions] = useState([]);
   const [assigningVehicle, setAssigningVehicle] = useState(false);
+  const mapRef = useRef(null);
 
   const isTrailerOwner = user?.userType === 'trailer_owner';
 
@@ -398,6 +396,39 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
   const displayProgress = liveMetrics?.progress ?? jobDetails?.progress ?? 0;
   const displayCovered = liveMetrics?.covered ?? jobDetails?.route?.covered ?? 0;
   const displayRemaining = liveMetrics?.remaining ?? jobDetails?.route?.remaining ?? 0;
+
+  const liveCoord = liveLocation || jobDetails?.currentCoords || null;
+  const pickupCoords = jobDetails?.route?.pickupCoords || null;
+  const deliveryCoords = jobDetails?.route?.deliveryCoords || null;
+
+  // Build the map document once per route (not per GPS tick) so the WebView is
+  // not reloaded on every location update; the vehicle marker is moved via
+  // injectJavaScript instead. Keyed on the coordinate values.
+  const mapCenter = liveCoord || pickupCoords || deliveryCoords;
+  const mapHtml = useMemo(() => {
+    if (!isMapboxConfigured() || !mapCenter) return null;
+    return buildTrackingMapHtml({
+      center: mapCenter,
+      pickup: pickupCoords,
+      delivery: deliveryCoords,
+      vehicle: liveCoord,
+      zoom: liveCoord ? 12 : 9
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    pickupCoords?.latitude, pickupCoords?.longitude,
+    deliveryCoords?.latitude, deliveryCoords?.longitude,
+    Boolean(mapCenter)
+  ]);
+
+  // Push live vehicle position into the already-loaded map.
+  useEffect(() => {
+    if (mapRef.current && liveCoord) {
+      mapRef.current.injectJavaScript(
+        `window.updateVehicle && window.updateVehicle(${liveCoord.longitude}, ${liveCoord.latitude}); true;`
+      );
+    }
+  }, [liveCoord?.latitude, liveCoord?.longitude]);
 
   const formatTime = (dateStr) => {
     if (!dateStr) return '--:--';
@@ -811,66 +842,36 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
       >
         {/* Map Section */}
         <View style={styles.mapSection}>
-          {(() => {
-            const liveCoord = liveLocation || jobDetails.currentCoords;
-            const center = liveCoord || jobDetails.route.pickupCoords || jobDetails.route.deliveryCoords;
-            if (!isMapboxConfigured()) {
-              return (
-                <View style={styles.mapPlaceholder}>
-                  <MaterialIcons name="map" size={48} color="#0C2D48" />
-                  <Text style={styles.mapTitle}>Map unavailable</Text>
-                  <Text style={styles.mapSubtitle}>Mapbox access token is not configured.</Text>
-                </View>
-              );
-            }
-            if (!center) {
-              return (
-                <View style={styles.mapPlaceholder}>
-                  <MaterialIcons name="location-off" size={48} color="#0C2D48" />
-                  <Text style={styles.mapTitle}>Live GPS Tracking</Text>
-                  <Text style={styles.mapSubtitle}>Waiting for location…</Text>
-                </View>
-              );
-            }
-            return (
-              <MapView style={styles.map} styleURL="mapbox://styles/mapbox/streets-v12">
-                <Camera
-                  centerCoordinate={[center.longitude, center.latitude]}
-                  zoomLevel={liveCoord ? 12 : 9}
-                  animationDuration={600}
-                />
-                {jobDetails.route.pickupCoords && (
-                  <PointAnnotation
-                    id="pickup"
-                    coordinate={[jobDetails.route.pickupCoords.longitude, jobDetails.route.pickupCoords.latitude]}
-                    title="Pickup"
-                  >
-                    <View style={[styles.mapPin, styles.mapPinPickup]} />
-                  </PointAnnotation>
-                )}
-                {jobDetails.route.deliveryCoords && (
-                  <PointAnnotation
-                    id="delivery"
-                    coordinate={[jobDetails.route.deliveryCoords.longitude, jobDetails.route.deliveryCoords.latitude]}
-                    title="Delivery"
-                  >
-                    <View style={[styles.mapPin, styles.mapPinDelivery]} />
-                  </PointAnnotation>
-                )}
-                {liveCoord && (
-                  <PointAnnotation
-                    id="current"
-                    coordinate={[liveCoord.longitude, liveCoord.latitude]}
-                    title="Current location"
-                  >
-                    <View style={styles.marker}>
-                      <MaterialIcons name="local-shipping" size={22} color="#0C2D48" />
-                    </View>
-                  </PointAnnotation>
-                )}
-              </MapView>
-            );
-          })()}
+          {!isMapboxConfigured() ? (
+            <View style={styles.mapPlaceholder}>
+              <MaterialIcons name="map" size={48} color="#0C2D48" />
+              <Text style={styles.mapTitle}>Map unavailable</Text>
+              <Text style={styles.mapSubtitle}>Mapbox access token is not configured.</Text>
+            </View>
+          ) : !mapHtml ? (
+            <View style={styles.mapPlaceholder}>
+              <MaterialIcons name="location-off" size={48} color="#0C2D48" />
+              <Text style={styles.mapTitle}>Live GPS Tracking</Text>
+              <Text style={styles.mapSubtitle}>Waiting for location…</Text>
+            </View>
+          ) : (
+            <WebView
+              ref={mapRef}
+              style={styles.map}
+              originWhitelist={['*']}
+              source={{ html: mapHtml }}
+              javaScriptEnabled
+              domStorageEnabled
+              scrollEnabled={false}
+              onLoadEnd={() => {
+                if (liveCoord) {
+                  mapRef.current?.injectJavaScript(
+                    `window.updateVehicle && window.updateVehicle(${liveCoord.longitude}, ${liveCoord.latitude}); true;`
+                  );
+                }
+              }}
+            />
+          )}
 
           {/* Current Location Card */}
           <View style={styles.locationCard}>
