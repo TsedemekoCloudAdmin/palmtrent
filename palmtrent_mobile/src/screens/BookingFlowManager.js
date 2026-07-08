@@ -1,6 +1,7 @@
 // src/screens/BookingFlowManager.js
-import React, { useState } from 'react';
-import { View, StyleSheet } from 'react-native';
+import React, { useState, useRef, useCallback } from 'react';
+import { View, StyleSheet, BackHandler } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 
 // Import all booking screens
 import BookingStartScreen from './BookingStartScreen';
@@ -23,13 +24,38 @@ const BookingFlowManager = ({ navigation, route }) => {
     payment: {},
     trailerRental: null
   });
+  // Track visited steps so Android hardware-back steps within the flow instead of
+  // popping the whole "Booking" route at once.
+  const historyRef = useRef([]);
 
   const navigateTo = (screen, params = {}) => {
     if (params && Object.keys(params).length > 0) {
       updateBookingData(params);
     }
-    setCurrentScreen(screen);
+    setCurrentScreen(prev => {
+      if (screen !== prev) historyRef.current.push(prev);
+      return screen;
+    });
   };
+
+  // Intercept hardware back: return to the previous step until the first one,
+  // then let the default navigation pop the flow. The confirmation screen is a
+  // terminus, so back there exits the flow rather than re-opening payment.
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        if (currentScreen === 'booking-confirmation') return false;
+        if (historyRef.current.length > 0) {
+          const prev = historyRef.current.pop();
+          setCurrentScreen(prev);
+          return true;
+        }
+        return false;
+      };
+      const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+      return () => sub.remove();
+    }, [currentScreen])
+  );
 
   const updateBookingData = (newData) => {
     setBookingData(prev => ({ ...prev, ...newData }));

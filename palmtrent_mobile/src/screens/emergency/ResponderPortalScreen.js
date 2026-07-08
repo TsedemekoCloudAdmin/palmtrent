@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../../services/apiService';
+import useAuth from '../../hook/useAuth';
 
 const SERVICE_TYPES = [
   { id: 'tow_truck', label: 'Tow truck' },
@@ -29,8 +30,16 @@ const SERVICE_TYPES = [
 ];
 
 const ResponderPortalScreen = () => {
+  const { logout } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  const handleSignOut = () => {
+    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Sign Out', style: 'destructive', onPress: async () => { if (logout) await logout(); else await apiService.logout(); } }
+    ]);
+  };
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState(null);
   const [requests, setRequests] = useState([]);
@@ -308,6 +317,10 @@ const ResponderPortalScreen = () => {
         ListHeaderComponent={
           <>
             <View style={styles.header}>
+              <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
+                <MaterialIcons name="logout" size={18} color="white" />
+                <Text style={styles.signOutText}>Sign Out</Text>
+              </TouchableOpacity>
               <MaterialIcons name="health-and-safety" size={34} color="#F37021" />
               <Text style={styles.headerTitle}>Roadside SOS</Text>
               <Text style={styles.headerText}>Stay available for nearby breakdown, tow, and mechanic requests.</Text>
@@ -377,6 +390,8 @@ const styles = StyleSheet.create({
   loadingText: { marginTop: 12, color: '#475569' },
   content: { padding: 16, paddingBottom: 32 },
   header: { backgroundColor: '#0C2D48', borderRadius: 22, padding: 20, marginBottom: 14 },
+  signOutBtn: { position: 'absolute', top: 16, right: 16, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(255,255,255,0.15)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, zIndex: 2 },
+  signOutText: { color: 'white', fontSize: 12, fontWeight: '600' },
   headerTitle: { color: 'white', fontSize: 25, fontWeight: '800', marginTop: 10 },
   headerText: { color: '#dbeafe', marginTop: 6, lineHeight: 20 },
   card: { backgroundColor: 'white', borderRadius: 18, borderWidth: 1, borderColor: '#e2e8f0', padding: 16, marginBottom: 14 },

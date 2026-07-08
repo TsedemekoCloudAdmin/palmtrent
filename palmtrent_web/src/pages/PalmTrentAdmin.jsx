@@ -584,8 +584,28 @@ const UsersView = ({ setActiveTab, setJobsUserFilter, verificationMode = false, 
       const verification = userDetails.verification || user.verification || {};
       const documents = verification.documents || [];
       const existingChecks = verification.authorityChecks || [];
+      // Pre-fill each document's authority check from what was previously saved so
+      // an admin's earlier selection isn't reset to the default (e.g. "Other") on
+      // reopen. Match by documentId first, then by documentType.
+      const buildCheckForDocument = (document) => {
+        const base = createAuthorityCheck(document);
+        const saved = existingChecks.find(c =>
+          (c.documentId && document._id && String(c.documentId) === String(document._id)) ||
+          (c.documentType && document.type && c.documentType === document.type)
+        );
+        if (!saved) return base;
+        return {
+          ...base,
+          authority: saved.authority || base.authority,
+          method: saved.method || base.method,
+          referenceNumber: saved.referenceNumber || base.referenceNumber || '',
+          result: saved.result || base.result,
+          expiryDate: saved.expiryDate ? String(saved.expiryDate).slice(0, 10) : base.expiryDate,
+          notes: saved.notes || base.notes || ''
+        };
+      };
       const authorityChecks = documents.length
-        ? documents.map(document => createAuthorityCheck(document))
+        ? documents.map(buildCheckForDocument)
         : [createAuthorityCheck()];
 
       setSelectedUser(current => current?.id === user.id ? {

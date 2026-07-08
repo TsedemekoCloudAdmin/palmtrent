@@ -13,6 +13,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../services/apiService';
+import { downloadProofOfPayment } from '../utils/proofOfPayment';
+
+const DIGITAL_PAYMENT_METHODS = ['clicknpay', 'openapi_africa', 'digital', 'ecocash', 'onemoney', 'card', 'eft'];
 
 const BookingConfirmationScreen = ({ onNavigate, bookingData, onExit }) => {
   const [booking, setBooking] = useState(bookingData);
@@ -201,6 +204,15 @@ const BookingConfirmationScreen = ({ onNavigate, bookingData, onExit }) => {
 
       {/* Bottom Actions */}
       <View style={styles.bottomActions}>
+        {DIGITAL_PAYMENT_METHODS.includes(booking?.paymentMethod || bookingData?.paymentMethod) && (
+          <TouchableOpacity
+            style={styles.proofButton}
+            onPress={() => downloadProofOfPayment(booking?._id || bookingData?._id || booking?.bookingId)}
+          >
+            <MaterialIcons name="receipt-long" size={20} color="#0C2D48" />
+            <Text style={styles.proofButtonText}>Download Proof of Payment</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity
           style={styles.trackButton}
           onPress={handleBackToHome}
@@ -367,15 +379,29 @@ const styles = StyleSheet.create({
     color: '#374151',
   },
   bottomActions: {
-    flexDirection: 'row',
     gap: 12,
     padding: 16,
     backgroundColor: 'white',
     borderTopWidth: 1,
     borderTopColor: '#e5e7eb',
   },
+  proofButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#eef2f7',
+    borderWidth: 1,
+    borderColor: '#0C2D48',
+    borderRadius: 12,
+    paddingVertical: 16,
+  },
+  proofButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#0C2D48',
+  },
   trackButton: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

@@ -676,6 +676,111 @@ const getActivityHistory = async (req, res) => {
   }
 };
 
+// Deactivate the current account (reversible via support). The user can no longer
+// log in until reactivated, but their data is retained.
+const deactivateAccount = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    user.status = 'inactive';
+    user.isActive = false;
+    await user.save();
+
+    if (user.userType === 'driver') {
+      await Driver.updateOne({ user: user._id }, { $set: { isAvailable: false } });
+    }
+
+    res.json({ success: true, message: 'Your account has been deactivated. Contact support to reactivate it.' });
+  } catch (error) {
+    console.error('Deactivate account error:', error);
+    res.status(500).json({ success: false, message: 'Error deactivating account', error: error.message });
+  }
+};
+
+// Permanently delete (soft-delete + anonymize) the current account. Requires the
+// account password as identity verification.
+const deleteAccount = async (req, res) => {
+  try {
+    const { password } = req.body;
+    if (!password) {
+      return res.status(400).json({ success: false, message: 'Your password is required to delete your account.' });
+    }
+
+    const user = await User.findById(req.user.id).select('+password');
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const isPasswordValid = await user.comparePassword(password);
+    if (!isPasswordValid) {
+      return res.status(400).json({ success: false, message: 'Incorrect password. Account was not deleted.' });
+    }
+
+    // Soft-delete and anonymize personal data. The email/phone are tombstoned so
+    // the person can register again with the same details later.
+    const tombstone = `deleted-${user._id}`;
+    user.status = 'deleted';
+    user.isActive = false;
+    user.deletedAt = new Date();
+    user.email = `${tombstone}@deleted.palmtrent`;
+    user.phone = tombstone;
+    user.fullName = 'Deleted User';
+    user.companyName = undefined;
+    user.avatar = undefined;
+    user.governmentId = undefined;
+    await user.save();
+
+    if (user.userType === 'driver') {
+      await Driver.updateOne({ user: user._id }, { $set: { isAvailable: false, status: 'inactive' } });
+    }
+
+    res.json({ success: true, message: 'Your account has been deleted.' });
+  } catch (error) {
+    console.error('Delete account error:', error);
+    res.status(500).json({ success: false, message: 'Error deleting account', error: error.message });
+  }
+};
+
+// Export the current user's personal data (profile + activity) as JSON for download.
+const exportMyData = async (req, res) => {
+  try {
+    const Booking = require('../models/Booking');
+    const Payment = require('../models/Payment');
+    const Rating = require('../models/Rating');
+
+    const user = await User.findById(req.user.id).lean();
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const bookings = await Booking.find({
+      $or: [{ user: user._id }, { shipper: user._id }, { transporter: user._id }]
+    }).lean();
+
+    const [payments, ratings] = await Promise.all([
+      Payment.find({ booking: { $in: bookings.map(b => b._id) } }).lean(),
+      Rating.find({ $or: [{ 'rater.user': user._id }, { 'ratee.user': user._id }] }).lean()
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        exportedAt: new Date(),
+        profile: user,
+        bookings,
+        payments,
+        ratings
+      }
+    });
+  } catch (error) {
+    console.error('Export data error:', error);
+    res.status(500).json({ success: false, message: 'Error exporting data', error: error.message });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -684,5 +789,8 @@ module.exports = {
   changePassword,
   getMe,
   updateProfile,
-  getActivityHistory
+  getActivityHistory,
+  deactivateAccount,
+  deleteAccount,
+  exportMyData
 };

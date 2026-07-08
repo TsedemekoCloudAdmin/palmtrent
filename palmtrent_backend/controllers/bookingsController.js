@@ -108,6 +108,179 @@ exports.getBookingById = async (req, res) => {
   }
 };
 
+// Cash payment methods where the customer pays the transporter directly and the
+// platform commission must be remitted by the transporter before job assignment.
+const CASH_METHODS = ['cash', 'cash_agent', 'cash_on_pickup', 'cash_on_delivery'];
+
+const isCashBooking = (booking) => CASH_METHODS.includes(booking?.payment?.method || booking?.paymentMethod);
+
+const commissionAmountFor = (booking) => Number(
+  booking?.pricing?.feeAllocation?.platform?.amount ||
+  booking?.pricing?.breakdown?.platformFee ||
+  booking?.pricing?.totals?.platformTotal ||
+  booking?.pricing?.breakdown?.transporterCommission ||
+  0
+);
+
+// Business documents (Purchase Order, Delivery Note, Goods Received Voucher, etc.)
+// attached to a booking for compliance and audit purposes.
+const BUSINESS_DOCUMENT_TYPES = ['purchase_order', 'delivery_note', 'grv', 'invoice', 'other'];
+
+const userOwnsBooking = (booking, user) => {
+  const userId = String(user.id || user._id);
+  return String(booking.user?._id || booking.user) === userId ||
+    String(booking.shipper || '') === userId ||
+    String(booking.transporter?._id || booking.transporter || '') === userId ||
+    (user.corporateAccount && String(booking.corporateAccount || '') === String(user.corporateAccount)) ||
+    user.userType === 'admin';
+};
+
+// Commission remittance for cash jobs. A transporter calls this to remit
+// Palmtrent's commission before accepting a cash booking. Creates a dedicated
+// commission Payment (separate from the customer's cash payment) and marks the
+// booking's commission as pending. When that payment is confirmed the commission
+// flips to 'paid' (see paymentService.finalizeConfirmedCommissionPayment).
+exports.payBookingCommission = async (req, res) => {
+  try {
+    const Payment = require('../models/Payment');
+    const { paymentMethod = 'cash_agent' } = req.body;
+
+    if (req.user.userType !== 'transporter') {
+      return res.status(403).json({ success: false, message: 'Only transporters remit commission.' });
+    }
+
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
+    if (!isCashBooking(booking)) {
+      return res.status(400).json({ success: false, message: 'Commission remittance only applies to cash bookings.' });
+    }
+    if (booking.commission?.status === 'paid') {
+      return res.status(400).json({ success: false, message: 'Commission has already been paid for this booking.' });
+    }
+
+    const amount = commissionAmountFor(booking);
+    if (!(amount > 0)) {
+      return res.status(400).json({ success: false, message: 'Commission amount could not be determined for this booking.' });
+    }
+
+    const payment = await Payment.create({
+      booking: booking._id,
+      amount,
+      currency: booking.pricing?.currency || 'USD',
+      method: CASH_METHODS.includes(paymentMethod) ? paymentMethod : 'cash_agent',
+      status: 'pending',
+      customer: { phone: req.user.phone, email: req.user.email },
+      metadata: { purpose: 'commission', transporter: String(req.user.id || req.user._id) }
+    });
+
+    booking.commission = {
+      required: true,
+      amount,
+      status: 'pending',
+      paymentReference: payment.paymentReference
+    };
+    await booking.save();
+
+    res.status(201).json({
+      success: true,
+      message: 'Commission payment created. Complete it to have the job confirmed.',
+      data: {
+        paymentReference: payment.paymentReference,
+        amount,
+        currency: payment.currency,
+        paymentMethod: payment.method
+      }
+    });
+  } catch (error) {
+    console.error('Pay commission error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Error creating commission payment' });
+  }
+};
+
+// Expose commission status/amount so the mobile app can prompt the transporter.
+exports.getBookingCommission = async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.id).select('payment paymentMethod pricing commission');
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
+    const required = isCashBooking(booking);
+    res.json({
+      success: true,
+      data: {
+        required,
+        amount: booking.commission?.amount || commissionAmountFor(booking),
+        status: booking.commission?.status || (required ? 'pending' : 'not_required'),
+        paymentReference: booking.commission?.paymentReference || null
+      }
+    });
+  } catch (error) {
+    console.error('Get commission error:', error);
+    res.status(500).json({ success: false, message: 'Error fetching commission status' });
+  }
+};
+
+exports.getBookingDocuments = async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.id).select('user shipper transporter corporateAccount documents');
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
+    if (!userOwnsBooking(booking, req.user)) {
+      return res.status(403).json({ success: false, message: 'Not authorized to view these documents' });
+    }
+    res.json({ success: true, data: booking.documents || [] });
+  } catch (error) {
+    console.error('Error fetching booking documents:', error);
+    res.status(500).json({ success: false, message: 'Error fetching documents' });
+  }
+};
+
+exports.addBookingDocument = async (req, res) => {
+  try {
+    const { type, name, url } = req.body;
+    if (!type || !url) {
+      return res.status(400).json({ success: false, message: 'Document type and file URL are required.' });
+    }
+    const documentType = BUSINESS_DOCUMENT_TYPES.includes(type) ? type : 'other';
+
+    const booking = await Booking.findById(req.params.id).select('user shipper transporter corporateAccount documents bookingReference');
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
+    if (!userOwnsBooking(booking, req.user)) {
+      return res.status(403).json({ success: false, message: 'Not authorized to add documents to this booking' });
+    }
+
+    booking.documents = booking.documents || [];
+    booking.documents.push({
+      type: documentType,
+      name: name || documentType.replace(/_/g, ' '),
+      url,
+      status: 'uploaded',
+      uploadedAt: new Date()
+    });
+    await booking.save();
+
+    await recordAudit({
+      actor: req.user,
+      action: 'booking.document_added',
+      entityType: 'Booking',
+      entityId: booking._id,
+      entityRef: booking.bookingReference,
+      after: { documentType },
+      req
+    });
+
+    res.status(201).json({ success: true, message: 'Document attached', data: booking.documents });
+  } catch (error) {
+    console.error('Error adding booking document:', error);
+    res.status(500).json({ success: false, message: 'Error attaching document', error: error.message });
+  }
+};
+
 // Pickup schedule (date + time window) is mandatory so transporters know when to
 // collect the load. The mobile client sends the time either as a separate
 // `pickupTimeWindow` or embedded in `pickupDate` ("YYYY-MM-DD HH:MM").

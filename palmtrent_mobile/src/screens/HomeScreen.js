@@ -25,9 +25,29 @@ import {
   useTrailerOwnerRecentActivity
 } from '../hook/useApi';
 
+// Maps a stack-route name to the equivalent bottom-tab route for each role, so a
+// quick action opens the tab (keeping the bottom navigation bar visible) instead
+// of pushing a duplicate full-screen copy that hides the tab bar.
+const TAB_FOR_SCREEN = {
+  transporter: { FleetDashboard: 'Fleet', AvailableJobs: 'Jobs', DriverMarketplace: 'Drivers' },
+  trailer_owner: { TrailerList: 'Fleet', TrailerRental: 'Market', FleetRentalRequests: 'Rentals', MyRentals: 'Rentals', RentalStaff: 'Staff', OwnerDrivers: 'Drivers' },
+  rental_owner: { TrailerList: 'Fleet', TrailerRental: 'Market', FleetRentalRequests: 'Rentals', MyRentals: 'Rentals', RentalStaff: 'Staff', OwnerDrivers: 'Drivers' },
+  shipper: { MyBookings: 'History', BookingHistory: 'History' },
+  corporate: { MyBookings: 'History', BookingHistory: 'History' },
+  clerk: { CourierShipments: 'Desk', CourierArrivals: 'Arrivals', CourierScan: 'Scan' },
+  driver: { DriverPortal: 'DriverWork' }
+};
+
 const HomeScreen = ({ navigation }) => {
   const { user, logout, isLoading: authLoading } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
+
+  // Open a screen from a quick action: switch to the matching tab when one exists
+  // (bottom nav stays visible), otherwise push the screen normally.
+  const openScreen = (screenName, params) => {
+    const tab = (TAB_FOR_SCREEN[user?.userType] || {})[screenName];
+    navigation.navigate(tab || screenName, params);
+  };
 
   // Determine user type
   const isCorporate = user?.userType === 'corporate';
@@ -324,28 +344,28 @@ const HomeScreen = ({ navigation }) => {
                 title="Add Asset"
                 subtitle="Add trailer, tractor unit, truck, or full rig"
                 color="blue"
-                onPress={() => navigation.navigate('AddFleetAsset')}
+                onPress={() => openScreen('AddFleetAsset')}
               />
               <ActionButton
                 icon="local-shipping"
                 title="My Fleet"
                 subtitle="View and manage all rental assets"
                 color="green"
-                onPress={() => navigation.navigate('TrailerList')}
+                onPress={() => openScreen('TrailerList')}
               />
               <ActionButton
                 icon="assignment"
                 title="Rental Requests"
                 subtitle="Approve, reject, pickup, and return"
                 color="orange"
-                onPress={() => navigation.navigate('FleetRentalRequests')}
+                onPress={() => openScreen('FleetRentalRequests')}
               />
               <ActionButton
                 icon="trending-up"
                 title="View Earnings"
                 subtitle="Track your rental income and payouts"
                 color="purple"
-                onPress={() => navigation.navigate('MyEarnings')}
+                onPress={() => openScreen('MyEarnings')}
               />
               <ActionButton
                 icon="build"
@@ -353,7 +373,7 @@ const HomeScreen = ({ navigation }) => {
                 subtitle="Schedule and track maintenance"
                 color="blue"
                 badge={stats.maintenance > 0 ? `${stats.maintenance}` : undefined}
-                onPress={() => navigation.navigate('TrailerRental')}
+                onPress={() => openScreen('TrailerRental')}
               />
             </View>
           ) : isShipper && !isCorporate ? (
@@ -370,46 +390,91 @@ const HomeScreen = ({ navigation }) => {
                 title="Track Shipment"
                 subtitle="View live location of your goods"
                 color="green"
-                onPress={() => navigation.navigate('MyBookings')}
+                onPress={() => openScreen('MyBookings')}
               />
               <ActionButton
                 icon="trending-up"
                 title="My Bookings"
                 subtitle="View all your transport bookings"
                 color="purple"
-                onPress={() => navigation.navigate('MyBookings')}
+                onPress={() => openScreen('MyBookings')}
               />
               <ActionButton
                 icon="directions-car"
                 title="Rent a Vehicle"
                 subtitle="Hire a vehicle from the rental marketplace"
                 color="blue"
-                onPress={() => navigation.navigate('VehicleRental')}
+                onPress={() => openScreen('VehicleRental')}
               />
               <ActionButton
                 icon="rv-hookup"
                 title="Rent a Trailer"
                 subtitle="Find trailers available for rent"
                 color="green"
-                onPress={() => navigation.navigate('TrailerRental')}
+                onPress={() => openScreen('TrailerRental')}
               />
               <ActionButton
                 icon="event-note"
                 title="My Rentals"
                 subtitle="View and manage your rental requests"
                 color="orange"
-                onPress={() => navigation.navigate('MyRentals')}
+                onPress={() => openScreen('MyRentals')}
               />
               <ActionButton
                 icon="local-shipping"
                 title="My Courier Shipments"
                 subtitle="Track goods sent by bus through an agent"
                 color="blue"
-                onPress={() => navigation.navigate('MyCourier')}
+                onPress={() => openScreen('MyCourier')}
               />
             </View>
           ) : isTransporter ? (
             <View style={styles.actionsContainer}>
+              {/* Transporter actions first */}
+              <ActionButton
+                icon="local-shipping"
+                title="Fleet Management"
+                subtitle="Manage vehicles and drivers"
+                color="orange"
+                onPress={() => openScreen('FleetDashboard')}
+              />
+              <ActionButton
+                icon="local-shipping"
+                title="Available Jobs"
+                subtitle="Browse and accept new jobs"
+                color="blue"
+                badge={availableJobs?.length ? `${availableJobs.length} new` : undefined}
+                onPress={() => openScreen('AvailableJobs')}
+              />
+              <ActionButton
+                icon="location-on"
+                title="Active Deliveries"
+                subtitle="Track your ongoing deliveries"
+                color="green"
+                onPress={() => openScreen('ActiveDeliveries')}
+              />
+              <ActionButton
+                icon="trending-up"
+                title="My Earnings"
+                subtitle="View payment history and earnings"
+                color="purple"
+                onPress={() => openScreen('MyEarnings')}
+              />
+              <ActionButton
+                icon="directions-car"
+                title="Rent Vehicle"
+                subtitle="Rent a vehicle for your jobs"
+                color="blue"
+                onPress={() => openScreen('VehicleRental')}
+              />
+              <ActionButton
+                icon="rv-hookup"
+                title="Rent Trailer"
+                subtitle="Find trailers for your cargo"
+                color="green"
+                onPress={() => openScreen('TrailerRental')}
+              />
+              {/* Customer (shipper) actions after */}
               <ActionButton
                 icon="inventory"
                 title="Send Goods"
@@ -422,50 +487,7 @@ const HomeScreen = ({ navigation }) => {
                 title="Shipment Progress"
                 subtitle="Track bookings you created as a customer"
                 color="green"
-                onPress={() => navigation.navigate('MyBookings')}
-              />
-              <ActionButton
-                icon="local-shipping"
-                title="Available Jobs"
-                subtitle="Browse and accept new jobs"
-                color="blue"
-                badge={availableJobs?.length ? `${availableJobs.length} new` : undefined}
-                onPress={() => navigation.navigate('AvailableJobs')}
-              />
-              <ActionButton
-                icon="location-on"
-                title="Active Deliveries"
-                subtitle="Track your ongoing deliveries"
-                color="green"
-                onPress={() => navigation.navigate('ActiveDeliveries')}
-              />
-              <ActionButton
-                icon="trending-up"
-                title="My Earnings"
-                subtitle="View payment history and earnings"
-                color="purple"
-                onPress={() => navigation.navigate('MyEarnings')}
-              />
-              <ActionButton
-                icon="local-shipping"
-                title="Fleet Management"
-                subtitle="Manage vehicles and drivers"
-                color="orange"
-                onPress={() => navigation.navigate('FleetDashboard')}
-              />
-              <ActionButton
-                icon="directions-car"
-                title="Rent Vehicle"
-                subtitle="Rent a vehicle for your jobs"
-                color="blue"
-                onPress={() => navigation.navigate('VehicleRental')}
-              />
-              <ActionButton
-                icon="rv-hookup"
-                title="Rent Trailer"
-                subtitle="Find trailers for your cargo"
-                color="green"
-                onPress={() => navigation.navigate('TrailerRental')}
+                onPress={() => openScreen('MyBookings')}
               />
             </View>
           ) : isCorporate ? (
@@ -482,49 +504,49 @@ const HomeScreen = ({ navigation }) => {
                 title="Track Shipment"
                 subtitle="View live location of your goods"
                 color="green"
-                onPress={() => navigation.navigate('MyBookings')}
+                onPress={() => openScreen('MyBookings')}
               />
               <ActionButton
                 icon="trending-up"
                 title="My Bookings"
                 subtitle="View all your company bookings"
                 color="purple"
-                onPress={() => navigation.navigate('MyBookings')}
+                onPress={() => openScreen('MyBookings')}
               />
               <ActionButton
                 icon="directions-car"
                 title="Rent a Vehicle"
                 subtitle="Hire a vehicle from the rental marketplace"
                 color="blue"
-                onPress={() => navigation.navigate('VehicleRental')}
+                onPress={() => openScreen('VehicleRental')}
               />
               <ActionButton
                 icon="rv-hookup"
                 title="Rent a Trailer"
                 subtitle="Find trailers available for rent"
                 color="green"
-                onPress={() => navigation.navigate('TrailerRental')}
+                onPress={() => openScreen('TrailerRental')}
               />
               <ActionButton
                 icon="event-note"
                 title="My Rentals"
                 subtitle="View and manage your rental requests"
                 color="orange"
-                onPress={() => navigation.navigate('MyRentals')}
+                onPress={() => openScreen('MyRentals')}
               />
               <ActionButton
                 icon="groups"
                 title="Manage Team"
                 subtitle="Invite and manage your team members"
                 color="purple"
-                onPress={() => navigation.navigate('CorporateTeam')}
+                onPress={() => openScreen('CorporateTeam')}
               />
               <ActionButton
                 icon="local-shipping"
                 title="My Courier Shipments"
                 subtitle="Track goods sent by bus through an agent"
                 color="blue"
-                onPress={() => navigation.navigate('MyCourier')}
+                onPress={() => openScreen('MyCourier')}
               />
             </View>
           ) : isClerk ? (
@@ -534,28 +556,28 @@ const HomeScreen = ({ navigation }) => {
                 title="Courier Desk"
                 subtitle="Capture and manage bus courier shipments"
                 color="blue"
-                onPress={() => navigation.navigate('CourierShipments')}
+                onPress={() => openScreen('CourierShipments')}
               />
               <ActionButton
                 icon="call-received"
                 title="Arrivals"
                 subtitle="Process shipments arriving at the depot"
                 color="purple"
-                onPress={() => navigation.navigate('CourierArrivals')}
+                onPress={() => openScreen('CourierArrivals')}
               />
               <ActionButton
                 icon="qr-code-scanner"
                 title="Scan Label"
                 subtitle="Scan a shipment to load, arrive or release"
                 color="green"
-                onPress={() => navigation.navigate('CourierScan')}
+                onPress={() => openScreen('CourierScan')}
               />
               <ActionButton
                 icon="add-box"
                 title="New Shipment"
                 subtitle="Capture goods for a walk-in customer"
                 color="orange"
-                onPress={() => navigation.navigate('CourierCreate')}
+                onPress={() => openScreen('CourierCreate')}
               />
             </View>
           ) : null}

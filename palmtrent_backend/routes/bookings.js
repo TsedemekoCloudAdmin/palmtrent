@@ -12,7 +12,11 @@ const {
   getBookingStats,
   getPricingConfig,
   updatePricingConfig,
-  createBookingWithPayment
+  createBookingWithPayment,
+  getBookingDocuments,
+  addBookingDocument,
+  payBookingCommission,
+  getBookingCommission
 } = require('../controllers/bookingsController');
 const {
   findTransporters,
@@ -78,6 +82,14 @@ router.post('/:id/confirm-payment', confirmPayment);
 
 // POST /api/v1/bookings/:id/cancel - Cancel booking
 router.post('/:id/cancel', cancelBooking);
+
+// Business documents (PO, Delivery Note, GRV, etc.)
+router.get('/:id/documents', getBookingDocuments);
+router.post('/:id/documents', addBookingDocument);
+
+// Cash-job commission remittance (transporter remits before accepting)
+router.get('/:id/commission', getBookingCommission);
+router.post('/:id/commission/pay', authorize('transporter'), payBookingCommission);
 
 // MATCHING ENDPOINTS - Transporter-Booking Matching
 // POST /api/v1/bookings/:id/find-transporters - Manually trigger matching for a booking

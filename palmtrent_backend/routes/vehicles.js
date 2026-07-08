@@ -18,7 +18,8 @@ const {
   recommend,
   uploadVehiclePhoto,
   getVehiclePhotos,
-  deleteVehiclePhoto
+  deleteVehiclePhoto,
+  addVehicleDocument
 } = require('../controllers/vehicleController');
 
 // Configure multer for vehicle photo uploads
@@ -93,5 +94,9 @@ router.route('/:id/photos')
 
 router.route('/:id/photos/:photoType')
   .delete(protect, deleteVehiclePhoto);
+
+// Vehicle verification documents (license, roadworthy certificate, permits)
+router.route('/:id/documents')
+  .post(protect, addVehicleDocument);
 
 module.exports = router;

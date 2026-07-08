@@ -11,6 +11,7 @@ const ACTIVE_SHIPMENT_STATUSES = ['assigned', 'en_route_pickup', 'picked_up', 'i
 const { recordAudit } = require('../services/auditService');
 const { finalizeUploadedFiles } = require('../services/uploadFinalizationService');
 const podService = require('../services/podService');
+const notificationService = require('../services/notificationService');
 
 const idOf = (value) => {
   if (!value) return null;
@@ -417,6 +418,14 @@ exports.updateStatus = async (req, res) => {
     });
 
     await shipment.save();
+
+    // Push a lifecycle notification to the shipper (and transporter where relevant).
+    // Fire-and-forget: a notification failure must not fail the status update.
+    if (oldStatus !== status) {
+      notificationService.notifyShipmentStatus(shipment, status).catch((err) => {
+        console.error('Shipment status notification failed:', err.message);
+      });
+    }
 
     res.status(200).json({
       success: true,

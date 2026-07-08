@@ -8,6 +8,7 @@ const {
   checkPaymentStatus,
   handlePaynowWebhook,
   getPaymentByReference,
+  getProofOfPayment,
   checkPaymentExpiry,
   initiateAgentPayment,
   verifyAgentPayment,
@@ -67,6 +68,9 @@ router.get('/status/:paymentReference', checkPaymentStatus);
 
 // Check payment expiry
 router.get('/expiry/:paymentReference', checkPaymentExpiry);
+
+// Proof of payment (printable receipt data) for a booking
+router.get('/proof/:bookingId', getProofOfPayment);
 
 // ============ ESCROW ROUTES ============
 

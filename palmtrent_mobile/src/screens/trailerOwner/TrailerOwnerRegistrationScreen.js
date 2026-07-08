@@ -282,18 +282,32 @@ const TrailerOwnerRegistrationScreen = ({ navigation }) => {
     }
   };
 
+  const handleSkipForNow = () => {
+    Alert.alert(
+      'Skip for now?',
+      'You can list your trailer later from your dashboard.',
+      [
+        { text: 'Keep going', style: 'cancel' },
+        { text: 'Skip for now', onPress: () => navigation.navigate('MainTabs', { screen: 'Home' }) }
+      ]
+    );
+  };
+
   return (
     <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
           <MaterialIcons name="arrow-back" size={24} color="white" />
           <Text style={styles.backButtonText}>Back</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.skipButtonTop} onPress={handleSkipForNow}>
+          <Text style={styles.skipTextTop}>Skip &amp; manage later</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>List Your Trailer</Text>
         <Text style={styles.headerSubtitle}>Step {step} of 4</Text>
@@ -976,6 +990,16 @@ const styles = StyleSheet.create({
   backButtonText: {
     color: 'white',
     fontSize: 16,
+  },
+  skipButtonTop: {
+    position: 'absolute',
+    top: 45,
+    right: 24,
+  },
+  skipTextTop: {
+    color: '#F37021',
+    fontSize: 13,
+    fontWeight: '600',
   },
   headerTitle: {
     color: 'white',

@@ -389,6 +389,20 @@ const bookingSchema = new mongoose.Schema({
     type: Date
   },
 
+  // Cash-job commission remittance. For cash bookings the transporter must remit
+  // Palmtrent's commission before the job is assigned to them.
+  commission: {
+    required: { type: Boolean, default: false },
+    amount: { type: Number, default: 0 },
+    status: {
+      type: String,
+      enum: ['not_required', 'pending', 'paid'],
+      default: 'not_required'
+    },
+    paidAt: Date,
+    paymentReference: String
+  },
+
   escrow: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Escrow'

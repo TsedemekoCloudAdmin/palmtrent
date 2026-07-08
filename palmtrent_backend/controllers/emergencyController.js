@@ -27,8 +27,10 @@ const {
 const { sendSMS } = require('../utils/sendSMS');
 const axios = require('axios');
 
-const ROADSIDE_TYPES = new Set(['breakdown']);
-const EXTERNAL_MEDICAL_TYPES = new Set(['accident', 'medical']);
+// Roadside assistance broadcasts to nearby roadside responders (tow, recovery, mechanic).
+const ROADSIDE_TYPES = new Set(['breakdown', 'vehicle_recovery', 'roadside_assistance']);
+// External emergency services (police / ambulance / fire) are routed to external dispatch.
+const EXTERNAL_MEDICAL_TYPES = new Set(['accident', 'medical', 'police', 'fire']);
 const ADMIN_ONLY_TYPES = new Set(['hijacking', 'theft', 'harassment', 'road_block', 'weather', 'other']);
 
 async function resolveEmergencyOperationalContext(user, bookingId, shipmentId) {

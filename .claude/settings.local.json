@@ -83,10 +83,17 @@
       "Bash(awk '/const VehicleVerificationView =/{f=1} /^\\\\/\\\\/ ============ Jobs View/{f=0} f' palmtrent_web/src/pages/PalmTrentAdmin.jsx)",
       "Read(//tmp/**)",
       "Bash(ls \"C:/Users/adin/.claude/projects/c--Users-adin-Desktop-palmtrent-palmtrent/memory/\" 2>/dev/null && echo \"---MEMORY.md---\" && cat \"C:/Users/adin/.claude/projects/c--Users-adin-Desktop-palmtrent-palmtrent/memory/MEMORY.md\" 2>/dev/null || echo \"no memory yet\")",
-      "Read(//c/Users/adin/.claude/projects/c--Users-adin-Desktop-palmtrent-palmtrent/**)"
+      "Read(//c/Users/adin/.claude/projects/c--Users-adin-Desktop-palmtrent-palmtrent/**)",
+      "Bash(cd /c/Users/adin/Desktop/palmtrent/palmtrent *)",
+      "Bash(cd /c/Users/adin/Desktop/palmtrent/palmtrent/palmtrent_mobile *)",
+      "Read(//c/Users/adin/Desktop/palmtrent/**)",
+      "Bash(perl -i -pe 's/onPress=\\\\{\\\\\\(\\\\\\) => navigation\\\\.navigate\\\\\\(/onPress={\\(\\) => openScreen\\(/g if /onPress=\\\\{\\\\\\(\\\\\\) => navigation\\\\.navigate\\\\\\(/' src/screens/HomeScreen.js)",
+      "Bash(grep -n \"router.post\\('/\\\\|handleUpload\\('\\\\|handleMultipleUpload\\('\" palmtrent_backend/routes/uploads.js)",
+      "Read(//c/Users/adin/Desktop/palmtrent/palmtrent_backend/routes/**)"
     ],
     "additionalDirectories": [
-      "c:\\Users\\sethm\\ngrok\\logs\\palmtrent\\palmtrent_backend\\models"
+      "c:\\Users\\sethm\\ngrok\\logs\\palmtrent\\palmtrent_backend\\models",
+      "C:\\Users\\adin\\Desktop\\palmtrent\\palmtrent\\palmtrent_backend\\models"
     ]
   }
 }

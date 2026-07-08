@@ -48,7 +48,9 @@ export const DeliveryCompletedScreen = ({ navigation, route, onNavigate }) => {
         <View style={styles.headerTop}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => navigateTo('Home')}
+            onPress={() => (navigation
+              ? navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] })
+              : navigateTo('Home'))}
           >
             <MaterialIcons name="arrow-back" size={24} color="white" />
           </TouchableOpacity>

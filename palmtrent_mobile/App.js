@@ -1,8 +1,8 @@
 import 'react-native-gesture-handler';
 import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ActivityIndicator, Image, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { AuthProvider } from './src/context/AuthContext';
 import AuthNavigator from './src/navigation/AuthNavigator';
 import AppNavigator from './src/navigation/AppNavigator';
@@ -10,6 +10,22 @@ import ForceChangePasswordScreen from './src/screens/ForceChangePasswordScreen';
 import useAuth from './src/hook/useAuth';
 import pushNotificationService from './src/services/pushNotificationService';
 import { navigationRef, routeFromNotificationData, flushPendingNotificationRoute } from './src/services/notificationRouting';
+
+const NAVY = '#0C2D48';
+
+// Paints the phone's status/notification bar area navy on every screen so it
+// always matches the app's navy header (works under Android edge-to-edge, where
+// StatusBar backgroundColor is ignored). Sits above content in the status-bar
+// region only; screen content already starts below it via each screen's top inset.
+const StatusBarBackground = () => {
+  const insets = useSafeAreaInsets();
+  return (
+    <View
+      pointerEvents="none"
+      style={{ position: 'absolute', top: 0, left: 0, right: 0, height: insets.top, backgroundColor: NAVY, zIndex: 1000 }}
+    />
+  );
+};
 
 const StartupLoadingScreen = () => (
   <View style={styles.startupContainer}>
@@ -88,9 +104,11 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
+        <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
         <NavigationContainer ref={navigationRef} onReady={flushPendingNotificationRoute}>
           <Navigation />
         </NavigationContainer>
+        <StatusBarBackground />
       </AuthProvider>
     </SafeAreaProvider>
   );

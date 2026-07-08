@@ -131,6 +131,8 @@ class PaymentService {
         await this.finalizeConfirmedSubscriptionPayment(payment);
       } else if (payment.emergency) {
         await this.finalizeConfirmedEmergencyPayment(payment);
+      } else if (payment.metadata?.purpose === 'commission') {
+        await this.finalizeConfirmedCommissionPayment(payment);
       } else {
         await this.finalizeConfirmedBookingPayment(payment);
       }
@@ -193,6 +195,22 @@ class PaymentService {
       console.error('Error updating payment status:', error);
       throw error;
     }
+  }
+
+  // A confirmed commission payment marks the booking's commission as paid so the
+  // transporter can accept the cash job. It does NOT run the normal booking-payment
+  // finalization (no re-broadcast / status change).
+  async finalizeConfirmedCommissionPayment(payment) {
+    const booking = await Booking.findById(payment.booking);
+    if (!booking) return;
+    booking.commission = {
+      ...(booking.commission ? (booking.commission.toObject ? booking.commission.toObject() : booking.commission) : {}),
+      required: true,
+      status: 'paid',
+      paidAt: payment.confirmedAt || new Date(),
+      paymentReference: payment.paymentReference
+    };
+    await booking.save();
   }
 
   async finalizeConfirmedBookingPayment(payment) {

@@ -488,6 +488,68 @@ exports.getPaymentByReference = async (req, res) => {
   }
 };
 
+// Proof of payment for a booking. Returns the structured data the mobile/web
+// client renders into a printable/downloadable PDF receipt. Only available once
+// the payment has been received and verified (status 'confirmed').
+exports.getProofOfPayment = async (req, res) => {
+  try {
+    const Invoice = require('../models/Invoice');
+    const { bookingId } = req.params;
+
+    const booking = await Booking.findById(bookingId)
+      .populate('user', 'fullName phone email companyName')
+      .populate('shipper', 'fullName phone email companyName');
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
+
+    const payment = await Payment.findOne({ booking: booking._id, status: 'confirmed' })
+      .sort({ confirmedAt: -1 });
+    if (!payment) {
+      return res.status(404).json({
+        success: false,
+        message: 'No confirmed payment found for this booking yet.'
+      });
+    }
+
+    payment.booking = booking;
+    if (!canReadPayment(req.user, payment)) {
+      return notAuthorized(res);
+    }
+
+    const invoice = await Invoice.findOne({ booking: booking._id }).sort({ createdAt: -1 });
+    const customer = booking.user || booking.shipper || {};
+
+    res.json({
+      success: true,
+      data: {
+        transactionReference: payment.gatewayReference || payment.paymentReference,
+        paymentReference: payment.paymentReference,
+        invoiceNumber: invoice?.invoiceNumber || null,
+        bookingNumber: booking.bookingReference || booking._id.toString(),
+        dateTime: payment.confirmedAt || payment.updatedAt || new Date(),
+        amountPaid: payment.amount,
+        currency: payment.currency || 'USD',
+        paymentMethod: payment.method,
+        status: payment.status,
+        customer: {
+          name: customer.fullName || customer.companyName || 'Customer',
+          phone: customer.phone || '',
+          email: customer.email || ''
+        },
+        platform: {
+          name: 'Palmtrent',
+          description: 'Logistics Marketplace',
+          supportEmail: process.env.SUPPORT_EMAIL || 'support@palmtrent.com'
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error building proof of payment:', error);
+    res.status(500).json({ success: false, message: 'Error building proof of payment' });
+  }
+};
+
 // NEW: Check payment expiry
 exports.checkPaymentExpiry = async (req, res) => {
   try {

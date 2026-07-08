@@ -7,6 +7,7 @@ const Booking = require('../models/Booking');
 const Shipment = require('../models/Shipment');
 const Driver = require('../models/Driver');
 const chatService = require('../services/chatService');
+const notificationService = require('../services/notificationService');
 
 // Store active connections
 const connections = new Map();
@@ -304,6 +305,13 @@ const setupSocketHandler = (io) => {
           });
         }
         await booking.save();
+
+        // Push a lifecycle notification (fire-and-forget). booking.shipper/user is
+        // the customer; reuse the shipment-status copy keyed on the same statuses.
+        notificationService.notifyShipmentStatus(
+          { _id: booking._id, booking: booking._id, shipper: booking.shipper || booking.user, transporter: booking.transporter },
+          status
+        ).catch((err) => console.error('Socket status notification failed:', err.message));
 
         // Notify shipper
         io.to(`user:${booking.shipper.toString()}`).emit('booking:statusChanged', {

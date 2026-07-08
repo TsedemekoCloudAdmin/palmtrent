@@ -12,7 +12,8 @@ import {
   Switch,
   ActivityIndicator,
   TextInput,
-  Modal
+  Modal,
+  Share
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
@@ -40,6 +41,9 @@ const ProfileScreen = ({ navigation }) => {
   const [editMode, setEditMode] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [accountBusy, setAccountBusy] = useState(false);
   const [editedProfile, setEditedProfile] = useState({});
   const [plans, setPlans] = useState([]);
   const [subscription, setSubscription] = useState(null);
@@ -251,6 +255,67 @@ const ProfileScreen = ({ navigation }) => {
         }
       ]
     );
+  };
+
+  const handleExportData = async () => {
+    try {
+      setAccountBusy(true);
+      const response = await apiService.exportMyData();
+      const json = JSON.stringify(response.data ?? response, null, 2);
+      await Share.share({
+        title: 'My Palmtrent Data',
+        message: json
+      });
+    } catch (error) {
+      Alert.alert('Download failed', error.message || 'Unable to export your data right now.');
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const handleDeactivate = () => {
+    Alert.alert(
+      'Deactivate Account',
+      'Your account will be disabled and you will be signed out. Contact support to reactivate it. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Deactivate',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setAccountBusy(true);
+              await apiService.deactivateAccount();
+              if (logout) await logout(); else await apiService.logout();
+            } catch (error) {
+              Alert.alert('Deactivation failed', error.message || 'Please try again.');
+            } finally {
+              setAccountBusy(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!deletePassword) {
+      Alert.alert('Password required', 'Enter your password to confirm account deletion.');
+      return;
+    }
+    try {
+      setAccountBusy(true);
+      await apiService.deleteAccount(deletePassword);
+      setShowDeleteModal(false);
+      setDeletePassword('');
+      Alert.alert('Account deleted', 'Your account has been permanently deleted.', [
+        { text: 'OK', onPress: async () => { if (logout) await logout(); else await apiService.logout(); } }
+      ]);
+    } catch (error) {
+      Alert.alert('Deletion failed', error.message || 'Please check your password and try again.');
+    } finally {
+      setAccountBusy(false);
+    }
   };
 
   const updatePreference = async (key, value) => {
@@ -799,6 +864,35 @@ const ProfileScreen = ({ navigation }) => {
           </View>
         )}
 
+        {/* Account Management */}
+        {!editMode && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Account Management</Text>
+            <View style={styles.actionsList}>
+              <ActionItem
+                icon="download"
+                label="Download My Data"
+                onPress={handleExportData}
+              />
+              <ActionItem
+                icon="pause-circle-outline"
+                label="Deactivate Account"
+                onPress={handleDeactivate}
+              />
+              <TouchableOpacity
+                style={styles.actionItem}
+                onPress={() => setShowDeleteModal(true)}
+              >
+                <View style={styles.actionLeft}>
+                  <MaterialIcons name="delete-forever" size={20} color="#dc2626" />
+                  <Text style={[styles.actionLabel, { color: '#dc2626' }]}>Delete Account</Text>
+                </View>
+                <MaterialIcons name="chevron-right" size={20} color="#dc2626" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {/* Logout Button */}
         {!editMode && (
           <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
@@ -913,6 +1007,49 @@ const ProfileScreen = ({ navigation }) => {
               >
                 <Text style={styles.confirmButtonText}>
                   {saving ? 'Changing...' : 'Change Password'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Delete Account Modal */}
+      <Modal
+        visible={showDeleteModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDeleteModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Delete Account</Text>
+            <Text style={{ color: '#6b7280', marginBottom: 16, lineHeight: 20 }}>
+              This permanently deletes your account and removes your personal details.
+              This cannot be undone. Enter your password to confirm.
+            </Text>
+            <TextInput
+              style={[styles.input, { marginBottom: 16 }]}
+              placeholder="Your password"
+              secureTextEntry
+              value={deletePassword}
+              onChangeText={setDeletePassword}
+              autoCapitalize="none"
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => { setShowDeleteModal(false); setDeletePassword(''); }}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.confirmButton, { backgroundColor: '#dc2626' }]}
+                onPress={handleDeleteAccount}
+                disabled={accountBusy}
+              >
+                <Text style={styles.confirmButtonText}>
+                  {accountBusy ? 'Deleting...' : 'Delete Account'}
                 </Text>
               </TouchableOpacity>
             </View>

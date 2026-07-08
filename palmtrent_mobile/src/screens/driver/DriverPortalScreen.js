@@ -17,6 +17,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../../services/apiService';
+import useAuth from '../../hook/useAuth';
 
 const parseCsv = (value) => String(value || '')
   .split(',')
@@ -24,8 +25,16 @@ const parseCsv = (value) => String(value || '')
   .filter(Boolean);
 
 const DriverPortalScreen = ({ navigation }) => {
+  const { logout } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  const handleSignOut = () => {
+    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Sign Out', style: 'destructive', onPress: async () => { if (logout) await logout(); else await apiService.logout(); } }
+    ]);
+  };
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState(null);
   const [subscription, setSubscription] = useState(null);
@@ -179,6 +188,10 @@ const DriverPortalScreen = ({ navigation }) => {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.header}>
+            <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
+              <MaterialIcons name="logout" size={18} color="white" />
+              <Text style={styles.signOutText}>Sign Out</Text>
+            </TouchableOpacity>
             <View style={styles.headerIcon}>
               <MaterialIcons name="badge" size={30} color="#F37021" />
             </View>
@@ -296,6 +309,8 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   loadingText: { marginTop: 12, color: '#475569', fontSize: 15 },
   header: { backgroundColor: '#0C2D48', borderRadius: 22, padding: 20, marginBottom: 16 },
+  signOutBtn: { position: 'absolute', top: 16, right: 16, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(255,255,255,0.15)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, zIndex: 2 },
+  signOutText: { color: 'white', fontSize: 12, fontWeight: '600' },
   headerIcon: { width: 52, height: 52, borderRadius: 16, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
   headerTitle: { color: 'white', fontSize: 25, fontWeight: '800' },
   headerText: { color: '#dbeafe', fontSize: 14, lineHeight: 20, marginTop: 6 },

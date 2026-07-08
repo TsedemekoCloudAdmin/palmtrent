@@ -37,11 +37,48 @@ const AcceptJobConfirmationScreen = ({ navigation, route }) => {
     }
   }, [job, jobId]);
 
+  const [commission, setCommission] = useState(null);
+  const [remitting, setRemitting] = useState(false);
+
   useEffect(() => {
     if (jobData) {
       loadAcceptanceSupport();
+      loadCommission();
     }
   }, [jobData?._id, jobData?.id]);
+
+  const loadCommission = async () => {
+    try {
+      const id = jobData?._id || jobData?.id || jobId;
+      if (!id) return;
+      const response = await apiService.getBookingCommission(id);
+      setCommission(response.data || null);
+    } catch (error) {
+      // Non-fatal: commission info just won't show.
+    }
+  };
+
+  const commissionRequired = commission?.required && commission?.status !== 'paid';
+
+  const handleRemitCommission = async () => {
+    try {
+      setRemitting(true);
+      const id = jobData?._id || jobData?.id || jobId;
+      const response = await apiService.payBookingCommission(id, 'cash_agent');
+      if (!response.success) throw new Error(response.message || 'Could not start commission payment');
+      navigation.navigate('MobileMoneyPayment', {
+        bookingId: id,
+        paymentReference: response.data?.paymentReference,
+        amount: response.data?.amount,
+        paymentMethod: response.data?.paymentMethod || 'cash_agent',
+        paymentContext: 'commission'
+      });
+    } catch (error) {
+      Alert.alert('Commission payment', error.message || 'Could not start the commission payment.');
+    } finally {
+      setRemitting(false);
+    }
+  };
 
   const fetchJobDetails = async () => {
     try {
@@ -165,6 +202,17 @@ const AcceptJobConfirmationScreen = ({ navigation, route }) => {
     }
     if (rentalBlocksAcceptance) {
       Alert.alert('Trailer Rental Required', 'Complete approval and payment for the linked trailer rental before accepting this job.');
+      return;
+    }
+    if (commissionRequired) {
+      Alert.alert(
+        'Commission Required',
+        'Remit Palmtrent\'s commission before accepting this cash job.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Remit Commission', onPress: handleRemitCommission }
+        ]
+      );
       return;
     }
 
@@ -454,12 +502,37 @@ const AcceptJobConfirmationScreen = ({ navigation, route }) => {
           </View>
         </View>
 
+        {/* Cash commission requirement */}
+        {commissionRequired && (
+          <View style={styles.section}>
+            <View style={styles.commissionCard}>
+              <MaterialIcons name="account-balance-wallet" size={22} color="#92400e" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.commissionTitle}>Commission required</Text>
+                <Text style={styles.commissionText}>
+                  This is a cash job. Remit Palmtrent's commission
+                  {commission?.amount ? ` ($${Number(commission.amount).toFixed(2)})` : ''} before it can be assigned to you.
+                </Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={styles.commissionButton}
+              onPress={handleRemitCommission}
+              disabled={remitting}
+            >
+              {remitting
+                ? <ActivityIndicator size="small" color="white" />
+                : <Text style={styles.commissionButtonText}>Remit Commission</Text>}
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Confirm Button */}
         <View style={styles.section}>
           <TouchableOpacity
             style={[
               styles.confirmButton,
-              (!allChecked || accepting || rentalBlocksAcceptance) && styles.confirmButtonDisabled
+              (!allChecked || accepting || rentalBlocksAcceptance || commissionRequired) && styles.confirmButtonDisabled
             ]}
             onPress={handleAcceptJob}
             disabled={!allChecked || accepting || rentalBlocksAcceptance}
@@ -843,6 +916,40 @@ const styles = StyleSheet.create({
   },
   confirmButtonDisabled: {
     backgroundColor: '#9ca3af',
+  },
+  commissionCard: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'flex-start',
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+  },
+  commissionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#92400e',
+    marginBottom: 4,
+  },
+  commissionText: {
+    fontSize: 13,
+    color: '#92400e',
+    lineHeight: 18,
+  },
+  commissionButton: {
+    backgroundColor: '#F37021',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  commissionButtonText: {
+    color: 'white',
+    fontSize: 15,
+    fontWeight: '700',
   },
   buttonContent: {
     flexDirection: 'row',

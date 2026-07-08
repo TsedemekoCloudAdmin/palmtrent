@@ -127,7 +127,20 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
   const provider = providerConfig[paymentMethod] || providerConfig.clicknpay;
   const isSubscriptionPayment = paymentContext === 'subscription';
   const isEmergencyPayment = paymentContext === 'emergency';
-  const backTarget = isSubscriptionPayment || isEmergencyPayment ? 'main-tabs' : 'booking-review';
+  const isCommissionPayment = paymentContext === 'commission';
+  const backTarget = isSubscriptionPayment || isEmergencyPayment || isCommissionPayment ? 'main-tabs' : 'booking-review';
+
+  // Inside the booking flow (onNavigate present) step back to the previous flow
+  // screen; when opened as a standalone stack route (e.g. from Tracking) just pop.
+  const handleBack = () => {
+    if (onNavigate) {
+      navigateTo(backTarget);
+    } else if (navigation?.canGoBack?.()) {
+      navigation.goBack();
+    } else {
+      navigateTo('main-tabs');
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -595,7 +608,7 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
       <View style={styles.bottomActions}>
         <TouchableOpacity
           style={styles.backButtonBottom}
-          onPress={() => navigateTo(backTarget)}
+          onPress={handleBack}
           disabled={processing}
         >
           <Text style={styles.backButtonText}>Back</Text>
@@ -648,12 +661,12 @@ const MobileMoneyPaymentScreen = ({ route, navigation, onNavigate, bookingData, 
                   { text: 'No', style: 'cancel' },
                   { text: 'Yes', onPress: () => {
                     handleCancel();
-                    navigateTo(backTarget);
+                    handleBack();
                   }}
                 ]
               );
             } else {
-              navigateTo(backTarget);
+              handleBack();
             }
           }}
           style={styles.backButton}

@@ -18,6 +18,8 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../hook/useAuth';
 import apiService from '../services/apiService';
 import { vehicleSubLabel } from '../utils/labels';
+import ErrorBoundary from '../components/ErrorBoundary';
+import { downloadProofOfPayment } from '../utils/proofOfPayment';
 
 const { width } = Dimensions.get('window');
 
@@ -35,6 +37,25 @@ const formatPickupDate = (value) => {
   return date.toLocaleDateString();
 };
 
+// Coerce any value into something safe to render as a React <Text> child.
+// Guards against "Objects are not valid as a React child" crashes when a field
+// (e.g. an address or cargo type) arrives as an object instead of a string.
+const asText = (value, fallback = '') => {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (typeof value === 'object') {
+    return value.address || value.fullAddress || value.name || value.label ||
+      value.city || value.formatted || fallback;
+  }
+  return fallback;
+};
+
+const asNumber = (value, fallback = 0) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
 const isUserVerifiedForJobs = (user) => (
   user?.isVerified ||
   user?.verification?.isVerified ||
@@ -49,7 +70,7 @@ const isUsableSubscription = (subscription) => {
   return true;
 };
 
-const JobDetailsScreen = ({ navigation, route }) => {
+const JobDetailsScreenInner = ({ navigation, route }) => {
   const { user } = useAuth();
   const { job, bookingId } = route.params || {};
   const [loading, setLoading] = useState(false);
@@ -176,29 +197,45 @@ const JobDetailsScreen = ({ navigation, route }) => {
     );
   }
 
-  // Extract data from actual booking structure
+  // Extract data from actual booking structure. Every value rendered as text is
+  // coerced to a primitive so an unexpected object shape can never crash the screen.
   const displayData = {
-    id: jobData.bookingReference || jobData.id || jobData._id?.slice(-8).toUpperCase(),
+    id: asText(jobData.bookingReference || jobData.id, '') ||
+      (typeof jobData._id === 'string' ? jobData._id.slice(-8).toUpperCase() : ''),
     route: {
-      from: jobData.route?.pickup?.address || jobData.pickupLocation?.address || jobData.route?.from || 'Pickup',
-      to: jobData.route?.delivery?.address || jobData.deliveryLocation?.address || jobData.route?.to || 'Delivery'
+      from: asText(jobData.route?.pickup?.address || jobData.pickupLocation?.address || jobData.route?.from, 'Pickup'),
+      to: asText(jobData.route?.delivery?.address || jobData.deliveryLocation?.address || jobData.route?.to, 'Delivery')
     },
-    distance: jobData.route?.distance || jobData.distance || 0,
-    earnings: jobData.transporterEarnings
+    distance: asNumber(jobData.route?.distance || jobData.distance, 0),
+    earnings: asNumber(
+      jobData.transporterEarnings
       ?? jobData.pricing?.feeAllocation?.transporter?.amount
       ?? jobData.pricing?.totals?.transporterTotal
-      ?? jobData.earnings
-      ?? 0,
-    totalPrice: jobData.pricing?.totals?.total || jobData.totalPrice || jobData.totalAmount || 0,
-    status: jobData.status || 'pending',
+      ?? jobData.earnings,
+      0
+    ),
+    totalPrice: asNumber(jobData.pricing?.totals?.total || jobData.totalPrice || jobData.totalAmount, 0),
+    status: asText(jobData.status, 'pending'),
     shipper: jobData.shipper || jobData.user || { name: 'Customer', rating: 0 },
     transporter: jobData.transporter,
     cargoDetails: jobData.cargoDetails || { type: 'General', weight: 0 },
     pickup: {
       date: formatPickupDate(jobData.route?.pickup?.date || jobData.pickupDate || jobData.pickup?.date),
-      time: jobData.route?.pickup?.timeWindow || jobData.pickupTimeWindow || jobData.pickup?.time || 'TBD'
+      time: asText(jobData.route?.pickup?.timeWindow || jobData.pickupTimeWindow || jobData.pickup?.time, 'TBD')
     }
   };
+
+  // rating can be a number or a { average, count } object depending on the source.
+  const rawRating = jobData.shipper?.rating ?? jobData.user?.rating;
+  const ratingValue = asNumber(
+    (rawRating && typeof rawRating === 'object') ? rawRating.average : rawRating,
+    0
+  );
+  const tripsValue = asNumber(
+    jobData.shipper?.trips ?? jobData.shipper?.completedTrips ??
+    jobData.user?.completedTrips ?? jobData.user?.trips,
+    0
+  );
 
   const shipmentId = route.params?.shipmentId || jobData.shipmentId;
   const canAssignVehicle = isTransporter && Boolean(shipmentId) && displayData.status !== 'finding_transporter';
@@ -338,7 +375,7 @@ const JobDetailsScreen = ({ navigation, route }) => {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Cargo Details</Text>
             <View style={styles.detailsList}>
-              <DetailRow label="Type" value={jobData.cargoDetails?.type || jobData.cargoDetails?.description || jobData.cargo || 'General cargo'} />
+              <DetailRow label="Type" value={asText(jobData.cargoDetails?.type || jobData.cargoDetails?.description || jobData.cargo, 'General cargo')} />
               {jobData.cargoDetails?.weight ? (
                 <DetailRow label="Weight" value={`${jobData.cargoDetails.weight} kg`} />
               ) : null}
@@ -363,20 +400,20 @@ const JobDetailsScreen = ({ navigation, route }) => {
             <View style={styles.shipperProfile}>
               <View style={styles.shipperAvatar}>
                 <Text style={styles.shipperInitial}>
-                  {(jobData.shipper?.name || jobData.user?.name || 'U').charAt(0).toUpperCase()}
+                  {asText(jobData.shipper?.fullName || jobData.shipper?.name || jobData.user?.fullName || jobData.user?.name, 'U').charAt(0).toUpperCase()}
                 </Text>
               </View>
               <View style={styles.shipperInfo}>
-                <Text style={styles.shipperName}>{jobData.shipper?.name || jobData.user?.name || 'Customer'}</Text>
+                <Text style={styles.shipperName}>{asText(jobData.shipper?.fullName || jobData.shipper?.name || jobData.user?.fullName || jobData.user?.name, 'Customer')}</Text>
                 <View style={styles.shipperRating}>
                   <MaterialIcons name="star" size={14} color="#fbbf24" />
-                  <Text style={styles.ratingText}>{jobData.shipper?.rating || jobData.user?.rating || 0}</Text>
-                  <Text style={styles.tripsText}>• {jobData.shipper?.trips || jobData.user?.completedTrips || 0} trips</Text>
+                  <Text style={styles.ratingText}>{ratingValue.toFixed(1)}</Text>
+                  <Text style={styles.tripsText}>• {tripsValue} trips</Text>
                 </View>
               </View>
               {(jobData.shipper?.onTimeRate ?? jobData.user?.onTimeRate) != null && (
                 <View style={styles.onTimeBadge}>
-                  <Text style={styles.onTimeText}>{jobData.shipper?.onTimeRate ?? jobData.user?.onTimeRate}% on-time</Text>
+                  <Text style={styles.onTimeText}>{asNumber(jobData.shipper?.onTimeRate ?? jobData.user?.onTimeRate, 0)}% on-time</Text>
                 </View>
               )}
             </View>
@@ -500,6 +537,27 @@ const JobDetailsScreen = ({ navigation, route }) => {
                   <Text style={styles.primaryButtonText}>Track Shipment</Text>
                 </TouchableOpacity>
               )}
+
+              {/* Proof of Payment - show once payment is confirmed */}
+              {(jobData.paymentStatus === 'confirmed' || jobData.payment?.status === 'confirmed' ||
+                ['transporter_assigned', 'en_route_pickup', 'picked_up', 'in_transit', 'arrived_delivery', 'delivered', 'completed'].includes(displayData.status)) && (
+                <TouchableOpacity
+                  style={styles.secondaryButton}
+                  onPress={() => downloadProofOfPayment(jobData.booking?._id || jobData.booking || bookingId || jobData._id)}
+                >
+                  <MaterialIcons name="receipt-long" size={20} color="#0C2D48" />
+                  <Text style={styles.secondaryButtonText}>Proof of Payment</Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Business Documents (PO, Delivery Note, GRV) */}
+              <TouchableOpacity
+                style={styles.secondaryButton}
+                onPress={() => navigateTo('BusinessDocuments', { bookingId: jobData.booking?._id || jobData.booking || bookingId || jobData._id })}
+              >
+                <MaterialIcons name="folder" size={20} color="#0C2D48" />
+                <Text style={styles.secondaryButtonText}>Business Documents</Text>
+              </TouchableOpacity>
 
               {/* Contact Transporter */}
               {displayData.transporter && (
@@ -1030,5 +1088,17 @@ const styles = StyleSheet.create({
     color: '#6b7280',
   },
 });
+
+// Wrap in an error boundary so an unexpected data shape shows a friendly fallback
+// instead of hard-closing the app.
+const JobDetailsScreen = (props) => (
+  <ErrorBoundary
+    title="Couldn't open this job"
+    message="We hit a problem loading these details. Please go back and try again."
+    onBack={() => props.navigation?.goBack()}
+  >
+    <JobDetailsScreenInner {...props} />
+  </ErrorBoundary>
+);
 
 export default JobDetailsScreen;

@@ -209,9 +209,9 @@ const CorporateAccountSetupScreen = ({ navigation }) => {
       
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.backButton}
-          onPress={() => navigateTo('Home')}
+          onPress={() => (navigation?.canGoBack?.() ? navigation.goBack() : navigateTo('Home'))}
         >
           <MaterialIcons name="arrow-back" size={24} color="white" />
           <Text style={styles.backButtonText}>Back</Text>

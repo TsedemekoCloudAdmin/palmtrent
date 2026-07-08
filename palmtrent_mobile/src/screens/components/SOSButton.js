@@ -24,11 +24,13 @@ const EMERGENCY_CONTACTS = {
 };
 
 const EMERGENCY_TYPES = [
+  { id: 'police', label: 'Police', icon: '🚔' },
+  { id: 'medical', label: 'Ambulance', icon: '🚑' },
+  { id: 'fire', label: 'Fire Brigade', icon: '🚒' },
+  { id: 'vehicle_recovery', label: 'Vehicle Recovery', icon: '🚛' },
+  { id: 'roadside_assistance', label: 'Roadside Assist', icon: '🔧' },
   { id: 'accident', label: 'Accident', icon: '🚗' },
-  { id: 'breakdown', label: 'Breakdown', icon: '🔧' },
   { id: 'hijacking', label: 'Hijacking', icon: '🚨' },
-  { id: 'medical', label: 'Medical', icon: '🏥' },
-  { id: 'fire', label: 'Fire', icon: '🔥' },
   { id: 'theft', label: 'Theft', icon: '🦹' },
   { id: 'other', label: 'Other', icon: '❗' }
 ];

@@ -7,7 +7,10 @@ const {
   changePassword,
   getMe,
   updateProfile,
-  getActivityHistory
+  getActivityHistory,
+  deactivateAccount,
+  deleteAccount,
+  exportMyData
 } = require('../controllers/authController');
 const {
   validateRegistration,
@@ -27,5 +30,8 @@ router.get('/me', protect, getMe);
 router.put('/profile', protect, updateProfile);
 router.post('/change-password', protect, changePassword);
 router.get('/activity-history', protect, getActivityHistory);
+router.get('/export-data', protect, exportMyData);
+router.post('/deactivate', protect, deactivateAccount);
+router.delete('/account', protect, deleteAccount);
 
 module.exports = router;

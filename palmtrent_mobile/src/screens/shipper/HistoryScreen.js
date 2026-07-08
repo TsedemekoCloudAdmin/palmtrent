@@ -331,7 +331,7 @@ const HistoryScreen = ({ navigation }) => {
       {user?.userType === 'shipper' && (
         <TouchableOpacity
           style={styles.createBookingBtn}
-          onPress={() => navigation.navigate('CreateBooking')}
+          onPress={() => navigation.navigate('Booking', { initialScreen: 'create-booking' })}
         >
           <MaterialIcons name="add" size={20} color="white" />
           <Text style={styles.createBookingText}>Create New Booking</Text>

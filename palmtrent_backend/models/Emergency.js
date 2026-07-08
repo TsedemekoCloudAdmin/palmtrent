@@ -34,6 +34,9 @@ const emergencySchema = new mongoose.Schema({
       'harassment',
       'road_block',
       'weather',
+      'police',
+      'vehicle_recovery',
+      'roadside_assistance',
       'other'
     ],
     required: true

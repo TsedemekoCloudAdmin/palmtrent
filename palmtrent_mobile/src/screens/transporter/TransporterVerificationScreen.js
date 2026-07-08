@@ -174,6 +174,17 @@ const TransporterVerificationScreen = ({ navigation }) => {
     }
   };
 
+  const handleSkipForNow = () => {
+    Alert.alert(
+      'Skip verification?',
+      'You can complete verification later from your profile. Some features stay locked until you are verified.',
+      [
+        { text: 'Keep going', style: 'cancel' },
+        { text: 'Skip for now', onPress: () => navigation.navigate('MainTabs', { screen: 'Home' }) }
+      ]
+    );
+  };
+
   const toggleLicenseClass = (licenseClass) => {
     const currentClasses = formData.driverLicense.classes;
     const newClasses = currentClasses.includes(licenseClass)
@@ -638,10 +649,13 @@ const TransporterVerificationScreen = ({ navigation }) => {
         <TouchableOpacity onPress={handleBack} style={styles.backButton}>
           <MaterialIcons name="arrow-back" size={24} color="white" />
         </TouchableOpacity>
-        <View>
+        <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Transporter Verification</Text>
           <Text style={styles.headerSubtitle}>Step {currentStep} of {STEPS.length}</Text>
         </View>
+        <TouchableOpacity onPress={handleSkipForNow}>
+          <Text style={styles.skipText}>Skip &amp; manage later</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Progress Bar */}
@@ -717,6 +731,11 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.7)',
     fontSize: 14,
     marginTop: 2,
+  },
+  skipText: {
+    color: '#F37021',
+    fontSize: 13,
+    fontWeight: '600',
   },
   progressScroll: {
     backgroundColor: 'white',

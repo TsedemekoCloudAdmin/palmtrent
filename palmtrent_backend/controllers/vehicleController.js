@@ -427,6 +427,52 @@ exports.createVehicle = async (req, res) => {
   }
 };
 
+// Attach a verification document (license, roadworthy certificate, or permit) to a
+// vehicle. The file itself is uploaded separately via /uploads/documents; this
+// stores the resulting URL and metadata on the vehicle so admins can verify it.
+exports.addVehicleDocument = async (req, res) => {
+  try {
+    const { docType, url, number, expiryDate, permitType } = req.body;
+    if (!docType || !url) {
+      return res.status(400).json({ success: false, message: 'Document type and file URL are required.' });
+    }
+
+    const vehicle = await Vehicle.findById(req.params.id);
+    if (!vehicle) {
+      return res.status(404).json({ success: false, message: 'Vehicle not found' });
+    }
+    if (!canAccessRentalOwnerResource(req.user, vehicle.owner)) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    vehicle.documents = vehicle.documents || {};
+    const expiry = expiryDate ? new Date(expiryDate) : undefined;
+
+    if (docType === 'license') {
+      vehicle.documents.license = { number, expiryDate: expiry, document: url };
+    } else if (docType === 'roadworthy') {
+      vehicle.documents.roadworthyCertificate = { number, expiryDate: expiry, document: url };
+    } else if (docType === 'permit') {
+      vehicle.documents.permits = vehicle.documents.permits || [];
+      vehicle.documents.permits.push({ type: permitType || 'permit', number, expiryDate: expiry, document: url });
+    } else {
+      return res.status(400).json({ success: false, message: 'Unsupported document type.' });
+    }
+
+    // A new/updated document means the vehicle should be re-reviewed.
+    if (vehicle.verification?.status === 'rejected' || vehicle.verification?.status === 'not_started') {
+      vehicle.verification.status = 'pending';
+    }
+
+    await vehicle.save();
+    const populated = await Vehicle.findById(vehicle._id).populate(vehicleReferencePopulate);
+    res.status(201).json({ success: true, message: 'Document uploaded', data: vehicleDisplayObject(populated) });
+  } catch (error) {
+    console.error('Add vehicle document error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to attach document' });
+  }
+};
+
 // Update vehicle
 exports.updateVehicle = async (req, res) => {
   try {

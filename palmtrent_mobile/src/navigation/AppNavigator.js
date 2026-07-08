@@ -24,6 +24,7 @@ import DeliveryCompletedScreen from '../screens/transporter/DeliveryCompletedScr
 import EarningsScreen from '../screens/transporter/EarningsScreen';
 import HistoryScreen from '../screens/shipper/HistoryScreen';
 import DisputeScreen from '../screens/shipper/DisputeScreen';
+import BusinessDocumentsScreen from '../screens/shipper/BusinessDocumentsScreen';
 import TrackingScreen from '../screens/TrackingScreen';
 import JobDetailsScreen from '../screens/JobDetailsScreen';
 import AvailableJobsScreen from '../screens/AvailableJobs';
@@ -43,6 +44,7 @@ import FleetDashboardScreen from '../screens/transporter/FleetDashboardScreen';
 import AddDriverScreen from '../screens/transporter/AddDriverScreen';
 import AddVehicleScreen from '../screens/transporter/AddVehicleScreen';
 import VehicleDetailsScreen from '../screens/transporter/VehicleDetailsScreen';
+import VehicleDocumentsScreen from '../screens/transporter/VehicleDocumentsScreen';
 import DriverDetailsScreen from '../screens/transporter/DriverDetailsScreen';
 import EditVehicleScreen from '../screens/transporter/EditVehicleScreen';
 import EditDriverScreen from '../screens/transporter/EditDriverScreen';
@@ -145,6 +147,7 @@ const AppNavigator = () => {
       <Stack.Screen name="TrackShipment" component={TrackingScreen} />
       <Stack.Screen name="MyBookings" component={HistoryScreen} />
       <Stack.Screen name="Dispute" component={DisputeScreen} />
+      <Stack.Screen name="BusinessDocuments" component={BusinessDocumentsScreen} />
       <Stack.Screen name="CorporateAccountSetup" component={CorporateAccountSetup} />
 
        {/* Trailer specific screens */}
@@ -171,6 +174,7 @@ const AppNavigator = () => {
        <Stack.Screen name="AddDriver" component={AddDriverScreen} />
        <Stack.Screen name="AddVehicle" component={AddVehicleScreen} />
        <Stack.Screen name="VehicleDetails" component={VehicleDetailsScreen} />
+       <Stack.Screen name="VehicleDocuments" component={VehicleDocumentsScreen} />
       <Stack.Screen name="DriverDetails" component={DriverDetailsScreen} />
       <Stack.Screen name="EditVehicle" component={EditVehicleScreen} />
       <Stack.Screen name="EditDriver" component={EditDriverScreen} />

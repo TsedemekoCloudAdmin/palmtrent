@@ -509,7 +509,22 @@ exports.acceptJob = async (req, res) => {
       });
     }
 
-    if (!isPaymentConfirmed(booking)) {
+    // Cash jobs: transporter must remit Palmtrent's commission before assignment.
+    const CASH_METHODS = ['cash', 'cash_agent', 'cash_on_pickup', 'cash_on_delivery'];
+    const isCashJob = CASH_METHODS.includes(booking?.payment?.method || booking?.paymentMethod);
+    if (isCashJob) {
+      if (booking.commission?.status !== 'paid') {
+        return res.status(402).json({
+          success: false,
+          code: 'COMMISSION_REQUIRED',
+          message: 'Remit Palmtrent\'s commission before accepting this cash job.',
+          data: {
+            amount: booking.commission?.amount ||
+              Number(booking.pricing?.feeAllocation?.platform?.amount || booking.pricing?.breakdown?.platformFee || 0)
+          }
+        });
+      }
+    } else if (!isPaymentConfirmed(booking)) {
       return res.status(400).json({
         success: false,
         message: 'Payment must be confirmed before this job can be accepted'

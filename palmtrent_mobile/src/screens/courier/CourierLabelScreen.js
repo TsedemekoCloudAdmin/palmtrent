@@ -117,7 +117,7 @@ const CourierLabelScreen = ({ navigation, route }) => {
 
   return (
     <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
       <View style={styles.topbar}>
         <TouchableOpacity onPress={() => navigation.goBack()}><MaterialIcons name="arrow-back" size={26} color="#0C2D48" /></TouchableOpacity>
         <Text style={styles.topbarText}>Shipping Label</Text>

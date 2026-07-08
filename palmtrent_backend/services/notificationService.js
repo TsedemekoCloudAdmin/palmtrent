@@ -504,6 +504,48 @@ class NotificationService {
   }
 
   /**
+   * Push a lifecycle notification for a shipment status change. Notifies the
+   * shipper (customer) for every stage, and the transporter for the stages that
+   * are relevant to them. Safe to call fire-and-forget; failures are swallowed.
+   * @param {object} shipment - a Shipment document (needs shipper, transporter, _id, booking)
+   * @param {string} status - the new shipment status
+   */
+  async notifyShipmentStatus(shipment, status) {
+    // status -> { type (drives Android channel), title, body, notifyTransporter }
+    const MAP = {
+      assigned: { type: 'transporter_assigned', title: 'Transporter assigned', body: 'A transporter has been assigned to your shipment.' },
+      matched: { type: 'transporter_assigned', title: 'Transporter assigned', body: 'A transporter has been matched to your shipment.' },
+      en_route_pickup: { type: 'pickup_started', title: 'Driver en route', body: 'Your driver is on the way to collect your goods.' },
+      picked_up: { type: 'in_transit', title: 'Goods collected', body: 'Your goods have been collected.' },
+      in_transit: { type: 'in_transit', title: 'In transit', body: 'Your shipment is now in transit to the destination.' },
+      arrived_delivery: { type: 'in_transit', title: 'Arriving', body: 'Your shipment has arrived at the destination.' },
+      delivered: { type: 'delivery_completed', title: 'Delivered', body: 'Your shipment has been delivered.', notifyTransporter: true },
+      completed: { type: 'delivery_completed', title: 'Delivery completed', body: 'Your delivery is complete. Thank you for using Palmtrent.', notifyTransporter: true },
+      cancelled: { type: 'system_message', title: 'Shipment cancelled', body: 'Your shipment has been cancelled.', notifyTransporter: true }
+    };
+
+    const entry = MAP[status];
+    if (!entry) return;
+
+    const data = {
+      shipmentId: shipment._id?.toString(),
+      bookingId: shipment.booking?.toString?.() || shipment.booking?._id?.toString?.(),
+      status
+    };
+
+    const targets = [];
+    if (shipment.shipper) targets.push(shipment.shipper);
+    if (entry.notifyTransporter && shipment.transporter) targets.push(shipment.transporter);
+
+    return Promise.allSettled(
+      targets
+        .map(id => id?.toString?.() || id)
+        .filter(Boolean)
+        .map(userId => this.notify(userId, entry.type, entry.title, entry.body, data))
+    );
+  }
+
+  /**
    * Get user's notifications
    */
   async getUserNotifications(userId, options = {}) {

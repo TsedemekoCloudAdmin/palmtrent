@@ -321,9 +321,19 @@ const VehicleDetailsScreen = () => {
           </View>
         )}
 
+        {/* Verification documents */}
+        <TouchableOpacity
+          style={styles.documentsButton}
+          onPress={() => navigation.navigate('VehicleDocuments', { vehicleId })}
+        >
+          <MaterialIcons name="folder-open" size={20} color="#0C2D48" />
+          <Text style={styles.documentsButtonText}>Verification Documents</Text>
+          <MaterialIcons name="chevron-right" size={20} color="#0C2D48" />
+        </TouchableOpacity>
+
         {/* Quick Actions */}
         <View style={styles.actionButtons}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.actionButton, styles.assignButton]}
             onPress={() => setShowAssignModal(true)}
           >
@@ -365,14 +375,18 @@ const VehicleDetailsScreen = () => {
             <View style={styles.detailItem}>
               <Text style={styles.detailLabel}>Category</Text>
               <Text style={styles.detailValue}>
-                {vehicle.category?.charAt(0).toUpperCase() + vehicle.category?.slice(1)}
+                {vehicle.category
+                  ? vehicle.category.charAt(0).toUpperCase() + vehicle.category.slice(1)
+                  : 'N/A'}
               </Text>
             </View>
             
             <View style={styles.detailItem}>
               <Text style={styles.detailLabel}>Type</Text>
               <Text style={styles.detailValue}>
-                {vehicle.subType?.replace('_', ' ').toUpperCase()}
+                {vehicle.subType
+                  ? vehicle.subType.replace(/_/g, ' ').toUpperCase()
+                  : (vehicle.vehicleTypeName || getRecordLabel(vehicle.vehicleType) || 'N/A')}
               </Text>
             </View>
             
@@ -752,6 +766,24 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     lineHeight: 18,
+  },
+  documentsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 16,
+  },
+  documentsButtonText: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#0C2D48',
   },
   actionButtons: {
     flexDirection: 'row',

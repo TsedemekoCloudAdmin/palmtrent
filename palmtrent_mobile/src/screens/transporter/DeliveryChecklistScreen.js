@@ -181,7 +181,7 @@ export const DeliveryChecklistScreen = ({ navigation, route, onNavigate }) => {
         <View style={styles.headerTop}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => navigateTo('Home')}
+            onPress={() => (navigation?.canGoBack?.() ? navigation.goBack() : navigateTo('Home'))}
           >
             <MaterialIcons name="arrow-back" size={24} color="white" />
           </TouchableOpacity>

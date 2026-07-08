@@ -25,7 +25,19 @@ const vehicleSchema = new mongoose.Schema({
     ref: 'VehicleType',
     required: true
   },
-  
+
+  // High-level category (bakkie, truck, tractor, …) and its sub-type (single_cab,
+  // 5ton, …) chosen during registration. Stored so the vehicle detail view can
+  // display them without resolving the VehicleType reference.
+  category: {
+    type: String,
+    enum: ['car', 'suv', 'bakkie', 'truck', 'tractor', 'van'],
+    lowercase: true
+  },
+  subType: {
+    type: String
+  },
+
   // Vehicle Details
   year: {
     type: Number,

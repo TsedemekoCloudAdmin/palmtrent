@@ -392,6 +392,54 @@ class ApiService {
     });
   }
 
+  async exportMyData() {
+    return this.request('/auth/export-data');
+  }
+
+  async getProofOfPayment(bookingId) {
+    return this.request(`/payments/proof/${bookingId}`);
+  }
+
+  async getBookingDocuments(bookingId) {
+    return this.request(`/bookings/${bookingId}/documents`);
+  }
+
+  async getBookingCommission(bookingId) {
+    return this.request(`/bookings/${bookingId}/commission`);
+  }
+
+  async payBookingCommission(bookingId, paymentMethod = 'cash_agent') {
+    return this.request(`/bookings/${bookingId}/commission/pay`, {
+      method: 'POST',
+      body: JSON.stringify({ paymentMethod }),
+    });
+  }
+
+  async addVehicleDocument(vehicleId, { docType, url, number, expiryDate, permitType }) {
+    return this.request(`/vehicles/${vehicleId}/documents`, {
+      method: 'POST',
+      body: JSON.stringify({ docType, url, number, expiryDate, permitType }),
+    });
+  }
+
+  async addBookingDocument(bookingId, { type, name, url }) {
+    return this.request(`/bookings/${bookingId}/documents`, {
+      method: 'POST',
+      body: JSON.stringify({ type, name, url }),
+    });
+  }
+
+  async deactivateAccount() {
+    return this.request('/auth/deactivate', { method: 'POST' });
+  }
+
+  async deleteAccount(password) {
+    return this.request('/auth/account', {
+      method: 'DELETE',
+      body: JSON.stringify({ password }),
+    });
+  }
+
   async getCurrentUser() {
     try {
       const response = await this.request('/auth/me');
