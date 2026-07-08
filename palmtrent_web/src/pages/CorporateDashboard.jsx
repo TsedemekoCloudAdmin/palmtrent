@@ -4,9 +4,12 @@ import {
   Search, Download, FileText, Star, Truck, Menu, Bell, User, Home,
   BarChart3, Users, Settings, LogOut, ChevronDown, Calendar, Filter,
   Eye, RefreshCw, ChevronLeft, ChevronRight, CreditCard, AlertCircle, X,
-  Check, PieChart, Activity, Layers, UserPlus, Shield, Phone, Mail, Loader
+  Check, PieChart, Activity, Layers, UserPlus, Shield, Phone, Mail, Loader, Paperclip
 } from 'lucide-react';
 import { authAPI, corporateAPI, bookingsAPI, trackingAPI, notificationsAPI, publicAPI, subscriptionCheckoutAPI } from '../services/api';
+import AccountManagement from '../components/AccountManagement';
+import BusinessDocuments from '../components/BusinessDocuments';
+import { downloadProofOfPayment } from '../utils/proofOfPayment';
 import logo from '../assets/logo3.png';
 import './styles/CorporateDashboard.css';
 
@@ -446,6 +449,7 @@ const BookingsTab = () => {
   const [trackingDetails, setTrackingDetails] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsMessage, setDetailsMessage] = useState('');
+  const [docsBooking, setDocsBooking] = useState(null);
 
   useEffect(() => {
     const fetchBookings = async () => {
@@ -613,6 +617,8 @@ const BookingsTab = () => {
                   <div className="action-btns">
                     <button className="action-btn" onClick={() => viewBooking(booking)} title="View booking"><Eye className="icon" /></button>
                     <button className="action-btn" onClick={() => trackBooking(booking)} title="Track booking"><MapPin className="icon" /></button>
+                    <button className="action-btn" onClick={() => downloadProofOfPayment(booking.recordId || booking._id)} title="Proof of payment"><FileText className="icon" /></button>
+                    <button className="action-btn" onClick={() => setDocsBooking(booking)} title="Business documents (PO, Delivery Note, GRV)"><Paperclip className="icon" /></button>
                   </div>
                 </td>
               </tr>
@@ -626,6 +632,14 @@ const BookingsTab = () => {
         <span>Page {currentPage} of {pagination.pages || 1}</span>
         <button className="pagination-btn" disabled={currentPage >= (pagination.pages || 1)} onClick={() => setCurrentPage(page => page + 1)}><ChevronRight className="icon" /></button>
       </div>
+
+      {docsBooking && (
+        <BusinessDocuments
+          bookingId={docsBooking.recordId || docsBooking._id}
+          bookingRef={docsBooking.id}
+          onClose={() => setDocsBooking(null)}
+        />
+      )}
 
       {showNewBooking && (
         <div className="modal-overlay" onClick={() => setShowNewBooking(false)}>
@@ -1685,6 +1699,8 @@ const SettingsTab = () => {
       <div className="settings-actions">
         <button className="btn-primary" onClick={saveSettings}>Save Changes</button>
       </div>
+
+      <AccountManagement />
     </div>
   );
 };

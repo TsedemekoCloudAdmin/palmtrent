@@ -196,6 +196,15 @@ export const authAPI = {
     return response;
   },
 
+  exportMyData: () => apiFetch('/auth/export-data'),
+
+  deactivateAccount: () => apiFetch('/auth/deactivate', { method: 'POST' }),
+
+  deleteAccount: (password) => apiFetch('/auth/account', {
+    method: 'DELETE',
+    body: JSON.stringify({ password }),
+  }),
+
   isAuthenticated: () => !!getToken(),
 
   getCurrentUser: getUser,
@@ -223,6 +232,25 @@ export const bookingsAPI = {
   },
 
   getById: (id) => apiFetch(`/bookings/${id}`),
+
+  // Business documents (Purchase Order, Delivery Note, GRV) attached to a booking.
+  getDocuments: (id) => apiFetch(`/bookings/${id}/documents`),
+
+  addDocument: (id, { type, name, url }) => apiFetch(`/bookings/${id}/documents`, {
+    method: 'POST',
+    body: JSON.stringify({ type, name, url }),
+  }),
+
+  // Upload a document file to storage; returns the stored file (with a url).
+  uploadDocumentFile: (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiFetch('/uploads/documents', {
+      method: 'POST',
+      body: formData,
+      timeoutMs: 60000,
+    });
+  },
 
   create: (bookingData) => apiFetch('/bookings', {
     method: 'POST',
@@ -278,6 +306,8 @@ export const paymentsAPI = {
     const queryString = new URLSearchParams(params).toString();
     return apiFetch(`/payments${queryString ? `?${queryString}` : ''}`);
   },
+
+  getProofOfPayment: (bookingId) => apiFetch(`/payments/proof/${bookingId}`),
 
   getById: (id) => apiFetch(`/payments/${id}`),
 

@@ -89,7 +89,9 @@
       "Read(//c/Users/adin/Desktop/palmtrent/**)",
       "Bash(perl -i -pe 's/onPress=\\\\{\\\\\\(\\\\\\) => navigation\\\\.navigate\\\\\\(/onPress={\\(\\) => openScreen\\(/g if /onPress=\\\\{\\\\\\(\\\\\\) => navigation\\\\.navigate\\\\\\(/' src/screens/HomeScreen.js)",
       "Bash(grep -n \"router.post\\('/\\\\|handleUpload\\('\\\\|handleMultipleUpload\\('\" palmtrent_backend/routes/uploads.js)",
-      "Read(//c/Users/adin/Desktop/palmtrent/palmtrent_backend/routes/**)"
+      "Read(//c/Users/adin/Desktop/palmtrent/palmtrent_backend/routes/**)",
+      "Bash(awk 'NR>=486 && /^const [A-Z]/ && NR>486 {print NR\": \"$0; c++; if\\(c>=2\\) exit}' src/pages/ShipperDashboard.jsx)",
+      "Bash(awk 'NR>1505 && /^const [A-Z]|^export default/ {print NR\": \"$0; exit}' src/pages/CorporateDashboard.jsx)"
     ],
     "additionalDirectories": [
       "c:\\Users\\sethm\\ngrok\\logs\\palmtrent\\palmtrent_backend\\models",

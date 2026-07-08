@@ -4,6 +4,7 @@ import {
   Settings, Truck, Wrench, X, User, Users, LogOut, CreditCard, Trash2
 } from 'lucide-react';
 import { authAPI, driversAPI, fleetAPI, publicAPI, referenceAPI, subscriptionCheckoutAPI, vehiclesAPI } from '../services/api';
+import AccountManagement from '../components/AccountManagement';
 import logo from '../assets/logo3.png';
 import './styles/TrailerOwnerDashboard.css';
 
@@ -1674,6 +1675,10 @@ const TrailerOwnerDashboard = () => {
                 <LogOut className="icon" />
                 Sign Out
               </button>
+            </section>
+
+            <section className="fleet-panel wide">
+              <AccountManagement />
             </section>
           </div>
         )}

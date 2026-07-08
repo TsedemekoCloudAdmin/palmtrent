@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Linking,
   RefreshControl,
   StatusBar,
   StyleSheet,
@@ -63,6 +64,20 @@ const DriverMarketplaceScreen = ({ navigation, route }) => {
     }
   };
 
+  // Any vehicle owner can hire a marketplace driver by contacting them directly.
+  const contactDriver = (driver) => {
+    const digits = String(driver.phone || '').replace(/[^0-9]/g, '');
+    if (!digits) {
+      Alert.alert('No contact number', 'This driver has not shared a phone number yet.');
+      return;
+    }
+    Alert.alert(`Hire ${driver.fullName || 'this driver'}`, 'Reach out to discuss hiring.', [
+      { text: 'Call', onPress: () => Linking.openURL(`tel:${driver.phone}`) },
+      { text: 'WhatsApp', onPress: () => Linking.openURL(`https://wa.me/${digits}`) },
+      { text: 'Cancel', style: 'cancel' }
+    ]);
+  };
+
   const renderDriver = ({ item }) => (
     <View style={styles.driverCard}>
       <View style={styles.driverTop}>
@@ -93,16 +108,22 @@ const DriverMarketplaceScreen = ({ navigation, route }) => {
         </Text>
       </View>
 
-      {vehicleId && (
-        <TouchableOpacity
-          style={[styles.assignButton, assigningId === item._id && styles.disabledButton]}
-          onPress={() => assignDriver(item)}
-          disabled={Boolean(assigningId)}
-        >
-          {assigningId === item._id ? <ActivityIndicator color="white" /> : <MaterialIcons name="person-add" size={19} color="white" />}
-          <Text style={styles.assignButtonText}>Assign to Vehicle</Text>
+      <View style={styles.actionRow}>
+        <TouchableOpacity style={styles.contactButton} onPress={() => contactDriver(item)}>
+          <MaterialIcons name="call" size={18} color="#0C2D48" />
+          <Text style={styles.contactButtonText}>Contact to Hire</Text>
         </TouchableOpacity>
-      )}
+        {vehicleId && (
+          <TouchableOpacity
+            style={[styles.assignButton, assigningId === item._id && styles.disabledButton]}
+            onPress={() => assignDriver(item)}
+            disabled={Boolean(assigningId)}
+          >
+            {assigningId === item._id ? <ActivityIndicator color="white" /> : <MaterialIcons name="person-add" size={19} color="white" />}
+            <Text style={styles.assignButtonText}>Assign to Vehicle</Text>
+          </TouchableOpacity>
+        )}
+      </View>
     </View>
   );
 
@@ -114,8 +135,8 @@ const DriverMarketplaceScreen = ({ navigation, route }) => {
           <MaterialIcons name="arrow-back" size={24} color="white" />
         </TouchableOpacity>
         <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>Driver Marketplace</Text>
-          <Text style={styles.headerText}>Find available verified drivers for your fleet.</Text>
+          <Text style={styles.headerTitle}>Hire a Driver</Text>
+          <Text style={styles.headerText}>Find and hire available verified drivers for your vehicles.</Text>
         </View>
       </View>
 
@@ -186,7 +207,10 @@ const styles = StyleSheet.create({
   headline: { color: '#334155', fontSize: 14, lineHeight: 20, marginTop: 12 },
   detailRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
   detailText: { flex: 1, color: '#475569', fontSize: 13 },
-  assignButton: { minHeight: 46, borderRadius: 14, backgroundColor: '#F37021', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 14 },
+  actionRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  contactButton: { flex: 1, minHeight: 46, borderRadius: 14, backgroundColor: '#eef2f7', borderWidth: 1, borderColor: '#0C2D48', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  contactButtonText: { color: '#0C2D48', fontSize: 14, fontWeight: '800' },
+  assignButton: { flex: 1, minHeight: 46, borderRadius: 14, backgroundColor: '#F37021', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   assignButtonText: { color: 'white', fontSize: 14, fontWeight: '800' },
   disabledButton: { opacity: 0.65 },
   emptyState: { alignItems: 'center', paddingVertical: 60 },

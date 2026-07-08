@@ -354,6 +354,13 @@ const HomeScreen = ({ navigation }) => {
                 onPress={() => openScreen('TrailerList')}
               />
               <ActionButton
+                icon="person-search"
+                title="Hire a Driver"
+                subtitle="Find and hire qualified drivers for your vehicles"
+                color="orange"
+                onPress={() => openScreen('DriverMarketplace')}
+              />
+              <ActionButton
                 icon="assignment"
                 title="Rental Requests"
                 subtitle="Approve, reject, pickup, and return"
@@ -419,6 +426,13 @@ const HomeScreen = ({ navigation }) => {
                 subtitle="View and manage your rental requests"
                 color="orange"
                 onPress={() => openScreen('MyRentals')}
+              />
+              <ActionButton
+                icon="person-search"
+                title="Hire a Driver"
+                subtitle="Own a vehicle? Find and hire qualified drivers"
+                color="purple"
+                onPress={() => openScreen('DriverMarketplace')}
               />
               <ActionButton
                 icon="local-shipping"
@@ -540,6 +554,13 @@ const HomeScreen = ({ navigation }) => {
                 subtitle="Invite and manage your team members"
                 color="purple"
                 onPress={() => openScreen('CorporateTeam')}
+              />
+              <ActionButton
+                icon="person-search"
+                title="Hire a Driver"
+                subtitle="Find and hire qualified drivers for your vehicles"
+                color="orange"
+                onPress={() => openScreen('DriverMarketplace')}
               />
               <ActionButton
                 icon="local-shipping"

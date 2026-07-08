@@ -4358,7 +4358,7 @@ const EmergencyView = () => {
                   const pendingQuote = (emergency.response?.responders || []).find(item => item.status === 'quote_submitted' && item.quote?.total);
                   return (
                     <tr key={emergency._id}>
-                      <td>{emergency.emergencyType}</td>
+                      <td style={{ textTransform: 'capitalize' }}>{String(emergency.emergencyType || '').replace(/_/g, ' ')}</td>
                       <td>{emergency.triggeredBy?.fullName || 'N/A'}</td>
                       <td>{emergency.contactPhone || emergency.triggeredBy?.phone || 'N/A'}</td>
                       <td>{emergency.location?.address || emergency.location?.coordinates?.join(', ') || 'N/A'}</td>

@@ -22,6 +22,8 @@ import {
   resolveApiUrl,
   downloadAuthorizedBlob
 } from '../services/api';
+import AccountManagement from '../components/AccountManagement';
+import { downloadProofOfPayment } from '../utils/proofOfPayment';
 import logo from '../assets/logo3.png';
 import './styles/ShipperDashboard.css';
 
@@ -473,6 +475,12 @@ const OverviewTab = ({ setActiveNav }) => {
                   >
                     View POD
                   </button>
+                  <button
+                    className="shipper-booking-action"
+                    onClick={() => downloadProofOfPayment(booking.recordId || booking._id || booking.bookingId)}
+                  >
+                    Proof of Payment
+                  </button>
                 </td>
               </tr>
             ))}
@@ -626,6 +634,8 @@ const AccountTab = ({ currentUser }) => {
           Sign Out
         </button>
       </section>
+
+      <AccountManagement />
     </div>
   );
 };
