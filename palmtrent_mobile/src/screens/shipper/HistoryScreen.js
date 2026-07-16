@@ -355,6 +355,13 @@ const HistoryScreen = ({ navigation }) => {
 
       {/* Header */}
       <View style={styles.header}>
+        {/* Shown only when pushed (e.g. from a Home quick action); this screen is
+            also a tab root, where there is nothing to go back to. */}
+        {navigation?.canGoBack?.() && (
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <MaterialIcons name="arrow-back" size={24} color="white" />
+          </TouchableOpacity>
+        )}
         <Text style={styles.headerTitle}>
           {user?.userType === 'transporter' ? 'Job History' :
            user?.userType === 'trailer_owner' ? 'Rental History' : 'Booking History'}
@@ -446,6 +453,11 @@ const styles = StyleSheet.create({
     paddingTop: 40,
     borderBottomLeftRadius: 24,
     borderBottomRightRadius: 24,
+  },
+  backButton: {
+    alignSelf: 'flex-start',
+    padding: 4,
+    marginBottom: 8,
   },
   headerTitle: {
     color: 'white',

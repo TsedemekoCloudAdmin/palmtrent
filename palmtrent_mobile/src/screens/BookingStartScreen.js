@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
-const BookingStartScreen = ({ onNavigate, bookingData, updateBookingData }) => {
+const BookingStartScreen = ({ onNavigate, bookingData, updateBookingData, onExit }) => {
   const options = [
     {
       id: 'single',
@@ -65,6 +65,12 @@ const BookingStartScreen = ({ onNavigate, bookingData, updateBookingData }) => {
       
       {/* Header */}
       <View style={styles.header}>
+        {/* First step of the booking flow — back exits the flow to Home. */}
+        {onExit && (
+          <TouchableOpacity style={styles.backButton} onPress={onExit}>
+            <MaterialIcons name="arrow-back" size={24} color="white" />
+          </TouchableOpacity>
+        )}
         <Text style={styles.headerTitle}>Book Transport</Text>
         <Text style={styles.headerSubtitle}>How many vehicles do you need?</Text>
       </View>
@@ -160,6 +166,11 @@ const styles = StyleSheet.create({
     paddingTop: 40,    
     borderBottomLeftRadius: 24,
     borderBottomRightRadius: 24,
+  },
+  backButton: {
+    alignSelf: 'flex-start',
+    padding: 4,
+    marginBottom: 8,
   },
   headerTitle: {
     color: 'white',

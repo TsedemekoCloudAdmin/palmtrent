@@ -38,6 +38,14 @@ const money = (value) => `$${Number(value || 0).toLocaleString(undefined, {
 })}`;
 
 const EarningsScreen = ({ navigation, onNavigate }) => {
+  // Opened as a pushed screen from Home, so offer a back affordance. Guarded with
+  // canGoBack so it never renders a dead arrow if this is ever shown as a tab root.
+  const canGoBack = Boolean(navigation?.canGoBack?.());
+  const handleBack = () => {
+    if (navigation?.canGoBack?.()) navigation.goBack();
+    else onNavigate?.('main-tabs');
+  };
+
   const [period, setPeriod] = useState('month');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -267,6 +275,11 @@ const EarningsScreen = ({ navigation, onNavigate }) => {
       <SafeAreaView edges={['top','left','right','bottom']} style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0C2D48" />
         <View style={styles.header}>
+          {canGoBack && (
+            <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+              <MaterialIcons name="arrow-back" size={24} color="white" />
+            </TouchableOpacity>
+          )}
           <Text style={styles.headerTitle}>My Earnings</Text>
           <Text style={styles.headerSubtitle}>Track your income</Text>
         </View>
@@ -284,6 +297,11 @@ const EarningsScreen = ({ navigation, onNavigate }) => {
 
       {/* Header */}
       <View style={styles.header}>
+        {canGoBack && (
+          <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+            <MaterialIcons name="arrow-back" size={24} color="white" />
+          </TouchableOpacity>
+        )}
         <View>
           <Text style={styles.headerTitle}>My Earnings</Text>
           <Text style={styles.headerSubtitle}>Track your income</Text>
@@ -754,6 +772,11 @@ const styles = StyleSheet.create({
     paddingTop: 40,
     borderBottomLeftRadius: 24,
     borderBottomRightRadius: 24,
+  },
+  backButton: {
+    alignSelf: 'flex-start',
+    padding: 4,
+    marginBottom: 8,
   },
   headerTitle: {
     color: 'white',
