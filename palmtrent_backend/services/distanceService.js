@@ -450,10 +450,17 @@ class DistanceService {
         const result = await mapboxService.searchLocations(query);
         if (result.success && result.data.length > 0) {
           return result.data.map(loc => ({
-            address: loc.address,
+            // Always return the full Mapbox place_name so street-level addresses
+            // like "19 Mashingwe, New Mabvuku, Harare, Zimbabwe" are preserved.
+            address: loc.address,          // full place_name from Mapbox
+            placeName: loc.placeName,      // just the feature text (e.g. "19 Mashingwe")
             city: loc.context?.city || loc.placeName,
             lat: loc.coordinates.latitude,
             lng: loc.coordinates.longitude,
+            coordinates: {
+              latitude: loc.coordinates.latitude,
+              longitude: loc.coordinates.longitude
+            },
             type: loc.type,
             source: 'mapbox'
           }));
@@ -469,7 +476,7 @@ class DistanceService {
         throw new Error('A configured location search provider is required in production');
       }
 
-      // Fallback to Nominatim (OpenStreetMap)
+      // Fallback to Nominatim (OpenStreetMap) — also returns full display_name
       return await this.searchWithNominatim(query, country);
     } catch (error) {
       console.error('Location search error:', error);
@@ -498,9 +505,15 @@ class DistanceService {
 
       if (response.data.status === 'OK') {
         return response.data.predictions.map(prediction => ({
+          // Google returns the full description e.g. "19 Mashingwe, New Mabvuku, Harare, Zimbabwe"
           address: prediction.description,
+          placeName: prediction.structured_formatting?.main_text || prediction.description,
           placeId: prediction.place_id,
           city: prediction.structured_formatting?.secondary_text || '',
+          // Coordinates are not in autocomplete — caller must fetch via /routes/place/:placeId
+          lat: null,
+          lng: null,
+          coordinates: null,
           type: prediction.types?.[0] || 'location',
           source: 'google'
         }));
@@ -532,10 +545,16 @@ class DistanceService {
       });
 
       return response.data.map(result => ({
+        // Nominatim's display_name is the full address string
         address: result.display_name,
+        placeName: result.namedetails?.name || result.display_name.split(',')[0],
         city: result.address?.city || result.address?.town || result.address?.village || '',
         lat: parseFloat(result.lat),
         lng: parseFloat(result.lon),
+        coordinates: {
+          latitude: parseFloat(result.lat),
+          longitude: parseFloat(result.lon)
+        },
         type: result.type,
         source: 'nominatim'
       }));

@@ -3,7 +3,12 @@ const mongoose = require('mongoose');
 const verificationCodeSchema = new mongoose.Schema({
   phone: {
     type: String,
-    required: true
+    default: null
+  },
+  email: {
+    type: String,
+    lowercase: true,
+    default: null
   },
   code: {
     type: String,
@@ -11,7 +16,7 @@ const verificationCodeSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['phone_verification', 'password_reset'],
+    enum: ['phone_verification', 'email_verification', 'password_reset'],
     required: true
   },
   expiresAt: {

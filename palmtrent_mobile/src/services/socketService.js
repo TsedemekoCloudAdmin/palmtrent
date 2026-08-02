@@ -120,6 +120,32 @@ class SocketService {
     });
   }
 
+  // Start sending live GPS position for an active job. Calls watchPosition and
+  // pushes every update to the server via the socket. Returns a cleanup fn.
+  async startLiveLocationBroadcast(bookingId, onLocation) {
+    const Location = await import('expo-location');
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      console.warn('Location permission not granted — cannot broadcast live position');
+      return () => {};
+    }
+
+    const subscription = await Location.watchPositionAsync(
+      {
+        accuracy: Location.Accuracy.BestForNavigation,
+        distanceInterval: 10,   // metres
+        timeInterval: 5000       // ms – fallback for slow movement
+      },
+      (loc) => {
+        const { latitude, longitude, heading, speed } = loc.coords;
+        this.updateLocation(latitude, longitude, bookingId, heading || 0, speed || 0);
+        if (onLocation) onLocation({ latitude, longitude, heading, speed, timestamp: loc.timestamp });
+      }
+    );
+
+    return () => subscription.remove();
+  }
+
   // Subscribe to tracking updates for a booking
   subscribeToTracking(bookingId, callback) {
     if (!this.socket) return;

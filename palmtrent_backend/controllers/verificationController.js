@@ -1,180 +1,170 @@
 const VerificationCode = require('../models/VerificationCode');
 const { generateVerificationCode } = require('../utils/generateCode');
 const { sendVerificationSMS } = require('../utils/sendSMS');
+const { sendVerificationEmail } = require('../utils/sendEmail');
 const { isSmsDeliveryDisabled } = require('../utils/smsSettings');
 
-// Send verification code
+// ─── helpers ───────────────────────────────────────────────────────────────
+
+/**
+ * Build a query filter from the request body.
+ * Accepts either { phone } (SMS path) or { email } (email path).
+ */
+function buildTarget(body) {
+  if (body.email) {
+    return { key: 'email', value: String(body.email).trim().toLowerCase() };
+  }
+  if (body.phone) {
+    return { key: 'phone', value: String(body.phone).trim() };
+  }
+  return null;
+}
+
+// ─── Send verification code ─────────────────────────────────────────────────
+
 const sendVerificationCode = async (req, res) => {
   try {
-    const { phone } = req.body;
-    // Generate 6-digit code
+    const target = buildTarget(req.body);
+    if (!target) {
+      return res.status(400).json({ success: false, message: 'Provide either phone or email to receive a verification code.' });
+    }
+
+    const { key, value } = target;
+    const verificationType = key === 'email' ? 'email_verification' : 'phone_verification';
+
     const code = generateVerificationCode(6);
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    // Delete any existing codes for this phone
-    await VerificationCode.deleteMany({
-      phone,
-      type: 'phone_verification'
-    });
+    // Delete any existing unused codes for this contact
+    await VerificationCode.deleteMany({ [key]: value, type: verificationType });
 
-    // Save new code
-    await VerificationCode.create({
-      phone,
-      code,
-      type: 'phone_verification',
-      expiresAt
-    });
+    await VerificationCode.create({ [key]: value, code, type: verificationType, expiresAt });
 
-    // Send SMS
-    const smsSent = await sendVerificationSMS(phone, code);
+    let sent = false;
+    if (key === 'email') {
+      sent = await sendVerificationEmail(value, code);
+    } else {
+      if (isSmsDeliveryDisabled()) {
+        sent = true;
+      } else {
+        sent = await sendVerificationSMS(value, code);
+      }
+    }
 
-    if (!smsSent) {
-      return res.status(500).json({
-        success: false,
-        message: 'Error sending verification code'
-      });
+    if (!sent) {
+      return res.status(500).json({ success: false, message: `Error sending verification code via ${key === 'email' ? 'email' : 'SMS'}` });
     }
 
     res.json({
       success: true,
-      message: isSmsDeliveryDisabled()
+      channel: key,
+      message: isSmsDeliveryDisabled() && key !== 'email'
         ? 'Verification code generated for testing'
-        : 'Verification code sent successfully',
-      ...(isSmsDeliveryDisabled() ? { data: { code } } : {})
+        : `Verification code sent to your ${key === 'email' ? 'email address' : 'phone'}`,
+      ...(isSmsDeliveryDisabled() && key !== 'email' ? { data: { code } } : {})
     });
   } catch (error) {
     console.error('Send verification code error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error sending verification code',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Error sending verification code', error: error.message });
   }
 };
 
-// Verify code
+// ─── Verify code ─────────────────────────────────────────────────────────────
+
 const verifyCode = async (req, res) => {
   try {
-    const { phone, code } = req.body;
+    const target = buildTarget(req.body);
+    if (!target) {
+      return res.status(400).json({ success: false, message: 'Provide either phone or email to verify.' });
+    }
 
-    // Find valid code
+    const { key, value } = target;
+    const { code } = req.body;
+    const verificationType = key === 'email' ? 'email_verification' : 'phone_verification';
+
     const verificationCode = await VerificationCode.findOne({
-      phone,
+      [key]: value,
       code,
-      type: 'phone_verification',
+      type: verificationType,
       used: false,
       expiresAt: { $gt: new Date() }
     });
 
     if (!verificationCode) {
-      // Increment attempts if code exists but is invalid
-      const existingCode = await VerificationCode.findOne({
-        phone,
-        type: 'phone_verification'
-      });
-
+      const existingCode = await VerificationCode.findOne({ [key]: value, type: verificationType });
       if (existingCode) {
         existingCode.attempts += 1;
         await existingCode.save();
-
         if (existingCode.attempts >= existingCode.maxAttempts) {
-          await VerificationCode.deleteMany({
-            phone,
-            type: 'phone_verification'
-          });
-
-          return res.status(400).json({
-            success: false,
-            message: 'Too many failed attempts. Please request a new code.'
-          });
+          await VerificationCode.deleteMany({ [key]: value, type: verificationType });
+          return res.status(400).json({ success: false, message: 'Too many failed attempts. Please request a new code.' });
         }
       }
-
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid or expired verification code'
-      });
+      return res.status(400).json({ success: false, message: 'Invalid or expired verification code' });
     }
 
-    // Mark code as used
     verificationCode.used = true;
     await verificationCode.save();
 
     res.json({
       success: true,
-      message: 'Phone number verified successfully'
+      channel: key,
+      message: key === 'email' ? 'Email address verified successfully' : 'Phone number verified successfully'
     });
   } catch (error) {
     console.error('Verify code error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error verifying code',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Error verifying code', error: error.message });
   }
 };
 
-// Resend verification code
+// ─── Resend verification code ────────────────────────────────────────────────
+
 const resendVerificationCode = async (req, res) => {
   try {
-    const { phone } = req.body;
-
-    // Check rate limiting (prevent spam)
-    const recentCode = await VerificationCode.findOne({
-      phone,
-      type: 'phone_verification',
-      createdAt: { $gt: new Date(Date.now() - 60 * 1000) } // 1 minute ago
-    });
-
-    if (recentCode) {
-      return res.status(429).json({
-        success: false,
-        message: 'Please wait before requesting a new code'
-      });
+    const target = buildTarget(req.body);
+    if (!target) {
+      return res.status(400).json({ success: false, message: 'Provide either phone or email.' });
     }
 
-    // Generate new code
+    const { key, value } = target;
+    const verificationType = key === 'email' ? 'email_verification' : 'phone_verification';
+
+    // Rate limiting: 60 seconds between resends
+    const recentCode = await VerificationCode.findOne({
+      [key]: value,
+      type: verificationType,
+      createdAt: { $gt: new Date(Date.now() - 60 * 1000) }
+    });
+    if (recentCode) {
+      return res.status(429).json({ success: false, message: 'Please wait 60 seconds before requesting a new code.' });
+    }
+
     const code = generateVerificationCode(6);
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    // Delete old codes
-    await VerificationCode.deleteMany({
-      phone,
-      type: 'phone_verification'
-    });
+    await VerificationCode.deleteMany({ [key]: value, type: verificationType });
+    await VerificationCode.create({ [key]: value, code, type: verificationType, expiresAt });
 
-    // Save new code
-    await VerificationCode.create({
-      phone,
-      code,
-      type: 'phone_verification',
-      expiresAt
-    });
+    let sent = false;
+    if (key === 'email') {
+      sent = await sendVerificationEmail(value, code);
+    } else {
+      sent = isSmsDeliveryDisabled() ? true : await sendVerificationSMS(value, code);
+    }
 
-    // Send SMS
-    const smsSent = await sendVerificationSMS(phone, code);
-
-    if (!smsSent) {
-      return res.status(500).json({
-        success: false,
-        message: 'Error sending verification code'
-      });
+    if (!sent) {
+      return res.status(500).json({ success: false, message: `Error resending verification code via ${key === 'email' ? 'email' : 'SMS'}` });
     }
 
     res.json({
       success: true,
-      message: isSmsDeliveryDisabled()
-        ? 'Verification code generated for testing'
-        : 'Verification code sent successfully',
-      ...(isSmsDeliveryDisabled() ? { data: { code } } : {})
+      channel: key,
+      message: `Verification code resent to your ${key === 'email' ? 'email address' : 'phone'}`,
+      ...(isSmsDeliveryDisabled() && key !== 'email' ? { data: { code } } : {})
     });
   } catch (error) {
     console.error('Resend verification code error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error resending verification code',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Error resending verification code', error: error.message });
   }
 };
 

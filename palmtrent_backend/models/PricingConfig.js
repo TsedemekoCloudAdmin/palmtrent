@@ -45,7 +45,7 @@ const pricingConfigSchema = new mongoose.Schema({
       description: { type: String, default: 'Driver collects at pickup' }
     },
     cashOnDelivery: {
-      rate: { type: Number, default: 0.18 },        // 18%
+      rate: { type: Number, default: 0.15 },        // 15% — same as cash on pickup
       description: { type: String, default: 'Recipient pays driver' }
     },
     corporateNet30: {

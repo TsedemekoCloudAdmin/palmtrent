@@ -120,15 +120,19 @@ class PushNotificationService {
       const authToken = await apiService.getToken();
       if (!authToken) return;
 
-      await apiService.registerNotificationDevice({
-        pushToken: token,
-        expoPushToken: token,
-        platform: Platform.OS,
-        deviceInfo: {
-          brand: Device.brand,
-          model: Device.modelName,
-          osVersion: Device.osVersion
-        }
+      // POST to the dedicated device-registration endpoint so the token is saved
+      // against this user's account and notifications are targeted, not broadcast.
+      await apiService.request('/auth/register-device', {
+        method: 'POST',
+        body: JSON.stringify({
+          expoPushToken: token,
+          platform: Platform.OS,
+          deviceInfo: {
+            brand: Device.brand,
+            model: Device.modelName,
+            osVersion: Device.osVersion
+          }
+        })
       });
 
       console.log('Push token registered with server');

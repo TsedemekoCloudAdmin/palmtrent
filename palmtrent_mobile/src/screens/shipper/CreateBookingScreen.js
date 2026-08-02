@@ -64,6 +64,7 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
     cargoType: bookingData.cargoType || '',
     cargoTypeId: bookingData.cargoTypeId || null,
     weight: bookingData.weight || '',
+    weightUnit: bookingData.weightUnit || 'kg',
     pickupLocation: bookingData.pickupLocation || '',
     deliveryLocation: bookingData.deliveryLocation || '',
     pickupDate: bookingData.pickupDate || '',
@@ -370,8 +371,14 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
     );
   };
 
-  const isStep1Valid = formData.cargoType && formData.weight && formData.cargoValue;
+  const isStep1Valid = formData.cargoType && formData.cargoValue;
   const isStep2Valid = formData.pickupLocation && formData.deliveryLocation && formData.pickupDate;
+
+  // Pickup and delivery must be different locations.
+  const isSameLocation =
+    formData.pickupLocation &&
+    formData.deliveryLocation &&
+    formData.pickupLocation.trim().toLowerCase() === formData.deliveryLocation.trim().toLowerCase();
 
   const crossBorderCountries = ['South Africa', 'Botswana', 'Zambia', 'Mozambique', 'Namibia'];
 
@@ -401,6 +408,12 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
             latitude: result.coordinates.latitude,
             longitude: result.coordinates.longitude
           };
+          // Update the form field with the canonical full address returned by
+          // Mapbox so "Mashingwe" becomes "19 Mashingwe, New Mabvuku, Harare, Zimbabwe".
+          const formField = key === 'pickup' ? 'pickupLocation' : 'deliveryLocation';
+          if (result.address && result.address !== address) {
+            setFormData(prev => ({ ...prev, [formField]: result.address }));
+          }
         }
       } catch (error) {
         console.error(`Could not geocode ${key} address:`, error);
@@ -431,6 +444,14 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
       }
     }
 
+    if (step === 2 && isSameLocation) {
+      Alert.alert(
+        'Same Location',
+        'Pickup and delivery locations cannot be the same. Please enter a different delivery address.'
+      );
+      return;
+    }
+
     if (step === 2 && isCrossBorderDestination(formData.deliveryLocation)) {
       // Prepare data for cross-border booking
       const bookingDataForReview = {
@@ -440,6 +461,7 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
         // Cargo details (mapped to backend structure)
         cargoType: formData.cargoType,
         weight: parseFloat(formData.weight),
+        weightUnit: formData.weightUnit || 'kg',
         cargoValue: parseFloat(formData.cargoValue),
         specialInstructions: formData.specialInstructions,
         images: images,
@@ -472,6 +494,7 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
         // Cargo details (mapped to backend structure)
         cargoType: formData.cargoType,
         weight: parseFloat(formData.weight),
+        weightUnit: formData.weightUnit || 'kg',
         cargoValue: parseFloat(formData.cargoValue),
         specialInstructions: formData.specialInstructions,
         images: images,
@@ -524,13 +547,28 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
                 // re-trigger the location search, which would immediately
                 // repopulate and reopen this dropdown over the next field.
                 setFormData(prev => ({ ...prev, [formField]: item.address }));
-                // Keep the selected result's precise coordinates for the booking.
-                setLocationCoords(prev => ({
-                  ...prev,
-                  [stateKey]: (item.latitude != null && item.longitude != null)
-                    ? { latitude: item.latitude, longitude: item.longitude }
-                    : null
-                }));
+
+                // If the result already carries coordinates use them directly;
+                // otherwise fetch them via the place-details endpoint (Google).
+                const resolveCoords = async () => {
+                  if (item.latitude != null && item.longitude != null) {
+                    return { latitude: item.latitude, longitude: item.longitude };
+                  }
+                  if (item.placeId) {
+                    try {
+                      const details = await apiService.request(`/routes/place/${item.placeId}`);
+                      if (details.success && details.data?.lat != null) {
+                        return { latitude: details.data.lat, longitude: details.data.lng };
+                      }
+                    } catch (_) {}
+                  }
+                  return null;
+                };
+
+                resolveCoords().then(coords => {
+                  setLocationCoords(prev => ({ ...prev, [stateKey]: coords }));
+                });
+
                 setLocationSearchResults(prev => ({ ...prev, [stateKey]: [] }));
               }}
             >
@@ -591,14 +629,31 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
               </View>
 
               <View style={styles.inputContainer}>
-                <Text style={styles.label}>Weight (kg) *</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g., 5000"
-                  value={formData.weight}
-                  onChangeText={(value) => updateField('weight', value)}
-                  keyboardType="numeric"
-                />
+                <Text style={styles.label}>Quantity / Weight <Text style={{ color: '#6b7280', fontWeight: 'normal' }}>(Optional)</Text></Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TextInput
+                    style={[styles.input, { flex: 1 }]}
+                    placeholder="e.g., 5000"
+                    value={formData.weight}
+                    onChangeText={(value) => updateField('weight', value)}
+                    keyboardType="numeric"
+                  />
+                  <View style={{ width: 110 }}>
+                    {/* Unit picker — cycles through the allowed units */}
+                    {['kg', 'tonnes', 'lbs', 'litres', 'units'].map((unit) => null) /* used for reference */}
+                    <TouchableOpacity
+                      style={[styles.selectInput, { justifyContent: 'center', alignItems: 'center', paddingHorizontal: 8 }]}
+                      onPress={() => {
+                        const units = ['kg', 'tonnes', 'lbs', 'litres', 'units'];
+                        const current = formData.weightUnit || 'kg';
+                        const next = units[(units.indexOf(current) + 1) % units.length];
+                        updateField('weightUnit', next);
+                      }}
+                    >
+                      <Text style={styles.selectInputText}>{formData.weightUnit || 'kg'} ▾</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
               </View>
 
               <View style={styles.inputContainer}>
@@ -763,6 +818,11 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
                   />
                 </View>
                 {renderLocationSearchResults('delivery')}
+                {isSameLocation && (
+                  <Text style={{ color: '#dc2626', fontSize: 12, marginTop: 4 }}>
+                    ⚠ Delivery location must be different from pickup
+                  </Text>
+                )}
               </View>
 
               {routeInfo && (

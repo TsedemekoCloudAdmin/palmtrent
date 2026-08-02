@@ -10,7 +10,8 @@ const {
   getActivityHistory,
   deactivateAccount,
   deleteAccount,
-  exportMyData
+  exportMyData,
+  registerDevice
 } = require('../controllers/authController');
 const {
   validateRegistration,
@@ -33,5 +34,7 @@ router.get('/activity-history', protect, getActivityHistory);
 router.get('/export-data', protect, exportMyData);
 router.post('/deactivate', protect, deactivateAccount);
 router.delete('/account', protect, deleteAccount);
+// Register/update device push token (called after obtaining Expo token)
+router.post('/register-device', protect, registerDevice);
 
 module.exports = router;

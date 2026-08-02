@@ -414,6 +414,13 @@ exports.acceptJob = async (req, res) => {
       console.error('Shipper match notification error:', notifyError);
     }
 
+    // Notify the transporter that their acceptance was confirmed.
+    try {
+      await notificationService.notifyJobConfirmed(booking, transporterId);
+    } catch (notifyError) {
+      console.error('Transporter job-confirmed notification error:', notifyError);
+    }
+
     try {
       await matchingService.recordTransporterOfferResponse(transporterId, 'accepted');
     } catch (statsError) {

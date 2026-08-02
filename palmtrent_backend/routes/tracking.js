@@ -101,4 +101,82 @@ router.get('/:trackingId', protect, async (req, res) => {
   }
 });
 
+// POST /api/v1/tracking/location
+// Background-safe REST fallback for GPS updates from transporter/driver when the
+// WebSocket is unavailable (app backgrounded on iOS, Doze mode on Android).
+// Persists the location to the shipment and broadcasts via Socket.io if the server
+// has an active socket for this user.
+router.post('/location', protect, async (req, res) => {
+  try {
+    const { bookingId, latitude, longitude, heading = 0, speed = 0 } = req.body;
+    const userId = req.user.id;
+
+    if (!bookingId || latitude == null || longitude == null) {
+      return res.status(400).json({ success: false, message: 'bookingId, latitude and longitude are required' });
+    }
+
+    if (req.user.userType !== 'transporter' && req.user.userType !== 'driver') {
+      return res.status(403).json({ success: false, message: 'Only transporters or drivers can submit location updates' });
+    }
+
+    const isObjectId = (v) => /^[a-f\d]{24}$/i.test(String(v));
+    const shipment = await Shipment.findOne({
+      $or: [
+        { bookingReference: bookingId },
+        ...(isObjectId(bookingId) ? [{ _id: bookingId }, { booking: bookingId }] : [])
+      ]
+    }).select('_id booking bookingReference transporter shipper assignedDriver');
+
+    if (shipment) {
+      // Persist latest position.
+      await Shipment.updateOne(
+        { _id: shipment._id },
+        {
+          currentLocation: { type: 'Point', coordinates: [longitude, latitude] },
+          $push: {
+            tracking: {
+              $each: [{
+                location: { type: 'Point', coordinates: [longitude, latitude] },
+                timestamp: new Date(),
+                event: 'location_updated',
+                note: 'Background location update'
+              }],
+              $slice: -200
+            }
+          }
+        }
+      );
+
+      // Best-effort: broadcast via Socket.io if the server has the shipper connected.
+      try {
+        const { getIO } = require('../socket/socketHandler');
+        const io = getIO();
+        if (io && shipment.shipper) {
+          const payload = {
+            bookingId,
+            latitude,
+            longitude,
+            heading,
+            speed,
+            timestamp: new Date(),
+            transporterId: userId,
+            reference: shipment.bookingReference,
+            bookingObjectId: shipment.booking?.toString(),
+            shipmentObjectId: shipment._id?.toString()
+          };
+          io.to(`user:${shipment.shipper.toString()}`).emit('tracking:location', payload);
+          [`tracking:${bookingId}`, `tracking:${shipment._id}`, `tracking:${shipment.bookingReference}`]
+            .filter(Boolean)
+            .forEach(room => io.to(room).emit('tracking:location', payload));
+        }
+      } catch (_) { /* socket broadcast is best-effort */ }
+    }
+
+    res.json({ success: true, message: 'Location updated' });
+  } catch (error) {
+    console.error('Background location update error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update location', error: error.message });
+  }
+});
+
 module.exports = router;

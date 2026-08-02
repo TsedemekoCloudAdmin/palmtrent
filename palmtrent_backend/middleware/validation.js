@@ -88,10 +88,19 @@ const validateResetPassword = [
 ];
 
 const validatePhoneVerification = [
-  body('phone')
-    .matches(/^\+263[0-9]{9}$/)
-    .withMessage('Please provide a valid Zimbabwean phone number'),
-  
+  body().custom((_, { req }) => {
+    const { phone, email } = req.body;
+    if (!phone && !email) {
+      throw new Error('Provide either a phone number or email address');
+    }
+    if (phone && !/^\+263[0-9]{9}$/.test(phone)) {
+      throw new Error('Please provide a valid Zimbabwean phone number');
+    }
+    if (email && !/^\S+@\S+\.\S+$/.test(email)) {
+      throw new Error('Please provide a valid email address');
+    }
+    return true;
+  }),
   handleValidationErrors
 ];
 

@@ -22,6 +22,10 @@ import useAuth from '../hook/useAuth';
 import apiService from '../services/apiService';
 import socketService from '../services/socketService';
 import { vehicleSubLabel } from '../utils/labels';
+import {
+  startBackgroundLocationTracking,
+  stopBackgroundLocationTracking
+} from '../services/backgroundLocationService';
 
 const { width } = Dimensions.get('window');
 
@@ -357,6 +361,7 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
 
     let active = true;
     const subscribe = async () => {
+      // Ensure the socket is connected (or reconnect if it dropped).
       if (!socketService.getConnectionStatus().isConnected) {
         await socketService.connect();
       }
@@ -374,6 +379,57 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
       socketService.unsubscribeFromTracking(trackingKey);
     };
   }, [jobDetails?.bookingId, jobDetails?.shipmentId, shipmentId, bookingId]);
+
+  // Transporters and drivers broadcast their own GPS position while the job is
+  // active. The shipper's TrackingScreen only subscribes (above), never emits.
+  useEffect(() => {
+    const isDriverRole = user?.userType === 'transporter' || user?.userType === 'driver';
+    const trackingKey = jobDetails?.bookingId || jobDetails?.shipmentId || shipmentId || bookingId;
+    const activeStatuses = ['transporter_assigned', 'confirmed', 'en_route_pickup', 'pickup_started',
+                            'picked_up', 'in_progress', 'in_transit', 'arrived_delivery'];
+
+    if (!isDriverRole || !trackingKey || !jobDetails?.status || !activeStatuses.includes(jobDetails.status)) {
+      return undefined;
+    }
+
+    let stopBroadcast = () => {};
+    let active = true;
+
+    const startBroadcast = async () => {
+      if (!socketService.getConnectionStatus().isConnected) {
+        await socketService.connect();
+      }
+      if (!active) return;
+      stopBroadcast = await socketService.startLiveLocationBroadcast(trackingKey, (loc) => {
+        // Mirror own position into liveLocation so the map updates locally too.
+        setLiveLocation({ latitude: loc.latitude, longitude: loc.longitude, timestamp: loc.timestamp });
+      });
+    };
+
+    startBroadcast();
+    return () => {
+      active = false;
+      stopBroadcast();
+    };
+  }, [user?.userType, jobDetails?.status, jobDetails?.bookingId, jobDetails?.shipmentId, shipmentId, bookingId]);
+
+  // Start/stop background GPS tracking so location keeps broadcasting even when
+  // the user switches apps or locks the screen.
+  useEffect(() => {
+    const isDriverRole = user?.userType === 'transporter' || user?.userType === 'driver';
+    const trackingKey = jobDetails?.bookingId || jobDetails?.shipmentId || shipmentId || bookingId;
+    const activeStatuses = ['transporter_assigned', 'confirmed', 'en_route_pickup', 'pickup_started',
+                            'picked_up', 'in_progress', 'in_transit', 'arrived_delivery'];
+
+    if (isDriverRole && trackingKey && jobDetails?.status && activeStatuses.includes(jobDetails.status)) {
+      startBackgroundLocationTracking(trackingKey);
+    } else if (isDriverRole) {
+      // Job finished or not started — stop any lingering background task.
+      stopBackgroundLocationTracking();
+    }
+
+    // No cleanup return: stop is handled by the else branch on next render.
+  }, [user?.userType, jobDetails?.status, jobDetails?.bookingId, jobDetails?.shipmentId, shipmentId, bookingId]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -1102,6 +1158,58 @@ const TrackingScreen = ({ navigation, onNavigate, route }) => {
             <MaterialIcons name="warning" size={20} color="white" />
             <Text style={styles.emergencyButtonText}>Report Issue / Emergency</Text>
           </TouchableOpacity>
+
+          {/* Cancel job — available to shippers before pickup and to transporters
+              before they go en-route. Completed/delivered jobs cannot be cancelled. */}
+          {(() => {
+            const isShipper = user?.userType === 'shipper' || user?.userType === 'corporate';
+            const isTransporter = user?.userType === 'transporter';
+            const shipperCanCancel = isShipper && jobDetails.status && !['delivered', 'completed', 'cancelled', 'en_route_pickup', 'pickup_started', 'picked_up', 'in_transit', 'in_progress', 'arrived_delivery'].includes(jobDetails.status);
+            const transporterCanCancel = isTransporter && ['transporter_assigned', 'confirmed', 'matched'].includes(jobDetails.status);
+            if (!shipperCanCancel && !transporterCanCancel) return null;
+            return (
+              <TouchableOpacity
+                style={[styles.actionButton, { backgroundColor: '#dc2626', marginTop: 8 }]}
+                onPress={() => {
+                  Alert.alert(
+                    'Cancel Job',
+                    isTransporter
+                      ? 'Are you sure you want to cancel this job? The shipper will be notified.'
+                      : 'Are you sure you want to cancel this booking? This cannot be undone.',
+                    [
+                      { text: 'Keep Job', style: 'cancel' },
+                      {
+                        text: 'Yes, Cancel',
+                        style: 'destructive',
+                        onPress: async () => {
+                          try {
+                            const bookingRef = jobDetails.bookingId || jobDetails.rawData?.booking?._id || jobDetails.rawData?.booking || jobDetails.rawData?._id;
+                            const response = await apiService.request(`/bookings/${bookingRef}/cancel`, {
+                              method: 'POST',
+                              body: JSON.stringify({ reason: isTransporter ? 'Transporter cancelled the job' : 'Shipper cancelled the booking' })
+                            });
+                            if (response.success) {
+                              Alert.alert('Cancelled', 'The job has been cancelled successfully.');
+                              fetchShipmentData();
+                            } else {
+                              Alert.alert('Error', response.message || 'Could not cancel the job.');
+                            }
+                          } catch (err) {
+                            Alert.alert('Error', err.message || 'Could not cancel the job.');
+                          }
+                        }
+                      }
+                    ]
+                  );
+                }}
+              >
+                <MaterialIcons name="cancel" size={20} color="white" />
+                <Text style={styles.emergencyButtonText}>
+                  {isTransporter ? 'Cancel This Job' : 'Cancel Booking'}
+                </Text>
+              </TouchableOpacity>
+            );
+          })()}
         </View>
 
         {/* Reduced bottom padding */}

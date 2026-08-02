@@ -12,6 +12,7 @@ const notificationService = require('../services/notificationService');
 // Store active connections
 const connections = new Map();
 const transporterLocations = new Map();
+let ioInstance = null;
 
 const isObjectId = (value) => /^[a-f\d]{24}$/i.test(String(value || ''));
 
@@ -73,6 +74,7 @@ const trackingRoomsFor = (identifier, booking, shipment) => {
 };
 
 const setupSocketHandler = (io) => {
+  ioInstance = io;
   // Authentication middleware
   io.use(async (socket, next) => {
     try {
@@ -505,5 +507,6 @@ module.exports = {
   emitNewJob,
   emitBookingUpdate,
   getTransporterLocation,
-  isUserOnline
+  isUserOnline,
+  getIO: () => ioInstance
 };

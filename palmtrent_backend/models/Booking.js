@@ -85,7 +85,12 @@ const bookingSchema = new mongoose.Schema({
     },
     weight: {
       type: Number,
-      default: 0
+      default: null   // null = not provided (e.g. household relocation)
+    },
+    weightUnit: {
+      type: String,
+      enum: ['kg', 'tonnes', 'lbs', 'litres', 'units'],
+      default: 'kg'
     },
     value: {
       type: Number,
@@ -108,6 +113,7 @@ const bookingSchema = new mongoose.Schema({
   // Route details
   route: {
     pickup: {
+      // Full address exactly as entered/selected — e.g. "19 Mashingwe, New Mabvuku, Harare, Zimbabwe"
       address: {
         type: String,
         required: true
@@ -133,6 +139,7 @@ const bookingSchema = new mongoose.Schema({
       }
     },
     delivery: {
+      // Full address exactly as entered/selected
       address: {
         type: String,
         required: true

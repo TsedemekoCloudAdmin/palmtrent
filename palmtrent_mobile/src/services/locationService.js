@@ -136,7 +136,8 @@ export const locationService = {
 
       if (response.success) {
         return {
-          address: response.data.address,
+          // The full canonical address returned by Mapbox (e.g. place_name)
+          address: response.data.address || response.data.placeName || address,
           placeName: response.data.placeName,
           coordinates: response.data.coordinates,
           context: response.data.context,
@@ -205,8 +206,8 @@ export const locationService = {
 
   /**
    * Search locations / autocomplete (using Mapbox via backend)
-   * @param {string} query - Search query
-   * @returns {Promise<array>}
+   * Returns the full place_name (e.g. "19 Mashingwe, New Mabvuku, Harare, Zimbabwe")
+   * including street-level results, not just city/suburb names.
    */
   searchLocations: async (query) => {
     try {
@@ -221,10 +222,13 @@ export const locationService = {
       if (response.success) {
         return response.data.map((loc) => ({
           id: loc.id || `${loc.lat}_${loc.lng}`,
-          address: loc.address,
-          city: loc.city,
-          latitude: loc.lat,
-          longitude: loc.lng,
+          // Use the full place name so "19 Mashingwe, New Mabvuku, Harare, Zimbabwe"
+          // is preserved exactly — never truncated to just the suburb or city.
+          address: loc.address || loc.placeName || loc.name || '',
+          fullAddress: loc.address || loc.placeName || '',
+          city: loc.city || loc.context?.city || '',
+          latitude: loc.lat ?? loc.coordinates?.latitude,
+          longitude: loc.lng ?? loc.coordinates?.longitude,
           type: loc.type,
           source: loc.source,
         }));

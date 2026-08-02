@@ -392,6 +392,10 @@ class NotificationService {
         title: 'New Job Available',
         body: `${data.origin || 'Pickup'} to ${data.destination || 'delivery'} is ready for review.`
       },
+      job_confirmed: {
+        title: 'Job Confirmed',
+        body: `You have been assigned booking ${data.bookingReference}. Head to ${data.origin || 'the pickup location'} for collection.`
+      },
       corporate_invoice: {
         title: 'Corporate Invoice Update',
         body: `Invoice ${data.invoiceNumber || ''} is now ${data.status || 'updated'}.`
@@ -431,7 +435,7 @@ class NotificationService {
   }
 
   /**
-   * Send transporter assigned notification
+   * Send transporter assigned notification (to the shipper)
    */
   async notifyTransporterAssigned(booking, transporter) {
     const template = this.getTemplate('transporter_assigned', {
@@ -445,6 +449,30 @@ class NotificationService {
       template.title,
       template.body,
       { bookingId: booking._id.toString(), transporterId: transporter._id.toString() }
+    );
+  }
+
+  /**
+   * Notify the transporter that their job acceptance was confirmed (sent to the transporter).
+   */
+  async notifyJobConfirmed(booking, transporterId) {
+    const template = this.getTemplate('job_confirmed', {
+      bookingReference: booking.bookingReference,
+      origin: booking.origin || booking.route?.pickup?.address || '',
+      destination: booking.destination || booking.route?.delivery?.address || ''
+    });
+
+    return this.notify(
+      transporterId,
+      'transporter_assigned',   // reuses the bookings channel
+      template.title,
+      template.body,
+      {
+        bookingId: booking._id.toString(),
+        bookingReference: booking.bookingReference,
+        origin: booking.origin || '',
+        destination: booking.destination || ''
+      }
     );
   }
 

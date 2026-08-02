@@ -66,20 +66,35 @@ const register = async (req, res) => {
 
     const skipPhoneVerification = isSmsDeliveryDisabled();
     let verifiedCode = null;
+    let isEmailVerified = false;
 
     if (!skipPhoneVerification) {
+      // Accept either a used phone OTP or a used email OTP as proof of identity.
       verifiedCode = await VerificationCode.findOne({
         phone: normalizedPhone,
         type: 'phone_verification',
         used: true,
         expiresAt: { $gt: new Date() }
       });
+
+      if (!verifiedCode && email) {
+        const emailCode = await VerificationCode.findOne({
+          email,
+          type: 'email_verification',
+          used: true,
+          expiresAt: { $gt: new Date() }
+        });
+        if (emailCode) {
+          verifiedCode = emailCode;
+          isEmailVerified = true;
+        }
+      }
     }
 
     if (!skipPhoneVerification && !verifiedCode) {
       return res.status(400).json({
         success: false,
-        message: 'Phone number not verified. Please verify your phone first.'
+        message: 'Please verify your phone number or email address before registering.'
       });
     }
 
@@ -94,7 +109,8 @@ const register = async (req, res) => {
       password,
       userType: safeUserType,
       roles: [safeUserType],
-      isPhoneVerified: skipPhoneVerification || Boolean(verifiedCode)
+      isPhoneVerified: skipPhoneVerification || Boolean(verifiedCode && !isEmailVerified),
+      isEmailVerified: Boolean(isEmailVerified)
     });
 
     if (safeUserType === 'driver') {
@@ -781,6 +797,33 @@ const exportMyData = async (req, res) => {
   }
 };
 
+// Register or update a device push token for the currently logged-in user.
+// Called by the mobile app after it obtains an Expo push token so the backend
+// can deliver targeted push notifications to this specific device/user.
+const registerDevice = async (req, res) => {
+  try {
+    const { expoPushToken, fcmToken, platform, deviceInfo } = req.body;
+
+    if (!expoPushToken && !fcmToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one of expoPushToken or fcmToken is required'
+      });
+    }
+
+    const updates = { deviceInfo: { ...(deviceInfo || {}), platform, lastUpdated: new Date() } };
+    if (expoPushToken) updates.expoPushToken = expoPushToken;
+    if (fcmToken) updates.fcmToken = fcmToken;
+
+    await User.findByIdAndUpdate(req.user.id, { $set: updates });
+
+    return res.json({ success: true, message: 'Device registered for push notifications' });
+  } catch (error) {
+    console.error('Register device error:', error);
+    return res.status(500).json({ success: false, message: 'Error registering device', error: error.message });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -792,5 +835,6 @@ module.exports = {
   getActivityHistory,
   deactivateAccount,
   deleteAccount,
-  exportMyData
+  exportMyData,
+  registerDevice
 };

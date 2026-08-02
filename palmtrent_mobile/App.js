@@ -10,6 +10,9 @@ import ForceChangePasswordScreen from './src/screens/ForceChangePasswordScreen';
 import useAuth from './src/hook/useAuth';
 import pushNotificationService from './src/services/pushNotificationService';
 import { navigationRef, routeFromNotificationData, flushPendingNotificationRoute } from './src/services/notificationRouting';
+// Import the background location module so the TaskManager task definition is
+// registered at app startup — required before any component mounts.
+import './src/services/backgroundLocationService';
 
 const NAVY = '#0C2D48';
 
@@ -55,7 +58,17 @@ const AuthProgressOverlay = () => (
 // Component that chooses which navigator to show based on auth state
 const Navigation = () => {
   const { user, isLoading, isInitializing } = useAuth();
-  
+
+  // Register / refresh the device push token whenever a user signs in so
+  // notifications are always targeted to this specific device and user.
+  useEffect(() => {
+    if (user && !user.mustChangePassword) {
+      pushNotificationService.registerForPushNotifications().catch((err) =>
+        console.warn('Push registration failed:', err?.message)
+      );
+    }
+  }, [user?._id]);
+
   if (isInitializing) {
     return <StartupLoadingScreen />;
   }

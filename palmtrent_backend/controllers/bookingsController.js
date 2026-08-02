@@ -319,6 +319,16 @@ exports.createBooking = async (req, res) => {
       return res.status(400).json({ success: false, message: scheduleError });
     }
 
+    // Reject bookings where pickup and delivery are the same location.
+    const pickupAddr = String(req.body.pickupLocation || '').trim().toLowerCase();
+    const deliveryAddr = String(req.body.deliveryLocation || '').trim().toLowerCase();
+    if (pickupAddr && deliveryAddr && pickupAddr === deliveryAddr) {
+      return res.status(400).json({
+        success: false,
+        message: 'Pickup and delivery locations cannot be the same. Please enter different addresses.'
+      });
+    }
+
     console.log("Creating booking with data:");
     console.log(JSON.stringify(req.body, null, 2));
 
@@ -422,7 +432,7 @@ async function resolveRouteCoordinates(frontendData) {
 function transformFrontendToBackend(frontendData, user, routeCoordinates = null) {
   const userId = user.id || user._id;
   const {
-    cargoType, weight, cargoValue, specialInstructions, images,
+    cargoType, weight, weightUnit, cargoValue, specialInstructions, images,
     pickupLocation, deliveryLocation, pickupDate, pickupTimeWindow, deliveryDate,
     routeInfo, vehicleRecommendation, isCrossBorder,
     paymentMethod, pricing, insurance, bookingType, vehicles = []
@@ -479,7 +489,8 @@ function transformFrontendToBackend(frontendData, user, routeCoordinates = null)
     // Cargo details structure
     cargoDetails: {
       type: cargoType || '',
-      weight: parseFloat(weight) || 0,
+      weight: weight ? parseFloat(weight) || null : null,
+      weightUnit: weightUnit || 'kg',
       value: parseFloat(cargoValue) || 0,
       description: cargoType || '',
       specialInstructions: specialInstructions || '',
@@ -570,9 +581,10 @@ function transformFrontendToBackend(frontendData, user, routeCoordinates = null)
       vehicle: vehicle.vehicle
     })) : [],
     
-    // Additional fields for easier querying
-    origin: pickupLocation?.split(',')[0]?.trim() || '',
-    destination: deliveryLocation?.split(',')[0]?.trim() || '',
+    // Additional fields for easier querying — store the full address so
+    // "Ruwa, Mashonaland East" is preserved rather than truncated to "Ruwa".
+    origin: pickupLocation?.trim() || '',
+    destination: deliveryLocation?.trim() || '',
     totalAmount: pricing?.totals?.total || 0,
     pickupDate: pickupDate ? new Date(pickupDate) : new Date()
   };
@@ -905,7 +917,8 @@ async function buildAgentPaymentDetails(payment) {
     }
   };
 }
-// Cancel booking - From your code
+// Cancel booking — accessible by the booking owner (shipper/corporate) at any
+// pre-delivery status, and by the assigned transporter before pickup starts.
 exports.cancelBooking = async (req, res) => {
   try {
     const { reason } = req.body;
@@ -919,18 +932,42 @@ exports.cancelBooking = async (req, res) => {
       });
     }
 
-    if (booking.user.toString() !== req.user.id) {
+    const requesterId = String(req.user.id || req.user._id);
+    const isOwner = [
+      String(booking.user || ''),
+      String(booking.shipper || '')
+    ].includes(requesterId);
+    const isAdmin = req.user.userType === 'admin';
+
+    // Transporters can cancel before they have physically started pickup.
+    const transporterCancellableStatuses = [
+      'transporter_assigned', 'confirmed', 'matched'
+    ];
+    const isAssignedTransporter =
+      req.user.userType === 'transporter' &&
+      String(booking.transporter || '') === requesterId &&
+      transporterCancellableStatuses.includes(booking.status);
+
+    if (!isOwner && !isAdmin && !isAssignedTransporter) {
       return res.status(403).json({
         success: false,
-        message: 'Not authorized'
+        message: 'Not authorized to cancel this booking'
       });
     }
 
-    // Check if cancellation is allowed
+    // Owners can cancel up to (but not including) delivered/completed; transporters
+    // can only cancel before en-route to pickup.
     if (['delivered', 'completed', 'cancelled'].includes(booking.status)) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot cancel booking in current status'
+        message: 'Cannot cancel a booking that is already delivered, completed, or cancelled'
+      });
+    }
+
+    if (isAssignedTransporter && !transporterCancellableStatuses.includes(booking.status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'You can only cancel a job before you have started en-route to pickup'
       });
     }
 
@@ -940,9 +977,16 @@ exports.cancelBooking = async (req, res) => {
     booking.cancellation = {
       cancelled: true,
       cancelledBy: req.user.id,
-      reason: reason,
+      cancelledByRole: req.user.userType,
+      reason: reason || 'No reason provided',
       cancelledAt: new Date()
     };
+
+    // If a transporter cancels, free the booking up for re-matching.
+    if (isAssignedTransporter) {
+      booking.transporter = undefined;
+      // Don't re-open for finding — just cancel cleanly. The shipper can rebook.
+    }
 
     await booking.save();
 
@@ -952,7 +996,41 @@ exports.cancelBooking = async (req, res) => {
     );
 
     if (booking.corporateAccount) {
-      await releaseCorporateCredit(booking.corporateAccount, booking.totalAmount || booking.pricing?.totals?.total || 0);
+      await releaseCorporateCredit(
+        booking.corporateAccount,
+        booking.totalAmount || booking.pricing?.totals?.total || 0
+      );
+    }
+
+    // Notify the other party about the cancellation.
+    try {
+      const notificationService = require('../services/notificationService');
+      if (isAssignedTransporter) {
+        // Notify the shipper that the transporter cancelled.
+        const recipientId = booking.user || booking.shipper;
+        if (recipientId) {
+          await notificationService.notify(
+            recipientId,
+            'system_message',
+            'Job Cancelled by Transporter',
+            `Booking ${booking.bookingReference} has been cancelled by the assigned transporter. ${reason ? `Reason: ${reason}` : ''}`,
+            { bookingId: booking._id.toString(), bookingReference: booking.bookingReference }
+          );
+        }
+      } else {
+        // Notify the transporter (if assigned) that the shipper cancelled.
+        if (booking.transporter) {
+          await notificationService.notify(
+            booking.transporter,
+            'system_message',
+            'Booking Cancelled',
+            `Booking ${booking.bookingReference} has been cancelled by the shipper. ${reason ? `Reason: ${reason}` : ''}`,
+            { bookingId: booking._id.toString(), bookingReference: booking.bookingReference }
+          );
+        }
+      }
+    } catch (notifyErr) {
+      console.error('Cancel notification error:', notifyErr);
     }
 
     await recordAudit({
@@ -961,7 +1039,7 @@ exports.cancelBooking = async (req, res) => {
       entityType: 'Booking',
       entityId: booking._id,
       entityRef: booking.bookingReference,
-      after: { status: booking.status, reason },
+      after: { status: booking.status, reason, cancelledByRole: req.user.userType },
       req
     });
 
