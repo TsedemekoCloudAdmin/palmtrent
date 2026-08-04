@@ -1,5 +1,6 @@
 const distanceService = require('../services/distanceService');
 const mapboxService = require('../services/mapboxService');
+const addressSearchService = require('../services/addressSearchService');
 
 const allowLocationFallback = () => process.env.NODE_ENV !== 'production' ||
   process.env.ALLOW_LOCATION_FALLBACK_IN_PRODUCTION === 'true';
@@ -150,20 +151,22 @@ exports.reverseGeocode = async (req, res) => {
     const latitude = parseFloat(lat);
     const longitude = parseFloat(lng);
 
-    const result = await mapboxService.reverseGeocode(latitude, longitude);
-    if (result.success) {
+    // Prefers whichever provider can name the actual street at these
+    // coordinates, so "use my current location" yields a usable pickup address.
+    const result = await addressSearchService.reverseLookup(latitude, longitude);
+    if (result) {
       return res.json({
         success: true,
         data: {
-          address: result.data.address,
-          placeName: result.data.placeName,
-          city: result.data.context?.city || result.data.placeName,
-          region: result.data.context?.region,
-          country: result.data.context?.country || 'Zimbabwe',
-          countryCode: result.data.context?.countryCode,
+          address: result.address,
+          placeName: result.placeName,
+          city: result.city || result.placeName,
+          region: result.region,
+          country: result.country || 'Zimbabwe',
+          countryCode: result.countryCode,
           lat: latitude,
           lng: longitude,
-          source: result.data.isFallback ? 'fallback' : 'mapbox'
+          source: result.source
         }
       });
     }
@@ -171,7 +174,7 @@ exports.reverseGeocode = async (req, res) => {
     if (!allowLocationFallback()) {
       return res.status(503).json({
         success: false,
-        message: result.message || 'Reverse geocoding provider is not configured'
+        message: 'Reverse geocoding provider is not configured'
       });
     }
 
@@ -232,6 +235,26 @@ exports.geocode = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Address is required'
+      });
+    }
+
+    // Multi-provider lookup that relaxes the query until it matches, so
+    // street addresses Mapbox has never heard of still resolve.
+    const resolved = await addressSearchService.resolveAddress(address);
+
+    if (resolved) {
+      return res.json({
+        success: true,
+        data: {
+          address: resolved.address,
+          placeName: resolved.placeName,
+          coordinates: resolved.coordinates,
+          context: resolved.context,
+          allResults: resolved.allResults,
+          // The house number could not be pinned down; the street was.
+          approximate: resolved.approximate,
+          source: resolved.source
+        }
       });
     }
 

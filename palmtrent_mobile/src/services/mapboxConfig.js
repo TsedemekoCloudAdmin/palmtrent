@@ -120,3 +120,122 @@ export const buildTrackingMapHtml = ({ center, pickup, delivery, vehicle, zoom =
 </body>
 </html>`;
 };
+
+/**
+ * Build the HTML for the pin-drop location picker.
+ *
+ * The pin is a fixed overlay at the centre of the screen and the map moves
+ * underneath it — the same gesture ride-hailing apps use. That matters here
+ * because most streets in Zimbabwe's high-density suburbs are not in any
+ * geocoder: dropping a pin produces exact coordinates for an address no
+ * provider can find by name.
+ *
+ * Messages posted to React Native:
+ *   { type: 'ready' }                     map finished loading
+ *   { type: 'moving' }                    user started dragging
+ *   { type: 'moved', lat, lng }           gesture settled on a position
+ *   { type: 'error', message }            map could not start
+ *
+ * Exposes window.recenter(lng, lat) so RN can jump the map to a fresh GPS fix.
+ *
+ * @param {object} opts
+ * @param {object} [opts.center] { latitude, longitude } initial centre
+ * @param {number} [opts.zoom]
+ * @returns {string} HTML string for a WebView `source={{ html }}`
+ */
+export const buildLocationPickerHtml = ({ center, zoom = 16, reportOnLoad = true } = {}) => {
+  const data = JSON.stringify({
+    token: token || '',
+    center: toLngLat(center) || [31.0335, -17.8252], // Harare fallback
+    zoom,
+    // False when RN is about to recentre on a GPS fix — stops the fallback
+    // centre being reported and reverse-geocoded for nothing.
+    reportOnLoad: reportOnLoad !== false
+  });
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <link href="https://api.mapbox.com/mapbox-gl-js/${MAPBOX_GL_VERSION}/mapbox-gl.css" rel="stylesheet" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/${MAPBOX_GL_VERSION}/mapbox-gl.js"></script>
+  <style>
+    body, html, #map { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; }
+    /* The pin never moves — the map does. Sits above the map, ignores taps. */
+    #pin { position: absolute; left: 50%; top: 50%; width: 32px; height: 44px;
+           margin-left: -16px; margin-top: -44px; pointer-events: none; z-index: 5; }
+    #pin .head { width: 32px; height: 32px; border-radius: 16px; background: #0C2D48;
+                 border: 4px solid #fff; box-sizing: border-box;
+                 box-shadow: 0 2px 6px rgba(0,0,0,0.35); }
+    #pin .stem { width: 3px; height: 12px; background: #0C2D48; margin: 0 auto;
+                 box-shadow: 0 1px 3px rgba(0,0,0,0.35); }
+    /* Grows while dragging so it reads as "floating" above the ground. */
+    #shadow { position: absolute; left: 50%; top: 50%; width: 12px; height: 5px;
+              margin-left: -6px; margin-top: -3px; border-radius: 50%;
+              background: rgba(0,0,0,0.28); z-index: 4; pointer-events: none;
+              transition: transform 140ms ease-out; }
+    #pin { transition: transform 140ms ease-out; }
+    body.dragging #pin { transform: translateY(-8px); }
+    body.dragging #shadow { transform: scale(1.5); }
+    #err { padding: 16px; font-family: sans-serif; color: #6b7280; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="shadow"></div>
+  <div id="pin"><div class="head"></div><div class="stem"></div></div>
+  <script>
+    var CFG = ${data};
+    var map = null;
+
+    function send(payload) {
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+      }
+    }
+
+    function report() {
+      if (!map) return;
+      var c = map.getCenter();
+      send({ type: 'moved', lat: c.lat, lng: c.lng });
+    }
+
+    try {
+      mapboxgl.accessToken = CFG.token;
+      map = new mapboxgl.Map({
+        container: 'map',
+        style: 'mapbox://styles/mapbox/streets-v12',
+        center: CFG.center,
+        zoom: CFG.zoom,
+        attributionControl: false
+      });
+
+      map.on('load', function () {
+        send({ type: 'ready' });
+        if (CFG.reportOnLoad) report();
+      });
+      map.on('movestart', function () {
+        document.body.classList.add('dragging');
+        send({ type: 'moving' });
+      });
+      map.on('moveend', function () {
+        document.body.classList.remove('dragging');
+        report();
+      });
+    } catch (e) {
+      document.body.innerHTML = '<div id="err">Unable to load the map.</div>';
+      send({ type: 'error', message: String(e && e.message ? e.message : e) });
+    }
+
+    window.recenter = function (lng, lat, zoomTo) {
+      if (!map) return;
+      var pos = [Number(lng), Number(lat)];
+      if (!isFinite(pos[0]) || !isFinite(pos[1])) return;
+      map.easeTo({ center: pos, zoom: Number(zoomTo) || map.getZoom(), duration: 500 });
+    };
+    true;
+  </script>
+</body>
+</html>`;
+};

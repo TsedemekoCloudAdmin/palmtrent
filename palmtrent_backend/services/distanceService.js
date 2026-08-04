@@ -10,6 +10,7 @@
 
 const axios = require('axios');
 const mapboxService = require('./mapboxService');
+const addressSearchService = require('./addressSearchService');
 
 const allowEstimatedDistanceFallback = () => process.env.NODE_ENV !== 'production' ||
   process.env.ALLOW_ESTIMATED_DISTANCE_IN_PRODUCTION === 'true';
@@ -68,10 +69,8 @@ class DistanceService {
   async calculateDistance(origin, destination) {
     try {
       // Try Mapbox API first (primary)
-      if (mapboxService.isInitialized) {
-        const mapboxResult = await this.calculateWithMapbox(origin, destination);
-        if (mapboxResult) return mapboxResult;
-      }
+      const mapboxResult = await this.calculateWithMapbox(origin, destination);
+      if (mapboxResult) return mapboxResult;
 
       // Fallback to Google Maps API
       if (this.googleApiKey) {
@@ -105,68 +104,69 @@ class DistanceService {
    */
   async calculateWithMapbox(origin, destination) {
     try {
-      const originCoords = this.parseCoordinates(origin);
-      const destCoords = this.parseCoordinates(destination);
+      const [originCoords, destCoords] = await Promise.all([
+        this.resolveCoordinates(origin),
+        this.resolveCoordinates(destination)
+      ]);
 
-      if (!originCoords || !destCoords) {
-        // Try geocoding addresses first
-        const result = await mapboxService.calculateRouteFromAddresses(
-          origin.address,
-          destination.address
-        );
-
-        if (result.success) {
-          return {
-            distance: parseFloat(result.data.route.distance.kilometers),
-            distanceText: `${result.data.route.distance.kilometers} km`,
-            duration: result.data.route.duration.formatted,
-            durationMinutes: result.data.route.duration.minutes,
-            route: `${result.data.origin.address} → ${result.data.destination.address}`,
-            source: 'mapbox',
-            coordinates: {
-              origin: {
-                lat: result.data.origin.coordinates.latitude,
-                lng: result.data.origin.coordinates.longitude
-              },
-              destination: {
-                lat: result.data.destination.coordinates.latitude,
-                lng: result.data.destination.coordinates.longitude
-              }
-            },
-            geometry: result.data.route.geometry,
-            legs: result.data.route.legs
-          };
-        }
-        return null;
-      }
+      if (!originCoords || !destCoords) return null;
 
       const result = await mapboxService.calculateRoute(
         { latitude: originCoords.lat, longitude: originCoords.lng },
         { latitude: destCoords.lat, longitude: destCoords.lng }
       );
 
-      if (result.success) {
-        return {
-          distance: parseFloat(result.data.distance.kilometers),
-          distanceText: `${result.data.distance.kilometers} km`,
-          duration: result.data.duration.formatted,
-          durationMinutes: result.data.duration.minutes,
-          route: `${origin.address || 'Origin'} → ${destination.address || 'Destination'}`,
-          source: 'mapbox',
-          coordinates: {
-            origin: originCoords,
-            destination: destCoords
-          },
-          geometry: result.data.geometry,
-          legs: result.data.legs
-        };
-      }
+      // An estimated fallback route is not a Mapbox answer — let the caller try
+      // the other providers before settling for an estimate.
+      if (!result.success || result.data.isFallback) return null;
 
-      return null;
+      return {
+        distance: parseFloat(result.data.distance.kilometers),
+        distanceText: `${result.data.distance.kilometers} km`,
+        duration: result.data.duration.formatted,
+        durationMinutes: result.data.duration.minutes,
+        route: `${origin.address || 'Origin'} → ${destination.address || 'Destination'}`,
+        source: 'mapbox',
+        coordinates: {
+          origin: originCoords,
+          destination: destCoords
+        },
+        geometry: result.data.geometry,
+        legs: result.data.legs
+      };
     } catch (error) {
       console.error('Mapbox API error:', error.message);
       return null;
     }
+  }
+
+  /**
+   * Coordinates for a location, geocoding the address when the caller did not
+   * send any. Uses the full multi-provider address search so street addresses
+   * resolve, not just the handful of cities in CITY_COORDINATES.
+   */
+  async resolveCoordinates(location) {
+    if (location?.lat && location?.lng) {
+      return { lat: location.lat, lng: location.lng };
+    }
+    if (!location?.address) return null;
+
+    try {
+      const resolved = await addressSearchService.resolveAddress(location.address);
+      if (resolved) {
+        return {
+          lat: resolved.coordinates.latitude,
+          lng: resolved.coordinates.longitude
+        };
+      }
+    } catch (error) {
+      console.error('Address resolution error:', error.message);
+    }
+
+    // Last resort: the city centre. Deliberately checked after geocoding, since
+    // "19 Mashingwe Street, Mabvuku, Harare" contains "harare" and would
+    // otherwise collapse to the Harare CBD.
+    return this.parseCoordinates(location);
   }
 
   /**
@@ -445,39 +445,40 @@ class DistanceService {
    */
   async searchLocations(query, country = 'Zimbabwe') {
     try {
-      // Try Mapbox first (primary)
-      if (mapboxService.isInitialized) {
-        const result = await mapboxService.searchLocations(query);
-        if (result.success && result.data.length > 0) {
-          return result.data.map(loc => ({
-            // Always return the full Mapbox place_name so street-level addresses
-            // like "19 Mashingwe, New Mabvuku, Harare, Zimbabwe" are preserved.
-            address: loc.address,          // full place_name from Mapbox
-            placeName: loc.placeName,      // just the feature text (e.g. "19 Mashingwe")
-            city: loc.context?.city || loc.placeName,
-            lat: loc.coordinates.latitude,
-            lng: loc.coordinates.longitude,
-            coordinates: {
-              latitude: loc.coordinates.latitude,
-              longitude: loc.coordinates.longitude
-            },
-            type: loc.type,
-            source: 'mapbox'
-          }));
-        }
+      // Mapbox + OpenStreetMap, with the query progressively relaxed until
+      // something matches. Both are real geocoders, so this runs in production.
+      const results = await addressSearchService.searchAddresses(query);
+      if (results.length > 0) {
+        return results.map(loc => ({
+          // Always return the full place name so street-level addresses like
+          // "19 Mashingwe Street, Mabvuku, Harare, Zimbabwe" are preserved.
+          address: loc.address,
+          placeName: loc.placeName,
+          city: loc.city || loc.placeName,
+          lat: loc.lat,
+          lng: loc.lng,
+          coordinates: loc.coordinates,
+          type: loc.type,
+          // How much of the typed address could actually be placed on a map:
+          // 'exact', 'street' (number not mapped) or 'area' (suburb only).
+          precision: loc.precision,
+          approximate: Boolean(loc.approximate),
+          source: loc.source
+        }));
       }
 
-      // Fallback to Google Places API
+      // Google Places, if a key is configured.
       if (this.googleApiKey) {
-        return await this.searchWithGoogle(query, country);
+        const googleResults = await this.searchWithGoogle(query, country);
+        if (googleResults.length > 0) return googleResults;
       }
 
       if (!allowLocationSearchFallback()) {
-        throw new Error('A configured location search provider is required in production');
+        return [];
       }
 
-      // Fallback to Nominatim (OpenStreetMap) — also returns full display_name
-      return await this.searchWithNominatim(query, country);
+      // Hard-coded city list — a guess, so it stays out of production.
+      return this.searchLocal(query);
     } catch (error) {
       console.error('Location search error:', error);
       if (!allowLocationSearchFallback()) {
@@ -522,44 +523,6 @@ class DistanceService {
       return [];
     } catch (error) {
       console.error('Google Places error:', error.message);
-      return [];
-    }
-  }
-
-  /**
-   * Nominatim (OpenStreetMap) search
-   */
-  async searchWithNominatim(query, country) {
-    try {
-      const response = await axios.get('https://nominatim.openstreetmap.org/search', {
-        params: {
-          q: `${query}, ${country}`,
-          format: 'json',
-          addressdetails: 1,
-          limit: 5
-        },
-        headers: {
-          'User-Agent': 'PalmTrent-Transport-App'
-        },
-        timeout: 5000
-      });
-
-      return response.data.map(result => ({
-        // Nominatim's display_name is the full address string
-        address: result.display_name,
-        placeName: result.namedetails?.name || result.display_name.split(',')[0],
-        city: result.address?.city || result.address?.town || result.address?.village || '',
-        lat: parseFloat(result.lat),
-        lng: parseFloat(result.lon),
-        coordinates: {
-          latitude: parseFloat(result.lat),
-          longitude: parseFloat(result.lon)
-        },
-        type: result.type,
-        source: 'nominatim'
-      }));
-    } catch (error) {
-      console.error('Nominatim error:', error.message);
       return [];
     }
   }

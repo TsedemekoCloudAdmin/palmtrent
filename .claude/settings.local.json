@@ -95,7 +95,11 @@
       "Bash(npm -v)",
       "Bash(curl --version)",
       "Bash(npm install *)",
-      "Bash(npm ci *)"
+      "Bash(npm ci *)",
+      "Bash(node -e ' *)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(MAPBOX_ACCESS_TOKEN=pk.eyJ1IjoicGFsbXRyZW50IiwiYSI6ImNtcHpwOTRmYjA3ZjMycHM5Z212dXFsYTkifQ.TvESEQoV3kXXBqxOzd_Wfw NOMINATIM_CONTACT_EMAIL=test@palmtrent.com node -e ' *)",
+      "Bash(git add *)"
     ],
     "additionalDirectories": [
       "c:\\Users\\sethm\\ngrok\\logs\\palmtrent\\palmtrent_backend\\models",

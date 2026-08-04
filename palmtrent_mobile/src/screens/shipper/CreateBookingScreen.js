@@ -1,5 +1,5 @@
 // screens/CreateBookingScreen.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -21,6 +21,7 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useAuth from '../../hook/useAuth';
 import * as ImagePicker from 'expo-image-picker';
 import locationService from '../../services/locationService';
+import LocationPickerModal from '../../components/LocationPickerModal';
 import vehicleService from '../../services/vehicleService';
 import apiService from '../../services/apiService';
 
@@ -45,6 +46,23 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
     pickup: bookingData.pickupCoordinates || null,
     delivery: bookingData.deliveryCoordinates || null
   });
+  // Address lookup is slow enough to need its own feedback, and must not be
+  // conflated with the screen-wide `loading` used by route/pricing calls.
+  const [detectingLocation, setDetectingLocation] = useState(false);
+  const [pickupAutoDetected, setPickupAutoDetected] = useState(false);
+  const [searchState, setSearchState] = useState({ pickup: 'idle', delivery: 'idle' });
+  // Which field the map picker is open for, and which fields were set by pin —
+  // a pinned point has exact coordinates and never needs geocoding.
+  const [pickerField, setPickerField] = useState(null);
+  const [pinnedFields, setPinnedFields] = useState({ pickup: false, delivery: false });
+
+  // Debounce timers and a per-field request counter so a slow response for an
+  // earlier prefix can never overwrite results for what is now in the box.
+  const searchTimersRef = useRef({});
+  const searchSeqRef = useRef({ pickup: 0, delivery: 0 });
+  const autoDetectRanRef = useRef(false);
+  // Latest typed addresses, readable from async callbacks without stale closures.
+  const latestLocationsRef = useRef({ pickupLocation: '', deliveryLocation: '' });
 
   // Reference data from API
   const [cargoTypes, setCargoTypes] = useState([]);
@@ -108,12 +126,20 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
     }
   }, [formData.cargoType, formData.weight]);
 
-  // Calculate route when locations change
+  // Calculate route when locations change. Debounced, because each run makes
+  // the server geocode both addresses — firing that on every keystroke is both
+  // slow and wasteful.
   useEffect(() => {
-    if (formData.pickupLocation && formData.deliveryLocation) {
-      calculateRoute();
-    }
-  }, [formData.pickupLocation, formData.deliveryLocation]);
+    if (!formData.pickupLocation || !formData.deliveryLocation) return;
+
+    const timer = setTimeout(calculateRoute, 700);
+    return () => clearTimeout(timer);
+  }, [
+    formData.pickupLocation,
+    formData.deliveryLocation,
+    locationCoords.pickup,
+    locationCoords.delivery
+  ]);
 
   // ADDED: Calculate pricing when all data is available
   useEffect(() => {
@@ -137,9 +163,13 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
 
   const calculateRoute = async () => {
     try {
+      // Send the coordinates we already resolved so the server does not have to
+      // geocode the addresses again.
       const route = await locationService.calculateRoute(
         formData.pickupLocation,
-        formData.deliveryLocation
+        formData.deliveryLocation,
+        locationCoords.pickup,
+        locationCoords.delivery
       );
       setRouteInfo(route);
     } catch (error) {
@@ -201,45 +231,125 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
     }
   };
 
-  const handleUseCurrentLocation = async (field) => {
-    setLoading(true);
-    try {
-      const location = await locationService.getCurrentLocation();
-      const address = await locationService.reverseGeocode(
-        location.latitude,
-        location.longitude
-      );
+  /**
+   * Fill a location field from the device's GPS position.
+   *
+   * `silent` is used for the automatic detection that runs when the screen
+   * opens: it never interrupts with an alert and never overwrites an address
+   * the shipper has already started typing.
+   */
+  const useCurrentLocationFor = async (field, { silent = false } = {}) => {
+    const stateKey = field === 'pickupLocation' ? 'pickup' : 'delivery';
+    setDetectingLocation(true);
 
-      const stateKey = field === 'pickupLocation' ? 'pickup' : 'delivery';
-      setFormData(prev => ({ ...prev, [field]: address.fullAddress }));
+    try {
+      const location = await locationService.getCurrentLocationWithAddress();
+
+      // The lookup takes a few seconds; if the shipper typed an address in the
+      // meantime, theirs wins.
+      if (silent && latestLocationsRef.current[field]) return;
+
+      setFormData(prev => ({ ...prev, [field]: location.address }));
       setLocationCoords(prev => ({
         ...prev,
         [stateKey]: { latitude: location.latitude, longitude: location.longitude }
       }));
       setLocationSearchResults(prev => ({ ...prev, [stateKey]: [] }));
-      Alert.alert('Location Set', `Your current location has been set to: ${address.fullAddress}`);
+      if (stateKey === 'pickup') setPickupAutoDetected(true);
+
+      if (!silent) {
+        Alert.alert('Location Set', `Your current location has been set to: ${location.address}`);
+      }
     } catch (error) {
-      Alert.alert('Location Error', error.message);
+      if (!silent) {
+        Alert.alert('Location Error', error.message);
+      } else {
+        console.log('Automatic pickup detection skipped:', error.message);
+      }
     } finally {
-      setLoading(false);
+      setDetectingLocation(false);
     }
   };
 
-  const handleLocationSearch = async (query, field) => {
-    // Map form field to state key
+  const handleUseCurrentLocation = (field) => useCurrentLocationFor(field);
+
+  const openPicker = (field) => {
+    clearTimeout(searchTimersRef.current[field === 'pickupLocation' ? 'pickup' : 'delivery']);
+    setPickerField(field);
+  };
+
+  /**
+   * Accept a pinned point. These coordinates are exact — the shipper put the
+   * marker on the spot — so they take priority over anything a geocoder says.
+   */
+  const handlePickerConfirm = ({ latitude, longitude, address }) => {
+    const field = pickerField;
+    if (!field) return;
     const stateKey = field === 'pickupLocation' ? 'pickup' : 'delivery';
 
-    if (query.length < 3) {
+    setFormData(prev => ({ ...prev, [field]: address }));
+    setLocationCoords(prev => ({ ...prev, [stateKey]: { latitude, longitude } }));
+    setPinnedFields(prev => ({ ...prev, [stateKey]: true }));
+    setLocationSearchResults(prev => ({ ...prev, [stateKey]: [] }));
+    setSearchState(prev => ({ ...prev, [stateKey]: 'idle' }));
+    searchSeqRef.current[stateKey] += 1; // discard any search still in flight
+    if (stateKey === 'pickup') setPickupAutoDetected(false);
+    setPickerField(null);
+  };
+
+  useEffect(() => {
+    latestLocationsRef.current = {
+      pickupLocation: formData.pickupLocation,
+      deliveryLocation: formData.deliveryLocation
+    };
+  }, [formData.pickupLocation, formData.deliveryLocation]);
+
+  // Pre-fill the pickup address from the device's position when the form opens
+  // with no pickup yet. The shipper can edit or replace it like any other text.
+  useEffect(() => {
+    if (autoDetectRanRef.current) return;
+    autoDetectRanRef.current = true;
+    if (formData.pickupLocation) return;
+    useCurrentLocationFor('pickupLocation', { silent: true });
+  }, []);
+
+  // Drop any pending debounced search when the screen goes away.
+  useEffect(() => () => {
+    Object.values(searchTimersRef.current).forEach(clearTimeout);
+  }, []);
+
+  const handleLocationSearch = (query, field) => {
+    // Map form field to state key
+    const stateKey = field === 'pickupLocation' ? 'pickup' : 'delivery';
+    const trimmed = query.trim();
+
+    clearTimeout(searchTimersRef.current[stateKey]);
+
+    if (trimmed.length < 3) {
+      searchSeqRef.current[stateKey] += 1; // invalidate anything in flight
       setLocationSearchResults(prev => ({ ...prev, [stateKey]: [] }));
+      setSearchState(prev => ({ ...prev, [stateKey]: 'idle' }));
       return;
     }
 
-    try {
-      const results = await locationService.searchLocations(query);
-      setLocationSearchResults(prev => ({ ...prev, [stateKey]: results }));
-    } catch (error) {
-      console.error('Location search error:', error);
-    }
+    setSearchState(prev => ({ ...prev, [stateKey]: 'searching' }));
+
+    searchTimersRef.current[stateKey] = setTimeout(async () => {
+      const seq = ++searchSeqRef.current[stateKey];
+      try {
+        const results = await locationService.searchLocations(trimmed);
+        if (seq !== searchSeqRef.current[stateKey]) return; // a newer query won
+        setLocationSearchResults(prev => ({ ...prev, [stateKey]: results }));
+        setSearchState(prev => ({
+          ...prev,
+          [stateKey]: results.length ? 'done' : 'empty'
+        }));
+      } catch (error) {
+        console.error('Location search error:', error);
+        if (seq !== searchSeqRef.current[stateKey]) return;
+        setSearchState(prev => ({ ...prev, [stateKey]: 'error' }));
+      }
+    }, 400);
   };
 
   const updateField = (field, value) => {
@@ -249,9 +359,10 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
       // Manual edits invalidate any previously captured coordinates.
       const stateKey = field === 'pickupLocation' ? 'pickup' : 'delivery';
       setLocationCoords(prev => (prev[stateKey] ? { ...prev, [stateKey]: null } : prev));
-      if (value.length >= 3) {
-        handleLocationSearch(value, field);
-      }
+      // Retyping means the text no longer describes the pinned point.
+      setPinnedFields(prev => (prev[stateKey] ? { ...prev, [stateKey]: false } : prev));
+      if (stateKey === 'pickup') setPickupAutoDetected(false);
+      handleLocationSearch(value, field);
     }
   };
 
@@ -375,10 +486,36 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
   const isStep2Valid = formData.pickupLocation && formData.deliveryLocation && formData.pickupDate;
 
   // Pickup and delivery must be different locations.
-  const isSameLocation =
-    formData.pickupLocation &&
-    formData.deliveryLocation &&
-    formData.pickupLocation.trim().toLowerCase() === formData.deliveryLocation.trim().toLowerCase();
+  // Metres between two coordinates (haversine).
+  const metresBetween = (a, b) => {
+    const R = 6371000;
+    const toRad = (deg) => (deg * Math.PI) / 180;
+    const dLat = toRad(b.latitude - a.latitude);
+    const dLng = toRad(b.longitude - a.longitude);
+    const h =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(a.latitude)) * Math.cos(toRad(b.latitude)) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  };
+
+  // Pickup and delivery must be different places.
+  //
+  // Comparing the address text is not good enough once points can be pinned:
+  // two stands a kilometre apart in Mabvuku both reverse-geocode to
+  // "Mabvuku, Harare", and comparing strings would reject a perfectly valid
+  // booking. Whenever both points have coordinates, trust those instead.
+  const isSameLocation = (() => {
+    if (!formData.pickupLocation || !formData.deliveryLocation) return false;
+
+    if (locationCoords.pickup && locationCoords.delivery) {
+      return metresBetween(locationCoords.pickup, locationCoords.delivery) < 50;
+    }
+
+    return (
+      formData.pickupLocation.trim().toLowerCase() ===
+      formData.deliveryLocation.trim().toLowerCase()
+    );
+  })();
 
   const crossBorderCountries = ['South Africa', 'Botswana', 'Zambia', 'Mozambique', 'Namibia'];
 
@@ -435,10 +572,24 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
         setLoading(false);
       }
       if (!resolvedCoords.pickup || !resolvedCoords.delivery) {
-        const which = !resolvedCoords.pickup ? 'pickup' : 'delivery';
+        const isPickup = !resolvedCoords.pickup;
+        const which = isPickup ? 'pickup' : 'delivery';
+        const buttons = [
+          { text: 'Edit address', style: 'cancel' },
+          ...(isPickup
+            ? [{
+                text: 'Use my location',
+                onPress: () => useCurrentLocationFor('pickupLocation')
+              }]
+            : [])
+        ];
+
         Alert.alert(
           'Address not found',
-          `We could not find the ${which} address on the map. Please select an address from the suggestions or use your current location so the transporter can navigate precisely.`
+          `We could not place the ${which} address on the map. Try adding the suburb and city ` +
+            `(e.g. "19 Mashingwe Street, Mabvuku, Harare"), or pick one of the suggestions, so ` +
+            `the transporter can navigate to it.`,
+          buttons
         );
         return;
       }
@@ -524,9 +675,80 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
     }
   };
 
+  // Zimbabwean suburb streets are largely unmapped, so a suggestion often pins
+  // the suburb rather than the address. Say so instead of implying precision we
+  // do not have — the driver needs to know they will have to call.
+  const precisionNote = (item) => {
+    if (item.precision === 'street') return 'Street found — house number is not mapped';
+    if (item.precision === 'area' || item.approximate) {
+      return 'Only the suburb could be mapped — the driver will call for directions';
+    }
+    return null;
+  };
+
+  /** Status line under a location field: pinned point, or GPS auto-detect. */
+  const renderLocationBadge = (stateKey) => {
+    if (pinnedFields[stateKey]) {
+      return (
+        <View style={styles.detectedHint}>
+          <MaterialIcons name="place" size={14} color="#16a34a" />
+          <Text style={styles.detectedHintText}>
+            Exact point pinned on the map — the driver will navigate straight to it.
+          </Text>
+        </View>
+      );
+    }
+
+    if (stateKey === 'pickup' && pickupAutoDetected) {
+      return (
+        <View style={styles.detectedHint}>
+          <MaterialIcons name="my-location" size={14} color="#16a34a" />
+          <Text style={styles.detectedHintText}>
+            Detected from your current location — edit it or pin the exact spot on the map.
+          </Text>
+        </View>
+      );
+    }
+
+    return null;
+  };
+
   const renderLocationSearchResults = (stateKey) => {
     const results = locationSearchResults[stateKey];
-    if (!results || results.length === 0) return null;
+    const status = searchState[stateKey];
+
+    if (!results || results.length === 0) {
+      // Tell the shipper what is happening instead of leaving a dead text box.
+      if (status === 'searching') {
+        return (
+          <View style={styles.searchStatus}>
+            <ActivityIndicator size="small" color="#0C2D48" />
+            <Text style={styles.searchStatusText}>Searching addresses…</Text>
+          </View>
+        );
+      }
+      if (status === 'empty') {
+        return (
+          <View style={styles.searchStatus}>
+            <MaterialIcons name="info-outline" size={16} color="#b45309" />
+            <Text style={styles.searchStatusText}>
+              No match yet. Try the street and suburb, e.g. "Mashingwe Street, Mabvuku, Harare".
+            </Text>
+          </View>
+        );
+      }
+      if (status === 'error') {
+        return (
+          <View style={styles.searchStatus}>
+            <MaterialIcons name="wifi-off" size={16} color="#b91c1c" />
+            <Text style={styles.searchStatusText}>
+              Could not reach the address service. Check your connection and try again.
+            </Text>
+          </View>
+        );
+      }
+      return null;
+    }
 
     // Map state key back to form field
     const formField = stateKey === 'pickup' ? 'pickupLocation' : 'deliveryLocation';
@@ -570,10 +792,17 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
                 });
 
                 setLocationSearchResults(prev => ({ ...prev, [stateKey]: [] }));
+                setSearchState(prev => ({ ...prev, [stateKey]: 'idle' }));
+                if (stateKey === 'pickup') setPickupAutoDetected(false);
               }}
             >
               <MaterialIcons name="location-on" size={16} color="#6b7280" />
-              <Text style={styles.searchResultText} numberOfLines={2}>{item.address}</Text>
+              <View style={styles.searchResultTextWrap}>
+                <Text style={styles.searchResultText} numberOfLines={2}>{item.address}</Text>
+                {precisionNote(item) && (
+                  <Text style={styles.searchResultNote}>{precisionNote(item)}</Text>
+                )}
+              </View>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -788,22 +1017,34 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
                   <MaterialIcons name="location-on" size={20} color="#9ca3af" style={styles.inputIcon} />
                   <TextInput
                     style={[styles.input, styles.inputWithIconPadding]}
-                    placeholder="e.g., Mbare Musika, Harare"
+                    placeholder="e.g., 19 Mashingwe Street, Mabvuku, Harare"
                     value={formData.pickupLocation}
                     onChangeText={(value) => updateField('pickupLocation', value)}
                   />
                 </View>
                 {renderLocationSearchResults('pickup')}
-                <TouchableOpacity
-                  onPress={() => handleUseCurrentLocation('pickupLocation')}
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <ActivityIndicator size="small" color="#0C2D48" />
-                  ) : (
-                    <Text style={styles.locationButton}>Use Current Location</Text>
-                  )}
-                </TouchableOpacity>
+                {renderLocationBadge('pickup')}
+                <View style={styles.locationActions}>
+                  <TouchableOpacity
+                    onPress={() => handleUseCurrentLocation('pickupLocation')}
+                    disabled={detectingLocation}
+                  >
+                    {detectingLocation ? (
+                      <View style={styles.detectingRow}>
+                        <ActivityIndicator size="small" color="#0C2D48" />
+                        <Text style={styles.detectingText}>Finding your location…</Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.locationButton}>Use Current Location</Text>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => openPicker('pickupLocation')}>
+                    <View style={styles.detectingRow}>
+                      <MaterialIcons name="place" size={16} color="#0C2D48" />
+                      <Text style={styles.locationButton}>Pin on map</Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
               </View>
 
               <View style={[styles.inputContainer, { zIndex: 50 }]}>
@@ -812,12 +1053,21 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
                   <MaterialIcons name="location-on" size={20} color="#9ca3af" style={styles.inputIcon} />
                   <TextInput
                     style={[styles.input, styles.inputWithIconPadding]}
-                    placeholder="e.g., National Foods, Bulawayo"
+                    placeholder="e.g., 5 Kelvin Road, Graniteside, Harare"
                     value={formData.deliveryLocation}
                     onChangeText={(value) => updateField('deliveryLocation', value)}
                   />
                 </View>
                 {renderLocationSearchResults('delivery')}
+                {renderLocationBadge('delivery')}
+                <View style={styles.locationActions}>
+                  <TouchableOpacity onPress={() => openPicker('deliveryLocation')}>
+                    <View style={styles.detectingRow}>
+                      <MaterialIcons name="place" size={16} color="#0C2D48" />
+                      <Text style={styles.locationButton}>Pin on map</Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
                 {isSameLocation && (
                   <Text style={{ color: '#dc2626', fontSize: 12, marginTop: 4 }}>
                     ⚠ Delivery location must be different from pickup
@@ -1172,6 +1422,22 @@ const CreateBookingScreen = ({ onNavigate, bookingData = {}, updateBookingData }
           </TouchableOpacity>
         </View>
       </View>
+
+      <LocationPickerModal
+        visible={Boolean(pickerField)}
+        title={pickerField === 'deliveryLocation' ? 'Set delivery point' : 'Set pickup point'}
+        initialCoords={
+          pickerField === 'deliveryLocation'
+            ? // Open the delivery map at the pickup point when the destination
+              // has none yet — the drop-off is usually near the collection, and
+              // it beats starting on the phone's own GPS fix.
+              locationCoords.delivery || locationCoords.pickup
+            : locationCoords.pickup
+        }
+        initialAddress={pickerField ? formData[pickerField] : ''}
+        onCancel={() => setPickerField(null)}
+        onConfirm={handlePickerConfirm}
+      />
     </SafeAreaView>
   );
 };
@@ -1761,11 +2027,58 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f3f4f6',
   },
+  searchResultTextWrap: {
+    flex: 1,
+  },
   searchResultText: {
     fontSize: 14,
     color: '#374151',
+  },
+  searchResultNote: {
+    fontSize: 11,
+    color: '#b45309',
+    marginTop: 2,
+  },
+  searchStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 6,
+    paddingHorizontal: 2,
+  },
+  searchStatusText: {
     flex: 1,
-  },pricePreview: {
+    fontSize: 12,
+    color: '#6b7280',
+  },
+  detectedHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+  },
+  detectedHintText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#16a34a',
+  },
+  locationActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    gap: 16,
+  },
+  detectingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  detectingText: {
+    fontSize: 14,
+    color: '#0C2D48',
+  },
+  pricePreview: {
     backgroundColor: '#f0f9ff',
     borderWidth: 1,
     borderColor: '#bfdbfe',

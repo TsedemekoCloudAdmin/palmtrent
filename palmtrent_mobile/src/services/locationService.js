@@ -38,6 +38,38 @@ export const locationService = {
   },
 
   /**
+   * Get the device's current position and the street address it maps to.
+   * Used to pre-fill the pickup address when the booking form opens.
+   *
+   * @returns {Promise<{latitude: number, longitude: number, address: string, isCoordinateOnly: boolean}>}
+   */
+  getCurrentLocationWithAddress: async () => {
+    const enabled = await locationService.isLocationEnabled();
+    if (!enabled) {
+      throw new Error('Location services are turned off on this device.');
+    }
+
+    const granted = await locationService.requestPermission();
+    if (!granted) {
+      throw new Error('Location permission was not granted.');
+    }
+
+    const position = await locationService.getCurrentLocation();
+    const place = await locationService.reverseGeocode(position.latitude, position.longitude);
+    const address = place.fullAddress || place.address || '';
+
+    return {
+      ...position,
+      address,
+      city: place.city,
+      country: place.country,
+      // reverseGeocode falls back to a raw "lat, lng" string when no provider
+      // could name the place — the coordinates are still good, the label isn't.
+      isCoordinateOnly: /^-?\d+\.\d+,\s*-?\d+\.\d+$/.test(address.trim()),
+    };
+  },
+
+  /**
    * Watch location changes (for live tracking)
    * @param {function} callback - Called with location updates
    * @param {object} options - Watch options
@@ -230,6 +262,9 @@ export const locationService = {
           latitude: loc.lat ?? loc.coordinates?.latitude,
           longitude: loc.lng ?? loc.coordinates?.longitude,
           type: loc.type,
+          // 'exact' | 'street' | 'area' — how precisely this could be mapped.
+          precision: loc.precision,
+          approximate: Boolean(loc.approximate),
           source: loc.source,
         }));
       }
