@@ -91,7 +91,11 @@
       "Bash(grep -n \"router.post\\('/\\\\|handleUpload\\('\\\\|handleMultipleUpload\\('\" palmtrent_backend/routes/uploads.js)",
       "Read(//c/Users/adin/Desktop/palmtrent/palmtrent_backend/routes/**)",
       "Bash(awk 'NR>=486 && /^const [A-Z]/ && NR>486 {print NR\": \"$0; c++; if\\(c>=2\\) exit}' src/pages/ShipperDashboard.jsx)",
-      "Bash(awk 'NR>1505 && /^const [A-Z]|^export default/ {print NR\": \"$0; exit}' src/pages/CorporateDashboard.jsx)"
+      "Bash(awk 'NR>1505 && /^const [A-Z]|^export default/ {print NR\": \"$0; exit}' src/pages/CorporateDashboard.jsx)",
+      "Bash(npm -v)",
+      "Bash(curl --version)",
+      "Bash(npm install *)",
+      "Bash(npm ci *)"
     ],
     "additionalDirectories": [
       "c:\\Users\\sethm\\ngrok\\logs\\palmtrent\\palmtrent_backend\\models",
